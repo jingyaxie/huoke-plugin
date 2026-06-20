@@ -7,6 +7,9 @@ mod douyin;
 mod capture;
 mod outreach;
 mod plugin_lab;
+mod job_config;
+mod filters;
+mod orchestration;
 mod state;
 
 use std::sync::Arc;
@@ -44,7 +47,11 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
-    let capture = Arc::new(CaptureService::new(db.clone(), hub.clone()));
+    let capture = Arc::new(CaptureService::new(
+        db.clone(),
+        hub.clone(),
+        default_daily_quota,
+    ));
     capture.spawn_event_listener();
     let outreach = Arc::new(OutreachService::new(db.clone(), hub.clone(), default_daily_quota));
 
@@ -77,6 +84,7 @@ async fn main() {
             post(api::douyin::start_job),
         )
         .route("/api/douyin/quota", get(api::outreach::get_quota))
+        .route("/api/douyin/interaction/stats", get(api::douyin::get_interaction_stats))
         .route("/api/douyin/reply", post(api::outreach::reply_once))
         .route(
             "/api/douyin/outreach/tasks",

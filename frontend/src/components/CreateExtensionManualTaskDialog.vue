@@ -85,6 +85,18 @@
         </el-row>
 
         <TaskInteractionFields v-model="settings" />
+
+        <el-form-item label="创建后执行">
+          <el-switch
+            v-model="form.autoStart"
+            active-text="立即开始采集"
+            inactive-text="仅创建，稍后手动启动"
+            @change="onAutoStartChange"
+          />
+          <p v-if="form.autoStart" class="field-hint">
+            需 Chrome 插件已连接（角标 OK），并保持抖音页已登录。
+          </p>
+        </el-form-item>
       </el-form>
     </div>
 
@@ -108,6 +120,8 @@ import {
   FALLBACK_COMMENT_DAYS_OPTIONS,
   FALLBACK_PUBLISH_TIME_OPTIONS,
   listManualModeOptions,
+  loadExtensionAutoStartPref,
+  saveExtensionAutoStartPref,
 } from "../utils/huokeTaskForm";
 import {
   deriveManualTaskName,
@@ -139,6 +153,7 @@ const form = reactive({
   crawlVideoLimit: 10,
   publishTimeRange: "unlimited",
   commentDays: 3,
+  autoStart: loadExtensionAutoStartPref(true),
 });
 
 const manualModeOptions = listManualModeOptions(null);
@@ -181,7 +196,12 @@ watch(
 
 async function loadDialogData() {
   settings.value = { ...DEFAULT_INTERACTION_SETTINGS };
+  form.autoStart = loadExtensionAutoStartPref(true);
   await reloadPresets();
+}
+
+function onAutoStartChange(value) {
+  saveExtensionAutoStartPref(Boolean(value));
 }
 
 async function reloadPresets() {
@@ -204,6 +224,7 @@ function resetForm() {
   form.crawlVideoLimit = 10;
   form.publishTimeRange = "unlimited";
   form.commentDays = 3;
+  form.autoStart = loadExtensionAutoStartPref(true);
 }
 
 async function submit() {
@@ -229,7 +250,20 @@ async function submit() {
 
   submitting.value = true;
   try {
-    await createCollectJob({
+    const commentPresetPayload = selectedCommentPresetIds.value
+      .map((id) => {
+        const row = commentPresets.value.find((item) => item.id === id);
+        return { id, content: row?.content || "" };
+      })
+      .filter((row) => row.content);
+    const dmPresetPayload = selectedDmPresetIds.value
+      .map((id) => {
+        const row = dmPresets.value.find((item) => item.id === id);
+        return { id, content: row?.content || "" };
+      })
+      .filter((row) => row.content);
+
+    const result = await createCollectJob({
       job_type: "manual",
       intent,
       name: taskName,
@@ -237,13 +271,18 @@ async function submit() {
       input_url: inputUrl,
       limit_videos: limitVideos,
       max_comments_per_video: maxCommentsPerVideo,
+      target_count: limitVideos * maxCommentsPerVideo,
       publish_time_range: form.publishTimeRange,
       comment_days: form.commentDays,
       interaction: settings.value,
-      comment_preset_ids: selectedCommentPresetIds.value,
-      dm_preset_ids: selectedDmPresetIds.value,
+      comment_presets: commentPresetPayload,
+      dm_presets: dmPresetPayload,
+      auto_outreach: commentPresetPayload.length > 0 || dmPresetPayload.length > 0,
+      auto_start: form.autoStart,
     });
-    ElMessage.success("任务已创建");
+    ElMessage.success(
+      result?.started ? "任务已创建并开始采集" : "任务已创建，请在列表中点击「开始采集」",
+    );
     visible.value = false;
     emit("created");
   } catch (err) {

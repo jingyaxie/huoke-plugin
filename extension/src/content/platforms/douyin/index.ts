@@ -6,6 +6,7 @@ import {
   sleep,
 } from "./search";
 import { replyToComment } from "./reply";
+import { followFromComment, openProfileFromComment } from "./outreach-profile";
 import { openSearchVideo } from "./open-search";
 import {
   applyPublishTimeFilter,
@@ -162,6 +163,10 @@ export const douyinAdapter: PlatformAdapter = {
       }
       case "douyin.comment.reply":
         return replyToComment(payload as Parameters<typeof replyToComment>[0]);
+      case "douyin.outreach.open_profile_from_comment":
+        return openProfileFromComment(payload as Parameters<typeof openProfileFromComment>[0]);
+      case "douyin.outreach.follow_from_comment":
+        return followFromComment(payload as Parameters<typeof followFromComment>[0]);
       case "network.hook.enable": {
         hookEnabled = true;
         hookPatterns = (payload as { patterns?: string[] })?.patterns ?? [];

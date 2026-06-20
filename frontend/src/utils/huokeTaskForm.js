@@ -150,3 +150,25 @@ export function defaultEvaluation(keyword, evaluation) {
 export function browserModeToHeadless(mode) {
   return mode !== "headed";
 }
+
+const EXTENSION_AUTO_START_KEY = "huoke_extension_auto_start";
+
+/** 插件获客：创建后是否立即执行（localStorage 记忆，默认开启） */
+export function loadExtensionAutoStartPref(defaultValue = true) {
+  try {
+    const raw = localStorage.getItem(EXTENSION_AUTO_START_KEY);
+    if (raw === "0") return false;
+    if (raw === "1") return true;
+  } catch {
+    /* ignore */
+  }
+  return defaultValue;
+}
+
+export function saveExtensionAutoStartPref(value) {
+  try {
+    localStorage.setItem(EXTENSION_AUTO_START_KEY, value ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}

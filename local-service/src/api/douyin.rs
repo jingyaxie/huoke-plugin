@@ -7,7 +7,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::db::{CollectJob, JobStatus};
+use crate::job_config::{build_config_json, PresetRef};
 use crate::state::AppState;
+
+#[derive(Deserialize)]
+pub struct PresetInput {
+    pub id: String,
+    #[serde(default)]
+    pub content: String,
+}
 
 #[derive(Deserialize)]
 pub struct CreateJobRequest {
@@ -43,6 +51,18 @@ pub struct CreateJobRequest {
     pub comment_preset_ids: Option<Vec<String>>,
     #[serde(default)]
     pub dm_preset_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub comment_presets: Option<Vec<PresetInput>>,
+    #[serde(default)]
+    pub dm_presets: Option<Vec<PresetInput>>,
+    #[serde(default)]
+    pub auto_start: Option<bool>,
+    #[serde(default = "default_auto_outreach")]
+    pub auto_outreach: bool,
+}
+
+fn default_auto_outreach() -> bool {
+    true
 }
 
 fn default_job_type() -> String {
@@ -64,6 +84,8 @@ fn default_max_comments() -> i64 {
 #[derive(Serialize)]
 pub struct CreateJobResponse {
     pub job: CollectJob,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -75,6 +97,41 @@ pub struct ListCommentsQuery {
 
 fn default_comment_limit() -> i64 {
     200
+}
+
+fn resolve_presets(
+    explicit: Option<Vec<PresetInput>>,
+    ids: Option<Vec<String>>,
+) -> Vec<PresetRef> {
+    if let Some(rows) = explicit {
+        return rows
+            .into_iter()
+            .map(|row| PresetRef {
+                id: row.id,
+                content: row.content,
+            })
+            .collect();
+    }
+    ids.unwrap_or_default()
+        .into_iter()
+        .map(|id| PresetRef {
+            id,
+            content: String::new(),
+        })
+        .collect()
+}
+
+pub async fn get_interaction_stats(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let reply = state.db.get_quota_status(state.default_daily_quota).map_err(internal_error)?;
+    let dm_used = state.db.count_interactions_today("dm").unwrap_or(0);
+    let follow_used = state.db.count_interactions_today("follow").unwrap_or(0);
+    Ok(Json(json!({
+        "reply": reply,
+        "dm_used_today": dm_used,
+        "follow_used_today": follow_used,
+    })))
 }
 
 pub async fn create_job(
@@ -110,7 +167,10 @@ pub async fn create_job(
 
     let limit_videos = body.limit_videos.clamp(1, 20);
     let max_comments_per_video = body.max_comments_per_video.clamp(1, 500);
-    let config = json!({
+    let comment_presets = resolve_presets(body.comment_presets, body.comment_preset_ids);
+    let dm_presets = resolve_presets(body.dm_presets, body.dm_preset_ids);
+
+    let base_config = json!({
         "job_type": job_type,
         "intent": if job_type == "manual" { intent } else { "keyword_auto" },
         "input_url": input_url,
@@ -120,10 +180,11 @@ pub async fn create_job(
         "publish_time_range": body.publish_time_range.unwrap_or_else(|| "unlimited".to_string()),
         "comment_days": body.comment_days.unwrap_or(3),
         "interaction": body.interaction,
-        "comment_preset_ids": body.comment_preset_ids,
-        "dm_preset_ids": body.dm_preset_ids,
+        "auto_start": body.auto_start.unwrap_or(false),
+        "auto_outreach": body.auto_outreach,
     });
-    let config_json = serde_json::to_string(&config).ok();
+    let config_json = build_config_json(&base_config, &comment_presets, &dm_presets);
+
     let stored_keyword = if job_type == "manual" {
         input_url.unwrap_or("").to_string()
     } else {
@@ -140,11 +201,17 @@ pub async fn create_job(
             input_url,
             limit_videos,
             max_comments_per_video,
-            config_json.as_deref(),
+            Some(&config_json),
         )
         .map_err(internal_error)?;
 
-    Ok(Json(CreateJobResponse { job }))
+    let mut started = None;
+    if body.auto_start.unwrap_or(false) {
+        state.capture.clone().spawn_job(job.id.clone());
+        started = Some(true);
+    }
+
+    Ok(Json(CreateJobResponse { job, started }))
 }
 
 pub async fn list_jobs(State(state): State<AppState>) -> Result<Json<Vec<CollectJob>>, ApiError> {

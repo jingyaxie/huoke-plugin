@@ -69,6 +69,14 @@ pub struct CapturedVideo {
     pub title: String,
     pub author: String,
     pub created_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_json: Option<String>,
+}
+
+impl CapturedVideo {
+    pub fn raw_text(&self) -> String {
+        self.raw_json.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -153,6 +161,22 @@ impl Database {
         )
         .map_err(|e| e.to_string())?;
         self.migrate_outreach(&conn)?;
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS interaction_log (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL,
+                comment_id TEXT NOT NULL DEFAULT '',
+                user_id TEXT NOT NULL DEFAULT '',
+                day TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_interaction_log_day_action ON interaction_log(day, action);
+            CREATE INDEX IF NOT EXISTS idx_interaction_log_comment ON interaction_log(comment_id);
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
         let _ = conn.execute(
             "ALTER TABLE collect_jobs ADD COLUMN name TEXT NOT NULL DEFAULT ''",
             [],
@@ -442,7 +466,149 @@ impl Database {
         Ok(inserted)
     }
 
+    pub fn count_comments_for_job(&self, job_id: &str) -> Result<i64, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM captured_comments WHERE job_id = ?1",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn comment_days_for_running_job(&self, job_id: &str) -> i64 {
+        self.get_job(job_id)
+            .ok()
+            .and_then(|job| {
+                job.config
+                    .as_ref()
+                    .and_then(|c| c.get("comment_days"))
+                    .and_then(|v| v.as_i64())
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn record_interaction(
+        &self,
+        job_id: &str,
+        action: &str,
+        comment_id: &str,
+        user_id: &str,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+        conn.execute(
+            "INSERT INTO interaction_log (id, job_id, action, comment_id, user_id, day, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                Uuid::new_v4().to_string(),
+                job_id,
+                action,
+                comment_id,
+                user_id,
+                day,
+                Self::now_ms(),
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn count_interactions_today(&self, action: &str) -> Result<i64, String> {
+        let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM interaction_log WHERE day = ?1 AND action = ?2",
+            params![day, action],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn user_interacted_today(&self, user_id: &str, action: &str) -> Result<bool, String> {
+        if user_id.trim().is_empty() {
+            return Ok(false);
+        }
+        let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM interaction_log WHERE day = ?1 AND action = ?2 AND user_id = ?3",
+                params![day, action, user_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count > 0)
+    }
+
+    pub fn list_eligible_comments_for_outreach(
+        &self,
+        job_id: &str,
+        comment_days: i64,
+        min_digg: i64,
+        limit: i64,
+    ) -> Result<Vec<CapturedComment>, String> {
+        let all = self.list_comments_for_job(job_id, None, limit.clamp(1, 2000))?;
+        let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut touched_comments: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut touched_users: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT comment_id, user_id, action FROM interaction_log WHERE day = ?1",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![day], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                if let Ok((comment_id, user_id, action)) = row {
+                    if action == "reply" {
+                        touched_comments.insert(comment_id);
+                    }
+                    if action == "dm" || action == "follow" {
+                        if !user_id.is_empty() {
+                            touched_users.insert(user_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut eligible: Vec<CapturedComment> = all
+            .into_iter()
+            .filter(|c| c.parent_comment_id.is_none())
+            .filter(|c| c.digg_count >= min_digg)
+            .filter(|c| crate::filters::within_days(c.create_time, comment_days))
+            .filter(|c| !touched_comments.contains(&c.comment_id))
+            .filter(|c| !touched_users.contains(&c.user_id))
+            .collect();
+        eligible.sort_by(|a, b| b.digg_count.cmp(&a.digg_count));
+        eligible.truncate(limit.clamp(1, 500) as usize);
+        Ok(eligible)
+    }
+
     pub fn upsert_comments(
+        &self,
+        job_id: &str,
+        aweme_id: &str,
+        comments: &[crate::douyin::parser::ParsedComment],
+    ) -> Result<usize, String> {
+        let comment_days = self.comment_days_for_running_job(job_id);
+        let filtered = crate::filters::filter_comments_by_days(comments, comment_days);
+        self.upsert_comments_raw(job_id, aweme_id, &filtered)
+    }
+
+    fn upsert_comments_raw(
         &self,
         job_id: &str,
         aweme_id: &str,
@@ -489,7 +655,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, job_id, aweme_id, video_url, title, author, created_at
+                "SELECT id, job_id, aweme_id, video_url, title, author, created_at, raw_json
                  FROM captured_videos WHERE job_id = ?1 ORDER BY created_at ASC",
             )
             .map_err(|e| e.to_string())?;
@@ -503,6 +669,7 @@ impl Database {
                     title: row.get(4)?,
                     author: row.get(5)?,
                     created_at: row.get(6)?,
+                    raw_json: row.get(7)?,
                 })
             })
             .map_err(|e| e.to_string())?;
