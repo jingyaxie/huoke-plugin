@@ -79,25 +79,30 @@ export async function pressKey(
 
 export async function typeCharacter(tabId: number, ch: string) {
   const codePoint = ch.codePointAt(0) ?? 0;
-  const shared = {
+  const keyBase = {
     key: ch,
-    text: ch,
-    unmodifiedText: ch,
     windowsVirtualKeyCode: codePoint,
     nativeVirtualKeyCode: codePoint,
   };
 
+  // keyDown/keyUp 不要带 text，否则 Draft.js 会与 char 事件重复插入（「同意」→「同同意意」）
   await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-    ...shared,
+    ...keyBase,
     type: "keyDown",
+    text: "",
+    unmodifiedText: "",
   });
   await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-    ...shared,
+    ...keyBase,
     type: "char",
+    text: ch,
+    unmodifiedText: ch,
   });
   await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-    ...shared,
+    ...keyBase,
     type: "keyUp",
+    text: "",
+    unmodifiedText: "",
   });
 }
 

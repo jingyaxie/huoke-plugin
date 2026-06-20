@@ -1,4 +1,4 @@
-import { clickElement, randDelay, sleep } from "./search-input";
+import { randDelay, sleep } from "./search-input";
 
 const AVATAR_SELECTORS = [
   '[data-e2e="comment-item"] div.comment-item-avatar a',
@@ -53,7 +53,9 @@ export async function clickCommentAvatar(payload: ClickCommentAvatarPayload = {}
   }
 
   const profileUrl = avatar.href;
-  clickElement(avatar);
+  avatar.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  await sleep(randDelay(120, 220));
+  avatar.click();
   await sleep(randDelay(900, 1400));
 
   const onProfile =

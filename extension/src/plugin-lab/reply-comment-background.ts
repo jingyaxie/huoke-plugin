@@ -3,6 +3,7 @@ import {
   attachDebugger,
   clickMouse,
   detachDebugger,
+  insertTextCdp,
   moveMouse,
   pressBackspace,
   randDelay,
@@ -19,7 +20,9 @@ interface ReplyProbe {
   ok?: boolean;
   comment_index?: number;
   comment_count?: number;
+  item_rect?: { top: number; left: number; width: number; height: number };
   item_center?: { x: number; y: number };
+  hover_point?: { x: number; y: number };
   reply_btn?: { center: { x: number; y: number } } | null;
   message?: string;
   url?: string;
@@ -58,15 +61,41 @@ export async function replyCommentBackground(payload: Record<string, unknown> = 
   }
 
   let inputProbe: InputProbe | null = null;
+  let typedMethod = "cdp_insert_text";
+
+  // 先用 content hover 触发 React 显示「回复」按钮（不依赖 debugger）
+  for (let attempt = 0; attempt < 3 && !probe.reply_btn?.center; attempt += 1) {
+    probe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_hover", {
+      comment_index: commentIndex,
+    })) as ReplyProbe;
+    if (probe.reply_btn?.center) break;
+    await sleep(randDelay(350, 550));
+  }
 
   await attachDebugger(tabId);
   try {
-    await moveMouse(tabId, probe.item_center.x, probe.item_center.y);
-    await sleep(randDelay(700, 1100));
+    const hoverPoint =
+      probe.hover_point ??
+      (probe.item_rect
+        ? {
+            x: probe.item_rect.left + probe.item_rect.width * 0.55,
+            y: probe.item_rect.top + probe.item_rect.height * 0.55,
+          }
+        : probe.item_center);
 
-    probe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_probe", {
-      comment_index: commentIndex,
-    })) as ReplyProbe;
+    for (let attempt = 0; attempt < 6 && !probe.reply_btn?.center; attempt += 1) {
+      if (hoverPoint) {
+        await moveMouse(tabId, hoverPoint.x, hoverPoint.y);
+        await sleep(randDelay(280, 450));
+      }
+
+      probe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_hover", {
+        comment_index: commentIndex,
+      })) as ReplyProbe;
+
+      if (probe.reply_btn?.center) break;
+      await sleep(randDelay(400, 650));
+    }
 
     if (!probe.reply_btn?.center) {
       return {
@@ -108,7 +137,12 @@ export async function replyCommentBackground(payload: Record<string, unknown> = 
       await sleep(randDelay(200, 350));
     }
 
-    await typeText(tabId, replyText, { min: 70, max: 160 });
+    try {
+      await insertTextCdp(tabId, replyText);
+    } catch {
+      typedMethod = "cdp_type_char";
+      await typeText(tabId, replyText, { min: 70, max: 160 });
+    }
     await sleep(randDelay(400, 650));
   } finally {
     await detachDebugger(tabId);
@@ -117,20 +151,28 @@ export async function replyCommentBackground(payload: Record<string, unknown> = 
   inputProbe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_input_probe", {})) as InputProbe;
   const draftText = (inputProbe?.draft_text ?? "").trim();
   const placeholderVisible = Boolean(inputProbe?.placeholder_visible);
-  const ok = draftText.length > 0 && !placeholderVisible;
+  const normalizedDraft = draftText.replace(/\s+/g, "");
+  const normalizedExpected = replyText.replace(/\s+/g, "");
+  const textOk =
+    normalizedDraft === normalizedExpected ||
+    (normalizedDraft.includes(normalizedExpected) && normalizedDraft.length <= normalizedExpected.length + 2);
+  const ok = textOk && !placeholderVisible;
 
   return {
     ok,
     comment_index: commentIndex,
     mode: "cdp_real_mouse",
+    method: typedMethod,
     reply_text: replyText,
     draft_text: draftText.slice(0, 120),
     placeholder_visible: placeholderVisible,
     url: inputProbe?.url ?? probe.url ?? tab.url,
     message: ok
-      ? `已通过 CDP 逐字输入回复（${draftText.length} 字）`
-      : placeholderVisible
-        ? "输入框 placeholder 未消失，Draft 状态未同步，请关闭回复框后重试"
-        : "输入后未检测到回复文案",
+      ? `已通过 CDP 输入回复（${replyText.length} 字）`
+      : draftText.length > normalizedExpected.length + 1
+        ? "检测到重复字符，请关闭回复框后重试"
+        : placeholderVisible
+          ? "输入框 placeholder 未消失，请关闭回复框后重试"
+          : "输入后未检测到回复文案",
   };
 }

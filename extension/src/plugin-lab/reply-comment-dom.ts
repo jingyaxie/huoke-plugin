@@ -1,4 +1,4 @@
-import { humanClick, randDelay, sleep } from "./search-input";
+import { humanClick, isVisible, randDelay, sleep } from "./search-input";
 
 export interface DomRect {
   top: number;
@@ -28,21 +28,63 @@ function centerOf(rect: DOMRect): DomPoint {
   };
 }
 
+/** 对齐 Python `_hover_comment_item` 坐标（55% 处） */
+export function hoverPointForRect(rect: DomRect): DomPoint {
+  return {
+    x: rect.left + rect.width * 0.55,
+    y: rect.top + rect.height * 0.55,
+  };
+}
+
 function getCommentItems(): HTMLElement[] {
   return Array.from(document.querySelectorAll('[data-e2e="comment-item"]')) as HTMLElement[];
 }
 
+const REPLY_BTN_SELECTORS = [
+  '[data-e2e="comment-reply"]',
+  'span[class*="reply"]',
+  'button[class*="reply"]',
+  "span",
+  "button",
+] as const;
+
+function normalizeReplyText(text: string): string {
+  return text.replace(/\s+/g, "").trim();
+}
+
+/** 对齐 Python `_hover_comment_item`：在评论项 55% 处派发 pointer/mouse 事件 */
+export function hoverCommentItem(item: HTMLElement) {
+  const rect = item.getBoundingClientRect();
+  const clientX = rect.left + rect.width * 0.55;
+  const clientY = rect.top + rect.height * 0.55;
+  const base: MouseEventInit = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX,
+    clientY,
+  };
+
+  item.dispatchEvent(new PointerEvent("pointerover", { ...base, pointerId: 1, pointerType: "mouse" }));
+  item.dispatchEvent(
+    new PointerEvent("pointerenter", { ...base, pointerId: 1, pointerType: "mouse", bubbles: false }),
+  );
+  item.dispatchEvent(new MouseEvent("mouseover", base));
+  item.dispatchEvent(new MouseEvent("mouseenter", { ...base, bubbles: false }));
+  item.dispatchEvent(new MouseEvent("mousemove", base));
+}
+
 function findReplyButtonInItem(item: HTMLElement): HTMLElement | null {
-  const selectors = ['[data-e2e="comment-reply"]', "span", "button", "div"];
-  for (const selector of selectors) {
+  for (const selector of REPLY_BTN_SELECTORS) {
     const nodes = item.querySelectorAll(selector);
     for (let i = 0; i < nodes.length; i += 1) {
       const node = nodes[i] as HTMLElement;
-      if (selector !== '[data-e2e="comment-reply"]' && (node.textContent ?? "").trim() !== "回复") {
+      if (selector === '[data-e2e="comment-reply"]') {
+        if (isVisible(node)) return node;
         continue;
       }
-      const rect = node.getBoundingClientRect();
-      if (rect.width >= 8 && rect.height >= 8) return node;
+      if (normalizeReplyText(node.textContent ?? "") !== "回复") continue;
+      if (isVisible(node)) return node;
     }
   }
   return null;
@@ -95,14 +137,16 @@ export function probeReplyCommentTargets(payload: { comment_index?: number; inde
 
   const item = items[Math.min(index, items.length) - 1];
   const itemRect = item.getBoundingClientRect();
+  const serializedItemRect = serializeRect(itemRect);
   const replyBtn = findReplyButtonInItem(item);
 
   return {
     ok: true,
     comment_index: Math.min(index, items.length),
     comment_count: items.length,
-    item_rect: serializeRect(itemRect),
+    item_rect: serializedItemRect,
     item_center: centerOf(itemRect),
+    hover_point: hoverPointForRect(serializedItemRect),
     reply_btn: replyBtn
       ? {
           rect: serializeRect(replyBtn.getBoundingClientRect()),
@@ -111,6 +155,32 @@ export function probeReplyCommentTargets(payload: { comment_index?: number; inde
       : null,
     url: location.href,
   };
+}
+
+/** 滚动到评论项并派发 hover，再探测回复按钮（CDP 鼠标 alone 无法触发 React hover） */
+export async function hoverReplyCommentTarget(payload: { comment_index?: number; index?: number } = {}) {
+  const index = Math.max(1, Number(payload.comment_index ?? payload.index ?? 1));
+  const items = getCommentItems();
+  if (items.length === 0) {
+    return {
+      ok: false,
+      comment_index: index,
+      comment_count: 0,
+      url: location.href,
+      message: "未找到评论项",
+    };
+  }
+
+  const item = items[Math.min(index, items.length) - 1];
+  item.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  await sleep(randDelay(120, 220));
+  hoverCommentItem(item);
+
+  const actionRow = item.querySelector('[class*="action"], [class*="Action"], [class*="footer"]') as HTMLElement | null;
+  if (actionRow) hoverCommentItem(actionRow);
+
+  await sleep(randDelay(280, 480));
+  return probeReplyCommentTargets(payload);
 }
 
 /** 供 background 查询：回复输入框坐标 */
@@ -235,7 +305,7 @@ export async function replyComment(payload: {
   const replyText = String(payload.reply_text ?? "").trim();
   if (!replyText) throw new Error("reply_comment: missing reply_text");
 
-  const probe = probeReplyCommentTargets(payload);
+  const probe = await hoverReplyCommentTarget(payload);
   if (!probe.ok || !probe.reply_btn?.center) {
     return {
       ok: false,

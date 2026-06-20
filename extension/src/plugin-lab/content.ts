@@ -20,6 +20,7 @@ import { fetchSearchResults, type FetchSearchResultsPayload } from "./fetch-sear
 import { findAndFocusSearchBox } from "./find-search-box";
 import { inputSearchText, type InputSearchTextPayload } from "./input-search-text";
 import {
+  hoverReplyCommentTarget,
   probeReplyCommentTargets,
   probeReplyInput,
   typeReplyCommentText,
@@ -83,6 +84,8 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
       return findFilterOptionPoint(String((payload as { label?: string })?.label ?? ""));
     case "plugin_lab.reply_comment_probe":
       return probeReplyCommentTargets((payload ?? {}) as { comment_index?: number; index?: number });
+    case "plugin_lab.reply_comment_hover":
+      return hoverReplyCommentTarget((payload ?? {}) as { comment_index?: number; index?: number });
     case "plugin_lab.reply_comment_input_probe":
       return probeReplyInput();
     case "plugin_lab.reply_comment_type":

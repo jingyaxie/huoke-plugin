@@ -38,9 +38,6 @@ export function humanClick(el: HTMLElement) {
   el.dispatchEvent(new PointerEvent("pointerup", { ...base, pointerId: 1, pointerType: "mouse" }));
   el.dispatchEvent(new MouseEvent("mouseup", base));
   el.dispatchEvent(new MouseEvent("click", base));
-  if (typeof el.click === "function") {
-    el.click();
-  }
 }
 
 export function detectPlatformFromUrl(url = location.href): PlatformId {
