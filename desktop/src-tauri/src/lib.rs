@@ -459,25 +459,32 @@ fn verify_desktop_frontend(
     Ok(())
 }
 
+fn extract_quoted_attr(part: &str, attr: &str) -> Option<String> {
+    let prefix = format!("{attr}=\"");
+    let rest = part.strip_prefix(&prefix)?;
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
 fn extract_module_asset_path(html: &str) -> Option<String> {
     for token in html.split('<') {
         let lower = token.to_ascii_lowercase();
-        if !lower.contains("script") || !lower.contains("type=\"module\"") && !lower.contains("type='module'") {
+        if !lower.contains("script") {
+            continue;
+        }
+        if !lower.contains("type=\"module\"") && !lower.contains("type='module'") {
             continue;
         }
         for part in token.split_whitespace() {
             let normalized = part.trim();
-            if let Some(src) = normalized
-                .strip_prefix("src=\"")
-                .and_then(|value| value.strip_suffix('"'))
-            {
+            if let Some(src) = extract_quoted_attr(normalized, "src") {
                 if src.starts_with("/assets/") {
-                    return Some(src.to_string());
+                    return Some(src);
                 }
             }
             if let Some(src) = normalized
                 .strip_prefix("src='")
-                .and_then(|value| value.strip_suffix('\''))
+                .and_then(|value| value.split('\'').next())
             {
                 if src.starts_with("/assets/") {
                     return Some(src.to_string());
@@ -668,6 +675,24 @@ fn bootstrap(app: &AppHandle, log_state: Arc<BackendLogState>) -> Result<(), Str
         &log_hint,
     )?;
 
+    // Do not join log reader threads here: they block until backend stdout/stderr
+    // close, which only happens when the process exits — leaving the UI on about:blank.
+    let BackendProcess { child, log_readers: _ } = backend;
+
+    {
+        let state = app.state::<ServiceState>();
+        state
+            .backend
+            .lock()
+            .expect("backend lock")
+            .replace(child);
+        *state.bundle_dir.lock().expect("bundle lock") = Some(bundle_dir.clone());
+        *state.data_dir.lock().expect("data lock") = Some(data_dir.clone());
+    }
+
+    with_main_thread(app, open_app_home)?;
+    log::info!("Huoke thin desktop ready at {APP_HOME_URL}");
+
     let extension_status = match extension_bootstrap::bootstrap_extension(&bundle_dir, &data_dir) {
         Ok(status) => {
             log::info!(
@@ -688,23 +713,6 @@ fn bootstrap(app: &AppHandle, log_state: Arc<BackendLogState>) -> Result<(), Str
         log::warn!("Chrome not found — user must install Chrome to use automation");
     }
 
-    // Do not join log reader threads here: they block until backend stdout/stderr
-    // close, which only happens when the process exits — leaving the UI on about:blank.
-    let BackendProcess { child, log_readers: _ } = backend;
-
-    {
-        let state = app.state::<ServiceState>();
-        state
-            .backend
-            .lock()
-            .expect("backend lock")
-            .replace(child);
-        *state.bundle_dir.lock().expect("bundle lock") = Some(bundle_dir);
-        *state.data_dir.lock().expect("data lock") = Some(data_dir);
-    }
-
-    with_main_thread(app, open_app_home)?;
-    log::info!("Huoke thin desktop ready at {APP_HOME_URL}");
     Ok(())
 }
 
