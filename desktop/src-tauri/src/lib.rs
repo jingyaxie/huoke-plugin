@@ -10,6 +10,7 @@ use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
 mod extension_bootstrap;
 mod port_reclaim;
+mod splash_screen;
 mod static_server;
 
 use extension_bootstrap::ExtensionSetupStatus;
@@ -612,12 +613,16 @@ fn navigate_html_page(window: &tauri::WebviewWindow, html: &str) -> Result<(), S
 }
 
 fn show_startup_loading(app: &AppHandle) {
-    let html = r#"<!doctype html><html><head><meta charset="utf-8"><title>启动中</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:48px;text-align:center;color:#444}
-h1{font-size:22px;font-weight:600}p{margin-top:12px;color:#666}</style></head>
-<body><h1>正在启动获客平台…</h1><p>正在加载界面与本地服务，请稍候。</p></body></html>"#;
     if let Some(window) = app.get_webview_window("main") {
-        let _ = navigate_html_page(&window, html);
+        let _ = navigate_html_page(&window, splash_screen::STARTUP_SPLASH_HTML);
+    }
+}
+
+fn focus_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
     }
 }
 
@@ -800,6 +805,10 @@ fn open_extension_folder(app: AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log::info!("single-instance: focusing existing window");
+            focus_main_window(app);
+        }))
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
@@ -820,6 +829,9 @@ pub fn run() {
             open_extension_folder,
         ])
         .setup(|app| {
+            focus_main_window(app.handle());
+            show_startup_loading(app.handle());
+
             let handle = app.handle().clone();
             let log_state = {
                 let state = app.state::<Arc<BackendLogState>>();
