@@ -1,0 +1,51 @@
+{
+  "platform": "xiaohongshu",
+  "note_id": "6a2a03d50000000015026499",
+  "note_url": "https://www.xiaohongshu.com/explore/6a2a03d50000000015026499?xsec_source=pc_search",
+  "video_url": "https://www.xiaohongshu.com/explore/6a2a03d50000000015026499?xsec_source=pc_search",
+  "content_id": "6a2a03d50000000015026499",
+  "content_url": "https://www.xiaohongshu.com/explore/6a2a03d50000000015026499?xsec_source=pc_search",
+  "note": {
+    "note_id": "6a2a03d50000000015026499",
+    "note_url": "https://www.xiaohongshu.com/explore/6a2a03d50000000015026499?xsec_source=pc_search",
+    "video_url": "https://www.xiaohongshu.com/explore/6a2a03d50000000015026499?xsec_source=pc_search",
+    "content_id": "6a2a03d50000000015026499",
+    "content_url": "https://www.xiaohongshu.com/explore/6a2a03d50000000015026499?xsec_source=pc_search"
+  },
+  "api_total_top_comments": 2,
+  "top_comments_captured": 2,
+  "total_comments_captured": 2,
+  "capture_method": "fixed_flow_crawl",
+  "comments": [
+    {
+      "comment_id": "6a2f616c000000002902747d",
+      "parent_comment_id": null,
+      "comment": "请问纯露有推荐吗",
+      "create_time": 1781490029,
+      "digg_count": 0,
+      "reply_comment_total": 2,
+      "username": "坚持不上班",
+      "user_id": "5614e5618a75e165051d6fd3",
+      "sec_uid": "ABfL020TdozulbCT8Y8IiE5qUvec5cQ_9_SfTl1DrEBLw=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31o93ea8f580041crklim2rujuhvjn40?imageView2/2/w/120/format/jpg"
+    },
+    {
+      "comment_id": "6a2b88cb000000002803e1a0",
+      "parent_comment_id": null,
+      "comment": "请问什么牌子清洁面膜呀",
+      "create_time": 1781237963,
+      "digg_count": 0,
+      "reply_comment_total": 3,
+      "username": "莉莉安啊",
+      "user_id": "601d7323000000000101d8c2",
+      "sec_uid": "ABvSGgBRwDhgtbgM5nZzmGIjri-G-XHlVGSzEwKuEBnIs=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo312nkufnfik6g5o0techgbm62k0ufua8?imageView2/2/w/120/format/jpg"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "护肤",
+    "search_keyword": "护肤",
+    "days": 7,
+    "region": null
+  }
+}

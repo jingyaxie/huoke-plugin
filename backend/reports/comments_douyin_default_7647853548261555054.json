@@ -1,0 +1,57 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7647853548261555054",
+  "video_url": "https://www.douyin.com/video/7647853548261555054",
+  "comments": [
+    {
+      "comment_id": "7651932187121419046",
+      "parent_comment_id": null,
+      "comment": "我隔一天全身训练，可以不？",
+      "create_time": 1781604297,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "哈哈哈哈🙅",
+      "user_id": "3964163378383340",
+      "sec_uid": "MS4wLjABAAAAf_BIUxzYnA7CQgtopVAtR-Lr_OLKeug8I-LCp8G9Y4szDvFcC3smwjHqFORdr99O",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_oAaA0fPZgg69DeAQA41EAXCD7ALFIEXZqPbCAB.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "88afcbe0-450e-41fe-b87f-44f5dccecc82",
+        "source_keyword": "健身"
+      },
+      "nickname": "哈哈哈哈🙅"
+    },
+    {
+      "comment_id": "7651148372238385978",
+      "parent_comment_id": null,
+      "comment": "新手，背有点厚和一点斜方肌练什么器材可以减少",
+      "create_time": 1781421801,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "衍.T",
+      "user_id": "543609966833754",
+      "sec_uid": "MS4wLjABAAAAJgc2S8LzxvTGiDLQN7sXKzgC6tnhfkWx9WnXKKKslIQ",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_osCCGrbAAZZBsj2jAAAeuwf1AmAizOi0gEgITF.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "88afcbe0-450e-41fe-b87f-44f5dccecc82",
+        "source_keyword": "健身"
+      },
+      "nickname": "衍.T"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "健身",
+    "capture_mode": "standalone_keyword_browse",
+    "status": "precise"
+  },
+  "content_id": "7647853548261555054",
+  "note_url": "https://www.douyin.com/video/7647853548261555054",
+  "total_comments_captured": 2,
+  "top_comments_captured": 2,
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-20T04:35:41.687093",
+    "db_total_comments": 2,
+    "new_comments_added": 1,
+    "updated_comments": 0
+  }
+}

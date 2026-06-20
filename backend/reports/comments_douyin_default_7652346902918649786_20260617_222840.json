@@ -1,0 +1,15 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7652346902918649786",
+  "video_url": "https://www.douyin.com/video/7652346902918649786",
+  "total_comments_captured": 0,
+  "error": "未能打开评论侧栏，请确认视频页已加载且评论按钮可见",
+  "keyword_context": {
+    "keyword": "ai获客",
+    "search_keyword": "上海 ai获客",
+    "days": 7,
+    "region": "上海",
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  }
+}

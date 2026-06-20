@@ -1,0 +1,22 @@
+{
+  "platform": "douyin",
+  "tenant_id": "default",
+  "action": "follow",
+  "username": "可里可里巴巴变",
+  "user_id": "62779849298",
+  "sec_uid": "MS4wLjABAAAASgcHaP548t9INfL_oAa9tGKjrTrj68VmqWV5gcpz84Q",
+  "profile_url": "https://www.douyin.com/user/MS4wLjABAAAASgcHaP548t9INfL_oAa9tGKjrTrj68VmqWV5gcpz84Q?from_tab_name=main",
+  "page_url": "https://www.douyin.com/user/MS4wLjABAAAASgcHaP548t9INfL_oAa9tGKjrTrj68VmqWV5gcpz84Q?from_tab_name=main",
+  "page_title": "可里可里巴巴变的抖音 - 抖音",
+  "follow_status_before": 0,
+  "capture_method": "thin_nav_js",
+  "follow": {
+    "ok": true,
+    "skipped": false,
+    "host": "www-hj.douyin.com",
+    "status_code": 0,
+    "follow_status": 1,
+    "status_msg": ""
+  },
+  "follow_status_after": 0
+}

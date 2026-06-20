@@ -1,0 +1,352 @@
+{
+  "platform": "xiaohongshu",
+  "note_id": "68a2aa3b000000001d00eaaa",
+  "note_url": "https://www.xiaohongshu.com/explore/68a2aa3b000000001d00eaaa?xsec_token=AB8ecVojqYkxXdqWlIpUvfQX7Lhwl7o4EHtAUvpCMPqHY%3D&xsec_source=pc_feed",
+  "video_url": "https://www.xiaohongshu.com/explore/68a2aa3b000000001d00eaaa?xsec_token=AB8ecVojqYkxXdqWlIpUvfQX7Lhwl7o4EHtAUvpCMPqHY%3D&xsec_source=pc_feed",
+  "api_total_top_comments": 10,
+  "top_comments_captured": 10,
+  "reply_comments_captured_preview": 10,
+  "expected_reply_total_from_top_comments": 126,
+  "total_comments_captured": 20,
+  "capture_method": "network_api",
+  "warning": null,
+  "comments": [
+    {
+      "comment_id": "69816b1500000000060085e8",
+      "parent_comment_id": "698153c5000000000601c276",
+      "comment": "可以的",
+      "create_time": 1770089238,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "小岁",
+      "user_id": "634157fa000000001802ff07",
+      "sec_uid": "ABdJxmsttcV2LQ7cIrE7fWtwZFKqwwUK1pKpKoVvie17M=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31l34p89j2a0g5oq1avt65vo7fql9d50?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "小岁"
+    },
+    {
+      "comment_id": "698153c5000000000601c276",
+      "parent_comment_id": null,
+      "comment": "没有眼霜可以有面霜代替吗？",
+      "create_time": 1770083269,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "结尾.",
+      "user_id": "662cd89d0000000007007caa",
+      "sec_uid": "ABtVCMpWIYiPYfpyXDaSvfteHoYnAyZQ067PltXkupKN8=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo316oujgpogq6g5phcr2ehov5a47oq1po?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "结尾."
+    },
+    {
+      "comment_id": "68c479060000000001000189",
+      "parent_comment_id": "68c464e7000000000b022dea",
+      "comment": "蹲一手，加油，等你消息",
+      "create_time": 1757706502,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "TiAmo",
+      "user_id": "6120ca390000000001006b3f",
+      "sec_uid": "ABJPIlH9ynWmpsqRBlGuSgJO9gNyL-PvNgU9MExUVskhg=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo320pbrsdpme6g5o90p8sg8qpvn57qtb8?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "TiAmo"
+    },
+    {
+      "comment_id": "68c464e7000000000b022dea",
+      "parent_comment_id": null,
+      "comment": "准备开始打卡了，谁蹲？🥲",
+      "create_time": 1757701353,
+      "digg_count": 13,
+      "reply_comment_total": 20,
+      "username": "日桉.",
+      "user_id": "64a2b8db000000002b008a2e",
+      "sec_uid": "ABz536TINCJBIBrSnJucdr_xmuLVqhgkUOrlbW0RoBk_c=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31qp2epes7g6g5p52n3dqp2hedjmcp0g?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "日桉."
+    },
+    {
+      "comment_id": "68b0872b0000000030026dba",
+      "parent_comment_id": "68aca85700000000300299a6",
+      "comment": "6",
+      "create_time": 1756399403,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "你起来",
+      "user_id": "6685123600000000030333af",
+      "sec_uid": "ABnB-9HTOLa6JGk_HCr2DqHk-ZyTg6K1lHDxPtltJqMn8=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31r1vgre87g5g5pk528r0uctfjlhie9o?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "你起来"
+    },
+    {
+      "comment_id": "68aca85700000000300299a6",
+      "parent_comment_id": null,
+      "comment": "5",
+      "create_time": 1756145752,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "你起来",
+      "user_id": "6685123600000000030333af",
+      "sec_uid": "ABnB-9HTOLa6JGk_HCr2DqHk-ZyTg6K1lHDxPtltJqMn8=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31r1vgre87g5g5pk528r0uctfjlhie9o?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "你起来"
+    },
+    {
+      "comment_id": "68a7c5270000000030014bed",
+      "parent_comment_id": "68a43ca00000000027003c9a",
+      "comment": "不是，这我真的会信啊[害羞R][笑哭R]",
+      "create_time": 1755825448,
+      "digg_count": 368,
+      "reply_comment_total": 0,
+      "username": "酥心糖",
+      "user_id": "642958d20000000011023dbc",
+      "sec_uid": "ABaQN2Bqzk3iQSTsz1IlfQp_tWFmFohnbeTIi-srX9lAk=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31lmbcsurku6g5p19b394cfds31a7u7g?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "酥心糖"
+    },
+    {
+      "comment_id": "68a60414000000003001d205",
+      "parent_comment_id": "68a60407000000003002e341",
+      "comment": "2",
+      "create_time": 1755710484,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "你起来",
+      "user_id": "6685123600000000030333af",
+      "sec_uid": "ABnB-9HTOLa6JGk_HCr2DqHk-ZyTg6K1lHDxPtltJqMn8=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31r1vgre87g5g5pk528r0uctfjlhie9o?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "你起来"
+    },
+    {
+      "comment_id": "68a60407000000003002e341",
+      "parent_comment_id": null,
+      "comment": "1",
+      "create_time": 1755710472,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "你起来",
+      "user_id": "6685123600000000030333af",
+      "sec_uid": "ABnB-9HTOLa6JGk_HCr2DqHk-ZyTg6K1lHDxPtltJqMn8=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31r1vgre87g5g5pk528r0uctfjlhie9o?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "你起来"
+    },
+    {
+      "comment_id": "68a43ca00000000027003c9a",
+      "parent_comment_id": null,
+      "comment": "两人演的不知天地为何物了",
+      "create_time": 1755593891,
+      "digg_count": 2597,
+      "reply_comment_total": 38,
+      "username": "Everygreen",
+      "user_id": "651bd5b90000000023025ae4",
+      "sec_uid": "ABa5ItVY9Xfa7MKkyXZqmUG6Q7Yd2m5Obsym-FNMzo4yY=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31uj9afhdig4g5p8rqmsosmn43uqtsi0?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "Everygreen"
+    },
+    {
+      "comment_id": "68a3f38b000000003000c5ee",
+      "parent_comment_id": "68a3ecaf000000003001789a",
+      "comment": "我也想知道[笑哭R]",
+      "create_time": 1755575180,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "绝",
+      "user_id": "63a041f10000000026006f94",
+      "sec_uid": "ABnm_RW1lv6oWpNT9mZ_3wsd9J6PxAm2cmkN6N3HbWdds=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31aqluki7nc605ot087opgrsk25nqng8?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "绝"
+    },
+    {
+      "comment_id": "68a3ecaf000000003001789a",
+      "parent_comment_id": null,
+      "comment": "想问博主发型怎么弄的好蓬松发型也好看",
+      "create_time": 1755573424,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "Lopsided Halo",
+      "user_id": "5b66fcf3a0b6510001506091",
+      "sec_uid": "ABpFhkg19KyR_1DxNf_IlS5GLxMvi0K48j5xhheDPq1sc=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo30spasj6hju5g4a9oufuf6o4hjn9rc0o?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "Lopsided Halo"
+    },
+    {
+      "comment_id": "68a3ec7700000000300167e9",
+      "parent_comment_id": "68a3eaf60000000026035aa8",
+      "comment": "最好不要，可能会造成脂肪粒，可以看一下你的面霜使用说明",
+      "create_time": 1755573368,
+      "digg_count": 1,
+      "reply_comment_total": 0,
+      "username": "八月。",
+      "user_id": "6299b9f4000000001501c9c3",
+      "sec_uid": "ABirW_TWBn0UsprpJ1SLc4UA6CGd8Mx-jlnDMAsexdQtw=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo30pp9lr846s6g5okpn7q5bie3saudlro?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "八月。"
+    },
+    {
+      "comment_id": "68a3eaf60000000026035aa8",
+      "parent_comment_id": null,
+      "comment": "眼霜可以用面霜代替吗",
+      "create_time": 1755572982,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "等雨停'",
+      "user_id": "5f0d8ec9000000000100755f",
+      "sec_uid": "ABFEuHyHLek6rUvkrVYH0hUfiNVQhxMe34EHV-8VAkq9s=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31cuvrvi90m605nodhr4g8tavhm5mj9o?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "等雨停'"
+    },
+    {
+      "comment_id": "68a3e5f2000000002700a51f",
+      "parent_comment_id": "68a3e5080000000027007a56",
+      "comment": "想起来了，《食物语》里的一个背景音乐",
+      "create_time": 1755571698,
+      "digg_count": 1,
+      "reply_comment_total": 0,
+      "username": "此间凉（许嵩见过三次版）",
+      "user_id": "5d04cb04000000001600d134",
+      "sec_uid": "ABSz6a8KKa6BDoV_JI3DfBXdkmujwfwcaSI8nC9wwO0Kg=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/60c32babbb4a027cc7247a44.jpg?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "此间凉（许嵩见过三次版）"
+    },
+    {
+      "comment_id": "68a3e5080000000027007a56",
+      "parent_comment_id": null,
+      "comment": "这个bgm是什么啊？好耳熟，但想不起来",
+      "create_time": 1755571464,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "此间凉（许嵩见过三次版）",
+      "user_id": "5d04cb04000000001600d134",
+      "sec_uid": "ABSz6a8KKa6BDoV_JI3DfBXdkmujwfwcaSI8nC9wwO0Kg=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/60c32babbb4a027cc7247a44.jpg?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "此间凉（许嵩见过三次版）"
+    },
+    {
+      "comment_id": "68a34b78000000003002163f",
+      "parent_comment_id": "68a3476c00000000300189e5",
+      "comment": "每次抓到蚊子都不小心打死了[害羞R][害羞R][害羞R]",
+      "create_time": 1755532153,
+      "digg_count": 418,
+      "reply_comment_total": 0,
+      "username": "一颗鱼🐟",
+      "user_id": "665f1e53000000000b030f66",
+      "sec_uid": "ABls8H1eD-qP_j-s0wDAzTG4V9pOUw8-gt5CQOHcZlWXE=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31t9t8ob168005piv3p9iu3r6g4ov4po?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "一颗鱼🐟"
+    },
+    {
+      "comment_id": "68a3476c00000000300189e5",
+      "parent_comment_id": null,
+      "comment": "那换个思路来想是不是可以抓一只蚊子放到眼袋那里把瘀血吸完",
+      "create_time": 1755531118,
+      "digg_count": 1901,
+      "reply_comment_total": 30,
+      "username": "逍遥外",
+      "user_id": "63655f43000000001f01c398",
+      "sec_uid": "ABPenPAU7JevX7svjxHmSqbj9nNENXpvLRxZwR6dIh8ew=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31878g3j70s605or5bt1nrgso7117o70?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "逍遥外"
+    },
+    {
+      "comment_id": "68a32a610000000027003342",
+      "parent_comment_id": "68a327fc0000000026035029",
+      "comment": "同求！！[偷笑R][红色心形R]",
+      "create_time": 1755523681,
+      "digg_count": 9,
+      "reply_comment_total": 0,
+      "username": "我是嬷嬷🤗",
+      "user_id": "65cc478f00000000050325a5",
+      "sec_uid": "ABuo0adR7GIbfKWzo9IMie7UJOmemcmw-NcF1bcQeCGzI=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31l87aj4ilm6g5pec8u7he9d54t948qg?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "我是嬷嬷🤗"
+    },
+    {
+      "comment_id": "68a327fc0000000026035029",
+      "parent_comment_id": null,
+      "comment": "求跟练版[哭惹R]",
+      "create_time": 1755523069,
+      "digg_count": 367,
+      "reply_comment_total": 32,
+      "username": "许安",
+      "user_id": "60ee9e2a0000000001004e6c",
+      "sec_uid": "AB1xOFbdLO0Yb0WcgOQUdRNWgqD-agZrgY2pwOGVEmppc=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31c9shr7ogk505o7ejol08jjcaf5ldag?imageView2/2/w/120/format/jpg",
+      "_agent_meta": {
+        "source_keyword": "护肤"
+      },
+      "nickname": "许安"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "护肤",
+    "search_keyword": "护肤",
+    "days": 30,
+    "region": null,
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  },
+  "content_id": "68a2aa3b000000001d00eaaa",
+  "aweme_id": null,
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-18T16:22:33.960445",
+    "db_total_comments": 20,
+    "new_comments_added": 20,
+    "updated_comments": 0
+  }
+}

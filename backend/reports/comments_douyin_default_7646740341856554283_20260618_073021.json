@@ -1,0 +1,46 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7646740341856554283",
+  "video_url": "https://www.douyin.com/video/7646740341856554283",
+  "api_total_top_comments": 2,
+  "top_comments_captured": 2,
+  "reply_comments_captured_preview": 0,
+  "expected_reply_total_from_top_comments": 0,
+  "total_comments_captured": 2,
+  "capture_method": "js_api",
+  "warning": null,
+  "comments": [
+    {
+      "comment_id": "7647035511929193253",
+      "parent_comment_id": null,
+      "comment": "老板打开小龙虾，自己就给整了[看]",
+      "create_time": 1780464202,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "马亮",
+      "user_id": "3830346639221032",
+      "sec_uid": "MS4wLjABAAAA1kOM8X1tc1q9IqWyTbFj30U_K5E_Th9VO6eeQ-4QEd3EiubjQ8_FiS2nlvmdH_jB",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_oYCJJnB3iAQeK4VAA7BRAELBP3LEI8AfgPeVKi.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7646981719333864230",
+      "parent_comment_id": null,
+      "comment": "[赞][赞][赞]",
+      "create_time": 1780451677,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "鑫鑫xx",
+      "user_id": "502912856897369",
+      "sec_uid": "MS4wLjABAAAAYWScea8Nfn0YxYHbRMQgR30luE0DAXLUfsHNugqFatg",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/aweme_default_avatar.png.jpeg?from=2064092626"
+    }
+  ],
+  "comment_days": 30,
+  "profile_context": {
+    "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5?from_tab_name=main",
+    "sec_uid": "MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5",
+    "video_publish_days": null,
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  }
+}

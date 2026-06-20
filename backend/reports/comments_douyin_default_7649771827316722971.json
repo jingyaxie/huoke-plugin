@@ -1,0 +1,19 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7649771827316722971",
+  "video_url": "https://www.douyin.com/video/7649771827316722971",
+  "total_comments_captured": 0,
+  "error": "未能打开评论侧栏，请确认视频页已加载且评论按钮可见",
+  "output_file": "/Users/macbook/project/ai/aihuoke/huoke/backend/reports/comments_douyin_default_7649771827316722971_20260617_212551.json",
+  "content_id": "7649771827316722971",
+  "note_url": "https://www.douyin.com/video/7649771827316722971",
+  "top_comments_captured": 0,
+  "comments": [],
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-17T13:25:51.305915",
+    "db_total_comments": 0,
+    "new_comments_added": 0,
+    "updated_comments": 0
+  }
+}

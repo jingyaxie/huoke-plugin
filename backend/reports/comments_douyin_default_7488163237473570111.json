@@ -1,0 +1,79 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7488163237473570111",
+  "video_url": "https://www.douyin.com/video/7488163237473570111",
+  "api_total_top_comments": 3,
+  "top_comments_captured": 3,
+  "reply_comments_captured_preview": 0,
+  "expected_reply_total_from_top_comments": 0,
+  "total_comments_captured": 3,
+  "capture_method": "js_api",
+  "warning": null,
+  "comments": [
+    {
+      "comment_id": "7488262801628349220",
+      "parent_comment_id": null,
+      "comment": "路过",
+      "create_time": 1743497057,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "郑州万邦秀秀冻品批发",
+      "user_id": "455636833549866",
+      "sec_uid": "MS4wLjABAAAAqC_Kylw2vrTvF7CtPtmE9u4FAJaiUaZygGc4cJpEGk0",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_9f9f14975fd1b3f3682170e2cb23a872.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "郑州万邦秀秀冻品批发"
+    },
+    {
+      "comment_id": "7488228409622872841",
+      "parent_comment_id": null,
+      "comment": "[赞][赞][赞][赞][赞][赞][比心][比心][比心]",
+      "create_time": 1743489048,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "兰花",
+      "user_id": "514201786254796",
+      "sec_uid": "MS4wLjABAAAA3eOkO3S4Z94o4sp4ljnHVRxB6HRtRM7sbOqi6GHulo0",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_b7530133ae63ef3d16439f558c99440a.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "兰花"
+    },
+    {
+      "comment_id": "7488172473897960218",
+      "parent_comment_id": null,
+      "comment": "[666][666][666][666][666][666]",
+      "create_time": 1743476023,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "万晟力行生产批发广式烧腊叉烧烧鸭-1",
+      "user_id": "1062582868773715",
+      "sec_uid": "MS4wLjABAAAAKQkFhd1wQMrudX-yNtigvo7jvt4Cs_FcAZJoDc1HtKK9_7UsmuPqlErwxlCBThNb",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_owAqw8ATA2iGEtvAXP6gHtiII2VvdaDqAoBIz.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "万晟力行生产批发广式烧腊叉烧烧鸭-1"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "团餐配送",
+    "search_keyword": "深圳 团餐配送",
+    "days": 3,
+    "region": "深圳",
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  },
+  "content_id": "7488163237473570111",
+  "note_url": "https://www.douyin.com/video/7488163237473570111",
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-15T15:42:31.588649",
+    "db_total_comments": 3,
+    "new_comments_added": 3,
+    "updated_comments": 0
+  }
+}

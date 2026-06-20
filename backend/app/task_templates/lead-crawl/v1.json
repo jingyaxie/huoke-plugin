@@ -1,0 +1,39 @@
+{
+  "template_id": "lead-crawl",
+  "version": "1.0.0",
+  "name": "线索抓取",
+  "description": "按关键词搜索内容并抓取评论，结果入库；适合外部系统只抓线索、不触达。",
+  "executor_id": "pipeline_only",
+  "platforms": ["douyin", "xiaohongshu"],
+  "phases": [
+    {
+      "id": "crawl",
+      "capability": "pipeline_keyword_comments",
+      "retry": 2,
+      "depends_on": []
+    },
+    {
+      "id": "finalize",
+      "capability": "internal.summarize",
+      "retry": 0,
+      "depends_on": ["crawl"]
+    }
+  ],
+  "default_spec": {
+    "task_name": "",
+    "keyword": "",
+    "platform": "douyin",
+    "account_id": "default",
+    "region": null,
+    "crawl": {
+      "video_publish_days": null,
+      "comment_days": 3,
+      "target_leads": 100,
+      "video_limit_per_batch": 20,
+      "max_batches": 50,
+      "force_refresh": false
+    },
+    "provider": "deepseek",
+    "timeout_seconds": 1200
+  }
+}

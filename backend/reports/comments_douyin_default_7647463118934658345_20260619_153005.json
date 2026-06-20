@@ -1,0 +1,46 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7647463118934658345",
+  "video_url": "https://www.douyin.com/video/7647463118934658345",
+  "api_total_top_comments": 2,
+  "top_comments_captured": 2,
+  "reply_comments_captured_preview": 0,
+  "expected_reply_total_from_top_comments": 0,
+  "total_comments_captured": 2,
+  "capture_method": "js_api",
+  "warning": null,
+  "comments": [
+    {
+      "comment_id": "7647562604671484729",
+      "parent_comment_id": null,
+      "comment": "一听扣戴思科直接划走[捂脸]",
+      "create_time": 1780586924,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "咖啡芒果",
+      "user_id": "52524277516",
+      "sec_uid": "MS4wLjABAAAA-EGRSaq6oST-ByNFtfJCjYVj1NF0rHBd9t9dawBeqAU",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_2a5e10e05f7742d7f746ccc3ea404944.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7647531042560574217",
+      "parent_comment_id": null,
+      "comment": "抠戴克斯",
+      "create_time": 1780579576,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "AI小学生",
+      "user_id": "103699609586",
+      "sec_uid": "MS4wLjABAAAAelX6BDAQ8JWQSVbiJRVaRNx1lCyKS5QsU_6SWvzmQzE",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_56a5ee8d611e515528c7c03bc4d5691f.jpeg?from=2064092626"
+    }
+  ],
+  "comment_days": 30,
+  "profile_context": {
+    "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5?from_tab_name=main",
+    "sec_uid": "MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5",
+    "video_publish_days": null,
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  }
+}

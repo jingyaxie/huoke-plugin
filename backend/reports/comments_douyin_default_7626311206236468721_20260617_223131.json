@@ -1,0 +1,25 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7626311206236468721",
+  "video_url": "https://www.douyin.com/video/7626311206236468721",
+  "content_id": "7626311206236468721",
+  "content_url": "https://www.douyin.com/video/7626311206236468721",
+  "api_total_top_comments": 0,
+  "top_comments_captured": 0,
+  "total_comments_captured": 0,
+  "raw_comments_scanned": 0,
+  "capture_method": "video_url_ui_passive",
+  "comment_days": 7,
+  "comments": [],
+  "keyword_context": {
+    "keyword": "ai获客",
+    "search_keyword": "上海 ai获客",
+    "days": 7,
+    "region": "上海",
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  },
+  "stop_reason": "评论接口已无更多分页",
+  "warning": "未拦截到评论数据，请确认已登录且侧栏已展开",
+  "output_file": "/Users/macbook/project/ai/aihuoke/huoke/backend/reports/comments_douyin_default_7626311206236468721_20260617_223131.json"
+}

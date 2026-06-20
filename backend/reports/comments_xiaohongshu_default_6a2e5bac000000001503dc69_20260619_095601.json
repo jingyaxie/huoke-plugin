@@ -1,0 +1,25 @@
+{
+  "platform": "xiaohongshu",
+  "note_id": "6a2e5bac000000001503dc69",
+  "note_url": "https://www.xiaohongshu.com/explore/6a2e5bac000000001503dc69?xsec_source=pc_search",
+  "video_url": "https://www.xiaohongshu.com/explore/6a2e5bac000000001503dc69?xsec_source=pc_search",
+  "api_total_top_comments": 0,
+  "top_comments_captured": 0,
+  "reply_comments_captured_preview": 0,
+  "expected_reply_total_from_top_comments": 0,
+  "total_comments_captured": 0,
+  "capture_method": "dom_fallback",
+  "warning": "接口返回 5 条评论，近 3 天时间窗内 0 条",
+  "comments": [],
+  "comment_days": 3,
+  "keyword_context": {
+    "keyword": "团餐",
+    "search_keyword": "团餐",
+    "days": 3,
+    "video_publish_days": 7,
+    "comment_days": 3,
+    "region": null,
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  }
+}

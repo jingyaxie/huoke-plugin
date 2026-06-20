@@ -1,0 +1,63 @@
+{
+  "platform": "xiaohongshu",
+  "note_id": "6a2cc339000000002202c53a",
+  "note_url": "https://www.xiaohongshu.com/explore/6a2cc339000000002202c53a?xsec_source=pc_search",
+  "video_url": "https://www.xiaohongshu.com/explore/6a2cc339000000002202c53a?xsec_source=pc_search",
+  "content_id": "6a2cc339000000002202c53a",
+  "content_url": "https://www.xiaohongshu.com/explore/6a2cc339000000002202c53a?xsec_source=pc_search",
+  "note": {
+    "note_id": "6a2cc339000000002202c53a",
+    "note_url": "https://www.xiaohongshu.com/explore/6a2cc339000000002202c53a?xsec_source=pc_search",
+    "video_url": "https://www.xiaohongshu.com/explore/6a2cc339000000002202c53a?xsec_source=pc_search",
+    "content_id": "6a2cc339000000002202c53a",
+    "content_url": "https://www.xiaohongshu.com/explore/6a2cc339000000002202c53a?xsec_source=pc_search"
+  },
+  "api_total_top_comments": 3,
+  "top_comments_captured": 3,
+  "total_comments_captured": 3,
+  "capture_method": "fixed_flow_crawl",
+  "comments": [
+    {
+      "comment_id": "6a2e5967000000002701d0ca",
+      "parent_comment_id": null,
+      "comment": "没有课代表总结我就自己来咯[偷笑R]\n1热毛巾打开🐱孔\n2生理言水清洁面部\n3宝宝有揉搓揉出角质\n4 重点v[种草R]o[种草R]y[种草R]u面膜厚敷!!!",
+      "create_time": 1781422440,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "大好人",
+      "user_id": "6a22e7880000000001006c00",
+      "sec_uid": "ABAuD0nxpHfUXeu2SodOI2PNf313nUi0T8T3l9-w1AIl8=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo3212b2o5rmu5g5qh2su408r00m46mum0?imageView2/2/w/120/format/jpg"
+    },
+    {
+      "comment_id": "6a2df9c1000000002b001440",
+      "parent_comment_id": null,
+      "comment": "真的吗帅哥，有木有面膜的🔗啊",
+      "create_time": 1781397954,
+      "digg_count": 2,
+      "reply_comment_total": 1,
+      "username": "一王打不尽",
+      "user_id": "639abdf00000000027029774",
+      "sec_uid": "ABLLs3IMMv1RX6Aosu9a28sEhLC9JBXtHOOnpNirgqpdU=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo30teg2er0k26g5osqnno9t5rk3skl0p0?imageView2/2/w/120/format/jpg"
+    },
+    {
+      "comment_id": "6a2cd23f0000000027020ed6",
+      "parent_comment_id": null,
+      "comment": "好厉害啊",
+      "create_time": 1781322304,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "喵宝咪咪",
+      "user_id": "69f896f00000000001006c00",
+      "sec_uid": "ABaLp2nIQElm-S1haML6h83pd_zfUC_OjOnvLGRe3WHl8=",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31vp86ieb4c6g5qfoiro08r00d21gvno?imageView2/2/w/120/format/jpg"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "护肤",
+    "search_keyword": "护肤",
+    "days": 7,
+    "region": null
+  }
+}

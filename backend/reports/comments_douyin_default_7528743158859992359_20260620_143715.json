@@ -1,0 +1,29 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7528743158859992359",
+  "video_url": "https://www.douyin.com/video/7528743158859992359",
+  "content_id": "7528743158859992359",
+  "content_url": "https://www.douyin.com/video/7528743158859992359",
+  "api_total_top_comments": 7,
+  "top_comments_captured": 0,
+  "total_comments_captured": 0,
+  "raw_comments_scanned": 8,
+  "capture_method": "video_url_ui_passive",
+  "comment_days": 30,
+  "comments": [],
+  "keyword_context": {
+    "video_url": "https://www.douyin.com/video/7528743158859992359",
+    "capture_mode": "video_url_ui_passive",
+    "days": 30
+  },
+  "stop_reason": "评论已全部加载（暂时没有更多评论）",
+  "warning": "拦截到 8 条评论，近 30 天内 0 条符合筛选",
+  "output_file": "/Users/macbook/project/ai/aihuoke/huoke/backend/reports/comments_douyin_default_7528743158859992359_20260620_143715.json",
+  "profile_context": {
+    "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5?from_tab_name=main",
+    "sec_uid": "MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5",
+    "video_publish_days": null,
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  }
+}

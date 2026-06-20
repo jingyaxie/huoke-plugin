@@ -1,0 +1,95 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7550346644877856036",
+  "video_url": "https://www.douyin.com/video/7550346644877856036",
+  "api_total_top_comments": 5,
+  "top_comments_captured": 3,
+  "reply_comments_captured_preview": 1,
+  "expected_reply_total_from_top_comments": 2,
+  "total_comments_captured": 4,
+  "capture_method": "js_api",
+  "warning": null,
+  "comments": [
+    {
+      "comment_id": "7635714769647452934",
+      "parent_comment_id": "7635654837150434105",
+      "comment": "好",
+      "create_time": 1777828389,
+      "digg_count": 1,
+      "reply_comment_total": 0,
+      "username": "深圳华龙盛宴自助餐年会婚礼上门宴席",
+      "user_id": "70556915700",
+      "sec_uid": "MS4wLjABAAAAwNzCmlmutNnDk3y3CDRTv_0Fy3DCLEeLPIG_aJ3D0aA",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_227c1772f0b13999aa9856ff3d48d141.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "深圳华龙盛宴自助餐年会婚礼上门宴席"
+    },
+    {
+      "comment_id": "7635654837150434105",
+      "parent_comment_id": null,
+      "comment": "有业务可以对接",
+      "create_time": 1777814432,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "鲜盛源团餐",
+      "user_id": "7582085441349420081",
+      "sec_uid": "MS4wLjABAAAA39GQNNJgtt8b0aIFUf-OzPxjDpkPjpy8SXUUrahh87W2bIBKnUHBMIVoL7lln_yJ",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_oYOlZAAWTDBUGne2EmLIAsGrB7A7oUAIEee8ES.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "鲜盛源团餐"
+    },
+    {
+      "comment_id": "7598010601328100105",
+      "parent_comment_id": null,
+      "comment": "你好，我想问一下，你这边可以送员工餐吗，我在南山有的话可以联系我 谢谢[呲牙]",
+      "create_time": 1769049701,
+      "digg_count": 1,
+      "reply_comment_total": 1,
+      "username": "Maggie_",
+      "user_id": "61421319097",
+      "sec_uid": "MS4wLjABAAAAVX2C88c3tsbyPA5KJjrq0ndBuGW9m9ziye1tHtY3URM",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_fbd11b3954f39fed753adc629632ef31.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "Maggie_"
+    },
+    {
+      "comment_id": "7552954161097753402",
+      "parent_comment_id": null,
+      "comment": "看着就想吃[赞][赞][赞]",
+      "create_time": 1758559188,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "不想工作的龍君",
+      "user_id": "70537187635",
+      "sec_uid": "MS4wLjABAAAA9d50m9YuIKDde5DOBFm53aURTFvYmKm71KhILHj17Dg",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_613d41111474ea0d1ddebd7485e22a68.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "不想工作的龍君"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "团餐配送",
+    "search_keyword": "深圳 团餐配送",
+    "days": 3,
+    "region": "深圳",
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  },
+  "content_id": "7550346644877856036",
+  "note_url": "https://www.douyin.com/video/7550346644877856036",
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-15T15:42:31.585783",
+    "db_total_comments": 4,
+    "new_comments_added": 4,
+    "updated_comments": 0
+  }
+}

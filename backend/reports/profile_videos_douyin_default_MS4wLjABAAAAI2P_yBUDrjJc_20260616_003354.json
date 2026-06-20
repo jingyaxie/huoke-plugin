@@ -1,0 +1,66 @@
+{
+  "platform": "douyin",
+  "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAI2P_yBUDrjJccqUniIzrnsKv-4wl9mtiUbeXApqenH5fWzgyo9hEBV6GqKzKV334?from_tab_name=main&vid=7617663855346404617",
+  "sec_uid": "MS4wLjABAAAAI2P_yBUDrjJccqUniIzrnsKv-4wl9mtiUbeXApqenH5fWzgyo9hEBV6GqKzKV334",
+  "priority_vid": "7617663855346404617",
+  "video_count": 5,
+  "capture_method": "profile_url_api_listen",
+  "diagnostic": null,
+  "videos": [
+    {
+      "aweme_id": "7617663855346404617",
+      "video_url": "https://www.douyin.com/video/7617663855346404617",
+      "title": "零实拍做ai广告短片｜Seedance2.0工作流保姆级教程，教你用gemini+nano banana+seedance2.0手搓ai视频#ai新星计划 #ai生视频 #ai #seedance2  #lala罐头",
+      "author": "Lala罐头",
+      "author_id": "4339089915255888",
+      "sec_uid": "MS4wLjABAAAAI2P_yBUDrjJccqUniIzrnsKv-4wl9mtiUbeXApqenH5fWzgyo9hEBV6GqKzKV334",
+      "digg_count": 29555,
+      "comment_count": 527,
+      "create_time": 1773651600
+    },
+    {
+      "aweme_id": "7548124928030133540",
+      "video_url": "https://www.douyin.com/video/7548124928030133540",
+      "title": "不会写代码，我靠AI把App上架了！ AI开发应用保姆级教程：5 步流程 + 工具对比 + 上架避坑，10 分钟学会！｜小白也能10分钟开发App #cursor #ai罐头 #人工智能 #ai编程 #vibecoding",
+      "author": "Lala罐头",
+      "author_id": "4339089915255888",
+      "sec_uid": "MS4wLjABAAAAI2P_yBUDrjJccqUniIzrnsKv-4wl9mtiUbeXApqenH5fWzgyo9hEBV6GqKzKV334",
+      "digg_count": 16864,
+      "comment_count": 378,
+      "create_time": 1757496600
+    },
+    {
+      "aweme_id": "7651415364676439339",
+      "video_url": "https://www.douyin.com/video/7651415364676439339",
+      "title": "用Codex开发一个APP：从0到1上架APP全攻略，Vibe Coding2.0新手实操教程 #vibecoding大赏  #ai新星计划  #codex #lala罐头 #aiagent",
+      "author": "Lala罐头",
+      "author_id": "4339089915255888",
+      "sec_uid": "MS4wLjABAAAAI2P_yBUDrjJccqUniIzrnsKv-4wl9mtiUbeXApqenH5fWzgyo9hEBV6GqKzKV334",
+      "digg_count": 561,
+      "comment_count": 20,
+      "create_time": 1781496000
+    },
+    {
+      "aweme_id": "7649946985901870386",
+      "video_url": "https://www.douyin.com/video/7649946985901870386",
+      "title": "VibeCoding大赏丨美甲试戴app。每次做美甲前很习惯存很多图\n又会特别纠结上手的效果\n所以尝试vibe coding了一个美甲试戴的app\n只要3步，能帮你提前做好选择：\n先上传一张手部照片\n再上传一张看上的美甲图\n最后生成一张专属美甲试卡 \n这样，有一份美甲专属小卡\n让美甲的选择更加轻松\n也能更好地跟美甲师确认图案\n做出心满意足的美甲样式 \n有想要试试看的朋友吗，还想要什么功能呢，欢迎留言～\n#vibecoding大赏  #ai新星计划  #美甲 #ai #lala罐头 @抖音科技",
+      "author": "Lala罐头",
+      "author_id": "4339089915255888",
+      "sec_uid": "MS4wLjABAAAAI2P_yBUDrjJccqUniIzrnsKv-4wl9mtiUbeXApqenH5fWzgyo9hEBV6GqKzKV334",
+      "digg_count": 644,
+      "comment_count": 56,
+      "create_time": 1781142085
+    },
+    {
+      "aweme_id": "7649032724493192486",
+      "video_url": "https://www.douyin.com/video/7649032724493192486",
+      "title": "AI模型怎么付费最划算？从轻度用户到Vibe Coding重度玩家必看的选购指南\n#vibecoding  #ai #aiagent#ai新星计划  #lala罐头",
+      "author": "Lala罐头",
+      "author_id": "4339089915255888",
+      "sec_uid": "MS4wLjABAAAAI2P_yBUDrjJccqUniIzrnsKv-4wl9mtiUbeXApqenH5fWzgyo9hEBV6GqKzKV334",
+      "digg_count": 135,
+      "comment_count": 7,
+      "create_time": 1780929222
+    }
+  ]
+}

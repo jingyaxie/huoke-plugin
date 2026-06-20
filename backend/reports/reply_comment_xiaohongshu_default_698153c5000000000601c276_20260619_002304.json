@@ -1,0 +1,26 @@
+{
+  "platform": "xiaohongshu",
+  "tenant_id": "default",
+  "action": "reply_comment",
+  "note_id": "68a2aa3b000000001d00eaaa",
+  "comment_id": "698153c5000000000601c276",
+  "reply_text": "同意",
+  "note_url": "https://www.xiaohongshu.com/explore/68a2aa3b000000001d00eaaa?xsec_token=AB8ecVojqYkxXdqWlIpUvfQX7Lhwl7o4EHtAUvpCMPqHY%3D&xsec_source=pc_feed",
+  "page_url": "https://www.xiaohongshu.com/explore/68a2aa3b000000001d00eaaa?xsec_token=AB8ecVojqYkxXdqWlIpUvfQX7Lhwl7o4EHtAUvpCMPqHY%3D&xsec_source=pc_feed",
+  "page_title": "古法养眼：睡前揉开黑眼圈，养出星星眼～ - 小红书",
+  "capture_method": "note_page_ui",
+  "login_user_id": "5ef2ee1800000000010064d5",
+  "reply": {
+    "ok": false,
+    "code": 10001,
+    "success": false,
+    "msg": "因违反社区规范被禁言",
+    "data": {},
+    "http_status": 200,
+    "error": "因违反社区规范被禁言",
+    "ui": {
+      "ok": false,
+      "error": "未找到回复输入框"
+    }
+  }
+}

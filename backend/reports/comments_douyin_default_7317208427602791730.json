@@ -1,0 +1,78 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7317208427602791730",
+  "video_url": "https://www.douyin.com/video/7317208427602791730",
+  "comments": [
+    {
+      "comment_id": "7320591457705263881",
+      "parent_comment_id": null,
+      "comment": "又在装逼了啊。太装逼了。",
+      "create_time": 1704458023,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "炎夏日",
+      "user_id": "2049080549970391",
+      "sec_uid": "MS4wLjABAAAAJAz--3tjIANapm5XEIrfK5IA7ylCSWH3spkxhQaQNR3lD0R7T_MhAcWC4nJNgBYs",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_ca553037de1d41eb8c7bae73204b39a8.jpeg?from=2064092626",
+      "nickname": "炎夏日"
+    },
+    {
+      "comment_id": "7320210332226913074",
+      "parent_comment_id": null,
+      "comment": "一份利润5块  一天2万5 一个月75万  一年一千万  比上市公司利润多高",
+      "create_time": 1704369285,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "阿飞",
+      "user_id": "328080975992010",
+      "sec_uid": "MS4wLjABAAAAJXCaCWlnuMKT93byAHs1_xx0ViAfw9a5mDYCmIW0CZs",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_150a73c51867901ae2830cd64e24dbed.jpeg?from=2064092626",
+      "nickname": "阿飞"
+    },
+    {
+      "comment_id": "7320203934596825897",
+      "parent_comment_id": null,
+      "comment": "多少钱一份",
+      "create_time": 1704367797,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "乐呵得得",
+      "user_id": "4279766780218045",
+      "sec_uid": "MS4wLjABAAAAcPrF4azQHD7XNd9qvcarpDkCpNE18lFhhoYJXQlO9OkCpnBtdWS8bp9R8d0z_I8v",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_075463e347569db9051034604d9a37f3.jpeg?from=2064092626",
+      "nickname": "乐呵得得"
+    },
+    {
+      "comment_id": "7320201631982781234",
+      "parent_comment_id": null,
+      "comment": "厉害",
+      "create_time": 1704367261,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "战必回",
+      "user_id": "4375660109500588",
+      "sec_uid": "MS4wLjABAAAAOxIadcET9fivpn81uJnQdND3waOlOH6XHfYwxCkMkIVphG6N7uECQ9E2gdFzavDH",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_82baf1ccdf55415d985f8b99d7b26ba4.jpeg?from=2064092626",
+      "nickname": "战必回"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "团餐配送",
+    "search_keyword": "深圳 团餐配送",
+    "days": 14,
+    "region": "深圳",
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  },
+  "content_id": "7317208427602791730",
+  "note_url": "https://www.douyin.com/video/7317208427602791730",
+  "total_comments_captured": 4,
+  "top_comments_captured": 4,
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-14T11:18:36.076271",
+    "db_total_comments": 4,
+    "new_comments_added": 0,
+    "updated_comments": 0
+  }
+}

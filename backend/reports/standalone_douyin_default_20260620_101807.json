@@ -1,0 +1,35 @@
+{
+  "platform": "douyin",
+  "keyword": "健身",
+  "acquisition_mode": "keyword_auto",
+  "source_url": "https://www.douyin.com/jingxuan/search/%E5%81%A5%E8%BA%AB?aid=5543528e-5b09-42b7-ba9f-ebf9cc47b7f2&type=general",
+  "video_url": null,
+  "profile_url": null,
+  "search_url": "https://www.douyin.com/jingxuan/search/%E5%81%A5%E8%BA%AB?aid=5543528e-5b09-42b7-ba9f-ebf9cc47b7f2&type=general",
+  "capture_method": "standalone_keyword_browse",
+  "videos_processed": 0,
+  "comments_scanned": 0,
+  "duplicates_skipped": 0,
+  "unique_comments_seen": 0,
+  "precise_lead_count": 0,
+  "precise_leads": [],
+  "phase_log": [
+    "STEP1 open_home",
+    "STEP2 search",
+    "步骤 2/7：搜索关键词 | 「健身」 · 发布时间 半年内",
+    "SEARCH_FILTER label=半年内 verified=False steps=failed>hover_retry>panel_open>option=半年内>confirm_auto>panel_dismiss>verified=weak",
+    "SEARCH_API_DAYS_FALLBACK matched=3/8 days=180",
+    "步骤 3/7：搜索完成 | 发布时间=半年内（弱确认） · items=9",
+    "STEP3 search_ok url=https://www.douyin.com/jingxuan/search/%E5%81%A5%E8%BA%AB?aid=5543528e-5b09-42b7-ba9f-ebf9cc47b7f2&type=general",
+    "STEP3b list_prepared=True posters=92 aweme_ids=3",
+    "STEP4 video_index=5"
+  ],
+  "outreach_stats": {
+    "replies": 0,
+    "dms": 0,
+    "follows": 0
+  },
+  "target_precise_leads": 5,
+  "target_reached": false,
+  "finished_at": "2026-06-20T02:18:07.641562+00:00"
+}

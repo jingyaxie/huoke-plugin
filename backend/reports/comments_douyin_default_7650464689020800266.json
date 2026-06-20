@@ -1,0 +1,55 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7650464689020800266",
+  "video_url": "https://www.douyin.com/video/7650464689020800266",
+  "comments": [
+    {
+      "comment_id": "7650703940279698218",
+      "parent_comment_id": "7650681683092341541",
+      "comment": "[赞][赞]",
+      "create_time": 1781318323,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "谷发条AI智能体定制",
+      "user_id": "3438871448660787",
+      "sec_uid": "MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_937c5235fc823aaff870020f6f89ce86.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "1e4db1c3-5608-4a6f-bcc6-b8a50a5a85a1"
+      },
+      "nickname": "谷发条AI智能体定制"
+    },
+    {
+      "comment_id": "7650681683092341541",
+      "parent_comment_id": null,
+      "comment": "[捂脸][捂脸][捂脸]，其实都很重要，但这个很难，ai的泡沫是资本估值太高，但上下游还是要慢慢打磨。生产力大大提升是对的，但创新性才是后面的关键。ai处理的是存量问题，增量问题没有解决。也不是ai的特长[呲牙][呲牙][呲牙]",
+      "create_time": 1781313143,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "吃货",
+      "user_id": "91644089452",
+      "sec_uid": "MS4wLjABAAAA-Fc4SizgdVuhx-7X5ZDmWUk6AMKTvopnjswwyyrFick",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_oYAAAIAvIEyABB5GiNhZCfxAeANzEgxNrENCqZ.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "1e4db1c3-5608-4a6f-bcc6-b8a50a5a85a1"
+      },
+      "nickname": "吃货"
+    }
+  ],
+  "keyword_context": {
+    "video_url": "https://www.douyin.com/video/7650464689020800266",
+    "capture_mode": "video_url_ui_passive",
+    "days": 30
+  },
+  "content_id": "7650464689020800266",
+  "note_url": "https://www.douyin.com/video/7650464689020800266",
+  "total_comments_captured": 2,
+  "top_comments_captured": 1,
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-20T06:39:57.867888",
+    "db_total_comments": 2,
+    "new_comments_added": 2,
+    "updated_comments": 0
+  }
+}

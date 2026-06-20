@@ -1,0 +1,21 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7489043443843403043",
+  "video_url": "https://www.douyin.com/video/7489043443843403043",
+  "api_total_top_comments": 580,
+  "top_comments_captured": 0,
+  "reply_comments_captured_preview": 1,
+  "expected_reply_total_from_top_comments": 223,
+  "total_comments_captured": 0,
+  "capture_method": "js_api",
+  "warning": "接口返回 580 条评论，近 30 天时间窗内 0 条",
+  "comments": [],
+  "comment_days": 30,
+  "profile_context": {
+    "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5?from_tab_name=main",
+    "sec_uid": "MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5",
+    "video_publish_days": null,
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  }
+}

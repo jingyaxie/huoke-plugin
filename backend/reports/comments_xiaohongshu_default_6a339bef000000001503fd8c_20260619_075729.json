@@ -1,0 +1,83 @@
+{
+  "platform": "xiaohongshu",
+  "note_id": "6a339bef000000001503fd8c",
+  "note_url": "https://www.xiaohongshu.com/explore/6a339bef000000001503fd8c?xsec_source=pc_search",
+  "video_url": "https://www.xiaohongshu.com/explore/6a339bef000000001503fd8c?xsec_source=pc_search",
+  "api_total_top_comments": 0,
+  "top_comments_captured": 5,
+  "reply_comments_captured_preview": 0,
+  "expected_reply_total_from_top_comments": 0,
+  "total_comments_captured": 5,
+  "capture_method": "dom_fallback",
+  "warning": "笔记链接缺少 xsec_token，评论接口可能拒绝访问；请通过搜索接口获取完整笔记链接。",
+  "comments": [
+    {
+      "comment_id": "",
+      "parent_comment_id": null,
+      "comment": "首页",
+      "create_time": null,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "首页",
+      "user_id": "",
+      "sec_uid": "",
+      "avatar": ""
+    },
+    {
+      "comment_id": "",
+      "parent_comment_id": null,
+      "comment": "点点",
+      "create_time": null,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "点点ai",
+      "user_id": "",
+      "sec_uid": "",
+      "avatar": ""
+    },
+    {
+      "comment_id": "",
+      "parent_comment_id": null,
+      "comment": "RED",
+      "create_time": null,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "RED",
+      "user_id": "",
+      "sec_uid": "",
+      "avatar": ""
+    },
+    {
+      "comment_id": "",
+      "parent_comment_id": null,
+      "comment": "直播",
+      "create_time": null,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "直播",
+      "user_id": "",
+      "sec_uid": "",
+      "avatar": ""
+    },
+    {
+      "comment_id": "",
+      "parent_comment_id": null,
+      "comment": "发布",
+      "create_time": null,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "发布",
+      "user_id": "",
+      "sec_uid": "",
+      "avatar": ""
+    }
+  ],
+  "keyword_context": {
+    "keyword": "护肤",
+    "search_keyword": "护肤",
+    "days": 3,
+    "region": null,
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  }
+}

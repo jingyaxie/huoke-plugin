@@ -1,0 +1,705 @@
+use std::fs::OpenOptions;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
+
+use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+
+mod static_server;
+
+const DESKTOP_PORT: u16 = 18765;
+const LOCAL_SERVICE_PORT: u16 = 18766;
+const STATIC_HEALTH_URL: &str = "http://127.0.0.1:18765/health";
+const LOCAL_SERVICE_HEALTH_URL: &str = "http://127.0.0.1:18766/health";
+const APP_HOME_URL: &str = "http://127.0.0.1:18765/extension-bridge";
+const BACKEND_LOG_CAP: usize = 120;
+
+struct ServiceState {
+    backend: Mutex<Option<Child>>,
+}
+
+struct BackendLogState {
+    lines: Mutex<Vec<String>>,
+}
+
+impl BackendLogState {
+    fn push_line(&self, line: String) {
+        let mut guard = self.lines.lock().expect("backend log lock");
+        guard.push(line);
+        if guard.len() > BACKEND_LOG_CAP {
+            let drain = guard.len() - BACKEND_LOG_CAP;
+            guard.drain(0..drain);
+        }
+    }
+
+    fn tail(&self, max_lines: usize) -> String {
+        let guard = self.lines.lock().expect("backend log lock");
+        if guard.is_empty() {
+            return String::new();
+        }
+        let start = guard.len().saturating_sub(max_lines);
+        guard[start..].join("\n")
+    }
+}
+
+struct BackendProcess {
+    child: Child,
+    log_readers: Vec<JoinHandle<()>>,
+}
+
+fn launch_marker_name() -> &'static str {
+    "prepare_desktop_thin_bundle.sh"
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(stripped) = text.strip_prefix(r"\\?\") {
+        return PathBuf::from(stripped);
+    }
+    path.to_path_buf()
+}
+
+fn display_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn resolve_app_log_file(app: &AppHandle) -> Result<PathBuf, String> {
+    let log_dir = app.path().app_log_dir().map_err(|err| err.to_string())?;
+    std::fs::create_dir_all(&log_dir).map_err(|err| err.to_string())?;
+    let file_name = app
+        .config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| "huoke".to_string());
+    Ok(log_dir.join(format!("{file_name}.log")))
+}
+
+fn desktop_log_hint(app: &AppHandle) -> String {
+    resolve_app_log_file(app)
+        .map(|path| display_path(&path))
+        .unwrap_or_else(|_| {
+            if cfg!(windows) {
+                "%LOCALAPPDATA%/com.huoke.desktop/logs/AI获客平台.log".into()
+            } else if cfg!(target_os = "macos") {
+                "~/Library/Logs/com.huoke.desktop/AI获客平台.log".into()
+            } else {
+                "~/.local/share/com.huoke.desktop/logs/AI获客平台.log".into()
+            }
+        })
+}
+
+fn append_unified_log(log_file: &Path, line: &str) {
+    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_file) else {
+        return;
+    };
+    let _ = writeln!(file, "{line}");
+}
+
+fn is_project_root(path: &Path) -> bool {
+    if path.join("desktop/bundle/BUNDLE_MANIFEST.json").is_file() {
+        return true;
+    }
+    if path.join("bundle/BUNDLE_MANIFEST.json").is_file() {
+        return true;
+    }
+    path.join("scripts").join(launch_marker_name()).is_file()
+}
+
+fn find_launch_root(base: &Path) -> Option<PathBuf> {
+    let mut queue = vec![base.to_path_buf()];
+
+    while let Some(current) = queue.pop() {
+        if is_project_root(&current) {
+            return Some(current);
+        }
+        if let Ok(entries) = std::fs::read_dir(&current) {
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                if path.is_dir() {
+                    queue.push(path);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn find_bundle_dir(base: &Path) -> Option<PathBuf> {
+    let direct = [
+        base.join("desktop/bundle"),
+        base.join("bundle"),
+    ];
+    for dir in direct {
+        if is_bundle_dir(&dir) {
+            return Some(dir);
+        }
+    }
+
+    let mut queue = vec![base.to_path_buf()];
+    while let Some(current) = queue.pop() {
+        if current.ends_with("desktop/bundle") || current.ends_with("bundle") {
+            if is_bundle_dir(&current) {
+                return Some(current);
+            }
+        }
+        if let Ok(entries) = std::fs::read_dir(&current) {
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                if path.is_dir() {
+                    queue.push(path);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn local_service_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "huoke-local-service.exe"
+    } else {
+        "huoke-local-service"
+    }
+}
+
+fn is_bundle_dir(dir: &Path) -> bool {
+    if dir.join("frontend-dist").join("index.html").is_file() {
+        return true;
+    }
+    if dir.join("runtime").join(local_service_binary_name()).is_file() {
+        return true;
+    }
+    dir.join("runtime").is_dir()
+}
+
+fn resolve_frontend_dist(root: &Path, bundle_dir: &Path) -> Result<PathBuf, String> {
+    for candidate in [
+        bundle_dir.join("frontend-dist"),
+        root.join("frontend/dist"),
+    ] {
+        if candidate.join("index.html").is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err("未找到前端静态资源 frontend-dist".into())
+}
+
+fn find_local_service_binary(root: &Path, bundle_dir: &Path) -> Result<PathBuf, String> {
+    let name = local_service_binary_name();
+    for candidate in [
+        bundle_dir.join("runtime").join(name),
+        root.join("local-service/target/release").join(name),
+        root.join("local-service/target/debug").join(name),
+    ] {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "未找到 local-service 二进制 ({name})，请先运行 scripts/prepare_desktop_thin_bundle.sh"
+    ))
+}
+
+fn repo_root(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(root) = std::env::var("HUOKE_ROOT") {
+        let path = normalize_path(&PathBuf::from(root));
+        if let Some(found) = find_launch_root(&path) {
+            return Ok(found);
+        }
+    }
+
+    let resource_dir = normalize_path(
+        &app
+            .path()
+            .resource_dir()
+            .map_err(|err| err.to_string())?,
+    );
+    if let Some(found) = find_launch_root(&resource_dir) {
+        return Ok(found);
+    }
+
+    if cfg!(windows) {
+        if let Ok(exe_dir) = app.path().executable_dir() {
+            let exe_dir = normalize_path(&exe_dir);
+            if let Some(found) = find_launch_root(&exe_dir) {
+                return Ok(found);
+            }
+        }
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let dev_root = manifest_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_else(|| "无法定位 Huoke 工程根目录".to_string())?;
+    if let Some(found) = find_launch_root(dev_root) {
+        return Ok(found);
+    }
+
+    Err("无法定位 Huoke 工程根目录，请重新安装应用".into())
+}
+
+fn resolve_bundle_dir(root: &Path) -> Result<PathBuf, String> {
+    find_bundle_dir(root).ok_or_else(|| {
+        format!(
+            "未找到桌面 bundle。HUOKE_ROOT={}",
+            root.display()
+        )
+    })
+}
+
+fn desktop_data_dir(app: &AppHandle) -> PathBuf {
+    if let Some(data_dir) = windows_data_dir() {
+        return PathBuf::from(data_dir);
+    }
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn start_local_service(
+    root: &Path,
+    bundle_dir: &Path,
+    data_dir: &Path,
+    log_file: &Path,
+    log_state: Arc<BackendLogState>,
+) -> Result<BackendProcess, String> {
+    let binary = find_local_service_binary(root, bundle_dir)?;
+    let mut command = Command::new(&binary);
+    command
+        .env("HUOKE_LOCAL_PORT", LOCAL_SERVICE_PORT.to_string())
+        .env("HUOKE_DATA_DIR", data_dir)
+        .env("HUOKE_LOG_FILE", log_file)
+        .env("HUOKE_ROOT", root)
+        .current_dir(root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    hide_backend_console(&mut command);
+
+    let log_file = Arc::new(log_file.to_path_buf());
+    let mut child = command
+        .spawn()
+        .map_err(|err| format!("启动 local-service 失败: {err}"))?;
+
+    let mut log_readers = Vec::new();
+    if let Some(handle) = spawn_log_reader(
+        child.stdout.take(),
+        Arc::clone(&log_file),
+        Arc::clone(&log_state),
+    ) {
+        log_readers.push(handle);
+    }
+    if let Some(handle) = spawn_log_reader(child.stderr.take(), log_file, log_state) {
+        log_readers.push(handle);
+    }
+
+    Ok(BackendProcess { child, log_readers })
+}
+
+fn start_thin_stack(
+    root: &PathBuf,
+    bundle_dir: &Path,
+    app: &AppHandle,
+    log_file: &Path,
+    log_state: Arc<BackendLogState>,
+) -> Result<(BackendProcess, JoinHandle<()>), String> {
+    let frontend_dist = resolve_frontend_dist(root, bundle_dir)?;
+    let data_dir = desktop_data_dir(app);
+    std::fs::create_dir_all(&data_dir).map_err(|err| err.to_string())?;
+
+    let static_handle =
+        static_server::spawn_static_server(frontend_dist, DESKTOP_PORT).map_err(|err| err.to_string())?;
+    let local_service = start_local_service(root, bundle_dir, &data_dir, log_file, log_state)?;
+    Ok((local_service, static_handle))
+}
+
+fn windows_data_dir() -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    std::env::var("APPDATA")
+        .ok()
+        .map(|app_data| format!(r"{app_data}\com.huoke.desktop"))
+}
+
+fn spawn_log_reader<R>(
+    stream: Option<R>,
+    log_file: Arc<PathBuf>,
+    log_state: Arc<BackendLogState>,
+) -> Option<JoinHandle<()>>
+where
+    R: std::io::Read + Send + 'static,
+{
+    stream.map(|stream| {
+        thread::spawn(move || {
+            let reader = BufReader::new(stream);
+            for line in reader.lines().map_while(Result::ok) {
+                append_unified_log(&log_file, &line);
+                log::info!("[backend] {line}");
+                log_state.push_line(line);
+            }
+        })
+    })
+}
+
+fn drain_log_readers(handles: Vec<JoinHandle<()>>) {
+    for handle in handles {
+        let _ = handle.join();
+    }
+}
+
+#[cfg(windows)]
+fn hide_backend_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_backend_console(_command: &mut Command) {}
+
+fn verify_desktop_frontend(
+    client: &reqwest::blocking::Client,
+    log_hint: &str,
+) -> Result<(), String> {
+    let resp = client
+        .get(APP_HOME_URL)
+        .send()
+        .map_err(|err| err.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "获客界面不可用 (HTTP {})。请查看日志: {}",
+            resp.status(),
+            log_hint
+        ));
+    }
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if !content_type.contains("text/html") {
+        return Err(format!(
+            "端口 {} 未托管桌面前端（可能连到了开发 API 或其它服务）。\n\
+             请关闭占用该端口的进程后重开应用。",
+            DESKTOP_PORT
+        ));
+    }
+
+    let body = resp.text().map_err(|err| err.to_string())?;
+    let asset_path = extract_module_asset_path(&body).ok_or_else(|| {
+        format!(
+            "前端 index.html 未包含可加载的 JS 资源，可能打包不完整。\n请重新安装应用。\n日志: {log_hint}"
+        )
+    })?;
+    let asset_url = format!("http://127.0.0.1:{}{asset_path}", DESKTOP_PORT);
+    let asset_resp = client
+        .get(&asset_url)
+        .send()
+        .map_err(|err| format!("前端 JS 资源请求失败: {err}"))?;
+    if !asset_resp.status().is_success() {
+        return Err(format!(
+            "前端 JS 加载失败 (HTTP {})：{asset_path}\n\
+             常见原因：安装包前端资源不完整或版本不匹配。请重新打包安装。\n日志: {log_hint}",
+            asset_resp.status()
+        ));
+    }
+    let asset_type = asset_resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if asset_type.contains("text/html") {
+        return Err(format!(
+            "前端 JS 资源返回了 HTML 而不是脚本：{asset_path}\n\
+             说明静态资源路由异常或资源缺失。请重新安装应用。\n日志: {log_hint}"
+        ));
+    }
+    Ok(())
+}
+
+fn extract_module_asset_path(html: &str) -> Option<String> {
+    for token in html.split('<') {
+        let lower = token.to_ascii_lowercase();
+        if !lower.contains("script") || !lower.contains("type=\"module\"") && !lower.contains("type='module'") {
+            continue;
+        }
+        for part in token.split_whitespace() {
+            let normalized = part.trim();
+            if let Some(src) = normalized
+                .strip_prefix("src=\"")
+                .and_then(|value| value.strip_suffix('"'))
+            {
+                if src.starts_with("/assets/") {
+                    return Some(src.to_string());
+                }
+            }
+            if let Some(src) = normalized
+                .strip_prefix("src='")
+                .and_then(|value| value.strip_suffix('\''))
+            {
+                if src.starts_with("/assets/") {
+                    return Some(src.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn format_backend_failure(base: &str, log_state: &BackendLogState) -> String {
+    let tail = log_state.tail(80);
+    if tail.is_empty() {
+        return base.to_string();
+    }
+    format!("{base}\n\n后端输出（最近 80 行）:\n{tail}")
+}
+
+fn wait_backend_ready(
+    timeout: Duration,
+    backend: &mut BackendProcess,
+    log_state: &BackendLogState,
+    log_hint: &str,
+) -> Result<(), String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .map_err(|err| err.to_string())?;
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        if Instant::now() >= deadline {
+            drain_log_readers(std::mem::take(&mut backend.log_readers));
+            let base = format!(
+                "桌面服务启动超时（静态 {DESKTOP_PORT} / local-service {LOCAL_SERVICE_PORT}）。请查看日志:\n{log_hint}",
+                DESKTOP_PORT = DESKTOP_PORT,
+                LOCAL_SERVICE_PORT = LOCAL_SERVICE_PORT,
+            );
+            return Err(format_backend_failure(&base, log_state));
+        }
+
+        let static_ok = client
+            .get(STATIC_HEALTH_URL)
+            .send()
+            .map(|resp| resp.status().is_success())
+            .unwrap_or(false);
+        let local_ok = client
+            .get(LOCAL_SERVICE_HEALTH_URL)
+            .send()
+            .map(|resp| resp.status().is_success())
+            .unwrap_or(false);
+
+        if static_ok && local_ok && verify_desktop_frontend(&client, log_hint).is_ok() {
+            return Ok(());
+        }
+
+        if let Ok(Some(status)) = backend.child.try_wait() {
+            drain_log_readers(std::mem::take(&mut backend.log_readers));
+            let code = status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| status.to_string());
+            let base = format!("local-service 进程异常退出 (code={code})。\n日志: {log_hint}");
+            return Err(format_backend_failure(&base, log_state));
+        }
+
+        thread::sleep(Duration::from_millis(500));
+    }
+}
+
+fn stop_backend(state: &ServiceState) {
+    let mut guard = state.backend.lock().expect("backend lock");
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+fn with_main_thread<R, F>(app: &AppHandle, f: F) -> Result<R, String>
+where
+    F: FnOnce(&AppHandle) -> Result<R, String> + Send + 'static,
+    R: Send + 'static,
+{
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f(&handle));
+    })
+    .map_err(|err| err.to_string())?;
+    rx.recv()
+        .map_err(|_| "主线程任务未完成".to_string())?
+}
+
+fn percent_encode_data_url(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            65..=90 | 97..=122 | 48..=57 | 45 | 95 | 46 | 126 => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn navigate_html_page(window: &tauri::WebviewWindow, html: &str) -> Result<(), String> {
+    let url = format!(
+        "data:text/html;charset=utf-8,{}",
+        percent_encode_data_url(html)
+    );
+    window
+        .navigate(
+            url.parse()
+                .map_err(|err| format!("invalid data url: {err}"))?,
+        )
+        .map_err(|err| format!("navigate failed: {err}"))
+}
+
+fn show_startup_loading(app: &AppHandle) {
+    let html = r#"<!doctype html><html><head><meta charset="utf-8"><title>启动中</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:48px;text-align:center;color:#444}
+h1{font-size:22px;font-weight:600}p{margin-top:12px;color:#666}</style></head>
+<body><h1>正在启动获客平台…</h1><p>正在加载界面与本地服务，请稍候。</p></body></html>"#;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = navigate_html_page(&window, html);
+    }
+}
+
+fn show_startup_error(app: &AppHandle, message: &str) {
+    let log_hint = desktop_log_hint(app);
+    let html = format!(
+        r#"<!doctype html><html><head><meta charset="utf-8"><title>启动失败</title>
+<style>body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:32px;line-height:1.6;color:#222}}
+h1{{color:#c0392b}}pre{{white-space:pre-wrap;background:#f6f6f6;padding:16px;border-radius:8px;font-size:13px}}</style></head>
+<body><h1>获客平台启动失败</h1><pre>{}</pre>
+<p>日志文件: {}</p>
+<p>请打开上述日志；确认端口 {}（静态 UI）与 {}（插件桥接）未被占用后重试。</p></body></html>"#,
+        escape_html(message),
+        escape_html(&log_hint),
+        DESKTOP_PORT,
+        LOCAL_SERVICE_PORT,
+    );
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = navigate_html_page(&window, &html);
+    }
+}
+
+fn open_app_home(app: &AppHandle) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())?;
+    let parsed = APP_HOME_URL
+        .parse()
+        .map_err(|err| format!("invalid url: {err}"))?;
+    main.navigate(parsed)
+        .map_err(|err| format!("打开获客首页失败: {err}"))?;
+    Ok(())
+}
+
+fn bootstrap(app: &AppHandle, log_state: Arc<BackendLogState>) -> Result<(), String> {
+    with_main_thread(app, |app| {
+        show_startup_loading(app);
+        Ok(())
+    })?;
+
+    let root = repo_root(app)?;
+    let log_file = resolve_app_log_file(app)?;
+    let log_hint = display_path(&log_file);
+    log::info!("Huoke root: {}", root.display());
+    log::info!("Unified log file: {log_hint}");
+
+    let bundle_dir = resolve_bundle_dir(&root)?;
+    let (mut backend, _static_server) =
+        start_thin_stack(&root, &bundle_dir, app, &log_file, Arc::clone(&log_state))?;
+    wait_backend_ready(
+        Duration::from_secs(60),
+        &mut backend,
+        &log_state,
+        &log_hint,
+    )?;
+
+    // Do not join log reader threads here: they block until backend stdout/stderr
+    // close, which only happens when the process exits — leaving the UI on about:blank.
+    let BackendProcess { child, log_readers: _ } = backend;
+
+    app.state::<ServiceState>()
+        .backend
+        .lock()
+        .expect("backend lock")
+        .replace(child);
+
+    with_main_thread(app, open_app_home)?;
+    log::info!("Huoke thin desktop ready at {APP_HOME_URL}");
+    Ok(())
+}
+
+#[tauri::command]
+fn restart_desktop_app(app: AppHandle) -> Result<(), String> {
+    stop_backend(&*app.state::<ServiceState>());
+    app.restart();
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
+        .manage(ServiceState {
+            backend: Mutex::new(None),
+        })
+        .manage(Arc::new(BackendLogState {
+            lines: Mutex::new(Vec::new()),
+        }))
+        .invoke_handler(tauri::generate_handler![restart_desktop_app])
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let log_state = {
+                let state = app.state::<Arc<BackendLogState>>();
+                Arc::clone(&state)
+            };
+            std::thread::spawn(move || match bootstrap(&handle, log_state) {
+                Ok(()) => {}
+                Err(err) => {
+                    log::error!("bootstrap failed: {err}");
+                    let app = handle.clone();
+                    let message = err;
+                    let _ = handle.run_on_main_thread(move || show_startup_error(&app, &message));
+                }
+            });
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                stop_backend(&*app.state::<ServiceState>());
+                return;
+            }
+
+            if let RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { .. },
+                ..
+            } = event
+            {
+                if label == "main" {
+                    stop_backend(&*app.state::<ServiceState>());
+                }
+            }
+        });
+}

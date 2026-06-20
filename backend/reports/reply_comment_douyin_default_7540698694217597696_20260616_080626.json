@@ -1,0 +1,16 @@
+{
+  "platform": "douyin",
+  "tenant_id": "default",
+  "action": "reply_comment",
+  "aweme_id": "7526073048076979516",
+  "comment_id": "7540698694217597696",
+  "reply_text": "您好 夜的第二章，看到您咨询「日本的淋浴房我只知道是打泡用的」，可以私信发您案例和报价～",
+  "content_url": "https://www.douyin.com/video/7526073048076979516",
+  "page_url": "https://www.douyin.com/video/7526073048076979516",
+  "page_title": "Loading https://www.douyin.com/video/7526073048076979516",
+  "capture_method": "video_page_js_api",
+  "reply": {
+    "ok": false,
+    "error": "status_code=8"
+  }
+}

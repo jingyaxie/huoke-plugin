@@ -1,0 +1,74 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7604250194478142195",
+  "video_url": "https://www.douyin.com/video/7604250194478142195",
+  "comments": [
+    {
+      "comment_id": "7653324514574582554",
+      "parent_comment_id": null,
+      "comment": "新手买多重的",
+      "create_time": 1781928474,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "山城小飞哥",
+      "user_id": "100772864846",
+      "sec_uid": "MS4wLjABAAAAJgUtx-DPiL8Ix953zaCyF4Dw8CntGMDZPXes3kWmG0E",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_oogI0BA36vGPL4IZjAX5kAgHiisciIAA9EB10.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "88afcbe0-450e-41fe-b87f-44f5dccecc82",
+        "source_keyword": "健身"
+      },
+      "nickname": "山城小飞哥"
+    },
+    {
+      "comment_id": "7653109732374725435",
+      "parent_comment_id": null,
+      "comment": "这个哑铃多重啊？",
+      "create_time": 1781878466,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "怨赌服输",
+      "user_id": "1855598874869611",
+      "sec_uid": "MS4wLjABAAAAaO5STu9Nliy-CyrC6DYR41CEz4EliC-fztlSX4n3n5IGR3NV2UPdjbqdqPbmZhMV",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/douyin-user-file_e1703aec60ac71ba447f60b0c58082a1.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "88afcbe0-450e-41fe-b87f-44f5dccecc82",
+        "source_keyword": "健身"
+      },
+      "nickname": "怨赌服输"
+    },
+    {
+      "comment_id": "7652540629628666681",
+      "parent_comment_id": null,
+      "comment": "新手应该练哪一步?",
+      "create_time": 1781745961,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "账号注销中……",
+      "user_id": "1338546478930643",
+      "sec_uid": "MS4wLjABAAAA9AuXeEFE-aDN-E572DcoKx6q7DhmWXn4kDOYw5G1UnMdhuHOWqbZPEvx1AHVoLGW",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_oQuWEGFYAEemqiKyEADAIrMf9bqwOEAAAjEbfu.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "88afcbe0-450e-41fe-b87f-44f5dccecc82",
+        "source_keyword": "健身"
+      },
+      "nickname": "账号注销中……"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "健身",
+    "capture_mode": "standalone_keyword_browse",
+    "status": "precise"
+  },
+  "content_id": "7604250194478142195",
+  "note_url": "https://www.douyin.com/video/7604250194478142195",
+  "total_comments_captured": 3,
+  "top_comments_captured": 3,
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-20T04:45:54.767832",
+    "db_total_comments": 3,
+    "new_comments_added": 1,
+    "updated_comments": 0
+  }
+}

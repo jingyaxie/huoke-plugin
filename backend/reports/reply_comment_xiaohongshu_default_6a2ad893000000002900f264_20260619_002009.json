@@ -1,0 +1,62 @@
+{
+  "platform": "xiaohongshu",
+  "tenant_id": "default",
+  "action": "reply_comment",
+  "note_id": "6a2a2fe4000000002003b077",
+  "comment_id": "6a2ad893000000002900f264",
+  "reply_text": "同意",
+  "note_url": "https://www.xiaohongshu.com/explore/6a2a2fe4000000002003b077?xsec_source=pc_search",
+  "page_url": "https://www.xiaohongshu.com/404?source=/404/sec_apmhCqNO?redirectPath=https%3A%2F%2Fwww.xiaohongshu.com%2Fexplore%2F6a2a2fe4000000002003b077%3Fxsec_source%3Dpc_search&error_code=300031&error_msg=%E5%BD%93%E5%89%8D%E7%AC%94%E8%AE%B0%E6%9A%82%E6%97%B6%E6%97%A0%E6%B3%95%E6%B5%8F%E8%A7%88&uuid=01e43357-1503-47a3-8f53-cbe060317570&verifyMsg=",
+  "page_title": "小红书 - 你访问的页面不见了",
+  "capture_method": "note_page",
+  "reply": {
+    "ok": false,
+    "error": "笔记链接已失效(xsec_token 过期或不可访问)，请重新抓取评论以更新链接",
+    "page_ready": {
+      "ok": false,
+      "error": "笔记链接已失效(xsec_token 过期或不可访问)，请重新抓取评论以更新链接",
+      "page_url": "https://www.xiaohongshu.com/404?source=/404/sec_apmhCqNO?redirectPath=https%3A%2F%2Fwww.xiaohongshu.com%2Fexplore%2F6a2a2fe4000000002003b077%3Fxsec_source%3Dpc_search&error_code=300031&error_msg=%E5%BD%93%E5%89%8D%E7%AC%94%E8%AE%B0%E6%9A%82%E6%97%B6%E6%97%A0%E6%B3%95%E6%B5%8F%E8%A7%88&uuid=01e43357-1503-47a3-8f53-cbe060317570&verifyMsg=",
+      "page_title": "小红书 - 你访问的页面不见了"
+    },
+    "login": {
+      "ok": true,
+      "user_id": "5ef2ee1800000000010064d5",
+      "prep": {
+        "dismiss": {
+          "dismissed": false,
+          "had_modal": false,
+          "actions": []
+        },
+        "activate": {
+          "ok": false,
+          "status": 406,
+          "data": {
+            "code": -1,
+            "success": false
+          }
+        },
+        "user_me": {
+          "ok": true,
+          "guest": false,
+          "user_id": "5ef2ee1800000000010064d5",
+          "status": 200,
+          "raw": {
+            "code": 0,
+            "success": true,
+            "msg": "成功",
+            "data": {
+              "user_id": "5ef2ee1800000000010064d5",
+              "nickname": "鲤跃姐姐",
+              "desc": "还没有简介",
+              "gender": 1,
+              "images": "https://sns-avatar-qc.xhscdn.com/avatar/64f6f9f6c88dbc4568ce459c.jpg?imageView2/2/w/360/format/webp",
+              "imageb": "https://sns-avatar-qc.xhscdn.com/avatar/64f6f9f6c88dbc4568ce459c.jpg?imageView2/2/w/540/format/webp",
+              "guest": false,
+              "red_id": "825917154"
+            }
+          }
+        }
+      }
+    }
+  }
+}

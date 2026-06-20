@@ -1,0 +1,37 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7651453989448559481",
+  "video_url": "https://www.douyin.com/video/7651453989448559481",
+  "content_id": "7651453989448559481",
+  "content_url": "https://www.douyin.com/video/7651453989448559481",
+  "api_total_top_comments": 1,
+  "top_comments_captured": 1,
+  "total_comments_captured": 1,
+  "raw_comments_scanned": 1,
+  "capture_method": "video_url_ui_passive",
+  "comment_days": 7,
+  "comments": [
+    {
+      "comment_id": "7651519028699448090",
+      "parent_comment_id": null,
+      "comment": "[舔屏][舔屏][舔屏]",
+      "create_time": 1781508101,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "给我o泡🧖🏻‍♀️",
+      "user_id": "1947932423633901",
+      "sec_uid": "MS4wLjABAAAAq937kTYi9BGue2peUsey-JAcPHE8qjigbUIf5NsmDTrZwJE-9YrcBCIGAUyE_GfN",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_30a22a20d3136fc935fa1106341e8ab2.jpeg?from=2064092626"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "ai获客",
+    "search_keyword": "上海 ai获客",
+    "days": 7,
+    "region": "上海",
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  },
+  "stop_reason": "评论接口已无更多分页",
+  "output_file": "/Users/macbook/project/ai/aihuoke/huoke/backend/reports/comments_douyin_default_7651453989448559481_20260617_222918.json"
+}

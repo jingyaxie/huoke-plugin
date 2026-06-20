@@ -1,0 +1,8 @@
+[[permission]]
+identifier = "shell-commands"
+description = "Shell footer navigation commands"
+commands.allow = [
+  "shell_get_mode",
+  "shell_open_app",
+  "shell_open_portal",
+]

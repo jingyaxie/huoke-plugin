@@ -1,0 +1,18 @@
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class TenantApiKey(Base):
+    __tablename__ = "tenant_api_keys"
+    __table_args__ = (UniqueConstraint("key_hash", name="uq_tenant_api_keys_key_hash"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

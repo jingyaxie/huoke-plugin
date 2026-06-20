@@ -1,0 +1,87 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7652587842396278050",
+  "video_url": "https://www.douyin.com/jingxuan/search/%E5%81%A5%E8%BA%AB?aid=b4a487cd-489f-4dfc-a44a-0ec70843ed0a&modal_id=7652587842396278050&type=general",
+  "comments": [
+    {
+      "comment_id": "7653012544973734696",
+      "parent_comment_id": null,
+      "comment": "求求快发精准后束的训练[色]",
+      "create_time": 1781855837,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "Rosie",
+      "user_id": "111266904702",
+      "sec_uid": "MS4wLjABAAAAXu5BLHWv3clrw6oO8oLM5sQjKPZTQGUw1u8i0mtnLk8",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_49529b12d9da92c34e26803e93ccc76b.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "健身"
+      },
+      "nickname": "Rosie"
+    },
+    {
+      "comment_id": "7652971968455525157",
+      "parent_comment_id": null,
+      "comment": "后束是哪个动作啊 我要练 我也要见见我的后束",
+      "create_time": 1781846390,
+      "digg_count": 0,
+      "reply_comment_total": 2,
+      "username": "颓废选手",
+      "user_id": "4023805077372395",
+      "sec_uid": "MS4wLjABAAAAxQ4RjvChp3uPLflf3EBHQmBDRUMTE_jv8y44e85-q6ndVBbVtf503cWgtCvilNei",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_2a316cd1a650d1606b27a334516f13d8.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "健身"
+      },
+      "nickname": "颓废选手"
+    },
+    {
+      "comment_id": "7652627650604106545",
+      "parent_comment_id": null,
+      "comment": "姐，我下腹一直刷不下去，我碳水是2.6g蛋白质1.5g脂肪0.8g，练一休一，体脂率整体也不高，就是小腹肉很厚，有什么办法可以改善吗",
+      "create_time": 1781766223,
+      "digg_count": 0,
+      "reply_comment_total": 5,
+      "username": "老公离家出走开始当一",
+      "user_id": "105245304189",
+      "sec_uid": "MS4wLjABAAAA6gh72PIf6jv4MM1xZqTbOh_9SkrsrPojNldkv7vweaI",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_ooBpAi7ALIpGPinAoo8fAjEZ0JAtCew711EtAE.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "健身"
+      },
+      "nickname": "老公离家出走开始当一"
+    },
+    {
+      "comment_id": "7652620820435731249",
+      "parent_comment_id": null,
+      "comment": "我看了你的视频加了有氧、刷脂效率嘎嘎高。一周做五次有氧、爬楼机、一次一小时。下午再力量训练。",
+      "create_time": 1781764632,
+      "digg_count": 2,
+      "reply_comment_total": 8,
+      "username": "多啦M梦",
+      "user_id": "99527956266",
+      "sec_uid": "MS4wLjABAAAAQ3-16tn3AqDjv-aM2p8GYblX2OBZS_8KgHOYpLpZ6ek",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_dc726ac8b95ed382fc88eece81fcd6a8.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "健身"
+      },
+      "nickname": "多啦M梦"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "健身",
+    "capture_mode": "standalone_keyword_browse",
+    "status": "precise"
+  },
+  "content_id": "7652587842396278050",
+  "note_url": "https://www.douyin.com/jingxuan/search/%E5%81%A5%E8%BA%AB?aid=b4a487cd-489f-4dfc-a44a-0ec70843ed0a&modal_id=7652587842396278050&type=general",
+  "total_comments_captured": 4,
+  "top_comments_captured": 4,
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-20T03:12:25.692440",
+    "db_total_comments": 4,
+    "new_comments_added": 1,
+    "updated_comments": 0
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "platform": "douyin",
+  "keyword": "团餐",
+  "search_keyword": "团餐",
+  "region": null,
+  "days": 7,
+  "video_count": 5,
+  "capture_method": "human_journey_douyin_search_ui",
+  "diagnostic": "关键词「团餐」搜索成功（ui_search，5 条视频）；筛选后仅 0/28 条命中目标 5 条（region=-, days=7），可放宽条件或增大 limit",
+  "videos": [
+    {
+      "aweme_id": "6615380948009618691",
+      "video_url": "https://www.douyin.com/video/6615380948009618691"
+    },
+    {
+      "aweme_id": "7214700535977430327",
+      "video_url": "https://www.douyin.com/video/7214700535977430327"
+    },
+    {
+      "aweme_id": "7617429647411910843",
+      "video_url": "https://www.douyin.com/video/7617429647411910843"
+    },
+    {
+      "aweme_id": "7136849361643916552",
+      "video_url": "https://www.douyin.com/video/7136849361643916552"
+    },
+    {
+      "aweme_id": "7355902492019838258",
+      "video_url": "https://www.douyin.com/video/7355902492019838258"
+    }
+  ]
+}

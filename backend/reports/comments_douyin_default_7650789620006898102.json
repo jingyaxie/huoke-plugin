@@ -1,0 +1,468 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7650789620006898102",
+  "video_url": "https://www.douyin.com/video/7650789620006898102",
+  "comments": [
+    {
+      "comment_id": "7651862622476747557",
+      "parent_comment_id": null,
+      "comment": "拉一下吧",
+      "create_time": 1781588101,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "nick",
+      "user_id": "134575317859968",
+      "sec_uid": "MS4wLjABAAAAOMl20MgQFScsUm-mKzZsCcWrU7nMvqqUKp7UACROvlU",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_ocIcEFfDeEyL9jmA9rxUD8eKwEWA4E1AFAAiIw.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "nick"
+    },
+    {
+      "comment_id": "7651785536328057649",
+      "parent_comment_id": null,
+      "comment": "拉拉拉",
+      "create_time": 1781570153,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "175",
+      "user_id": "75940506285",
+      "sec_uid": "MS4wLjABAAAAxDaTztAQFWK7Mu5aWyQo2KxwRGayMir-DCdjdRH3WCo",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_0224fa096c9f4bc7ab184c58f4f5f5b9.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "175"
+    },
+    {
+      "comment_id": "7651717293647332145",
+      "parent_comment_id": null,
+      "comment": "拉",
+      "create_time": 1781554273,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "Dreams",
+      "user_id": "62597685340",
+      "sec_uid": "MS4wLjABAAAAsd8Fz2bKXZWVmX6hmBSqdPvj1-GL6tXgQgtcAYlChfo",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/mosaic-legacy_1729d0005cc78b3a44875.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "Dreams"
+    },
+    {
+      "comment_id": "7651660957341172539",
+      "parent_comment_id": null,
+      "comment": "拉",
+      "create_time": 1781541147,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "🦀不肉要长肉",
+      "user_id": "93535048835",
+      "sec_uid": "MS4wLjABAAAAompDlsmbETtb7T6saySH-YjsgrFg2_YeJb3KVIfGa5A",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_oMBALhQAGmA84D9sHI7t5fbHAineBEAg6AUKAf.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "🦀不肉要长肉"
+    },
+    {
+      "comment_id": "7651595622823445290",
+      "parent_comment_id": null,
+      "comment": "加",
+      "create_time": 1781525935,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "文吉吉",
+      "user_id": "71800928882",
+      "sec_uid": "MS4wLjABAAAAN1gQh2L6sqdW6kKbnCKur9cphA1M8Ej5mA-3l2cP3Js",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_o8BYEAABQwEOHAAS7A3hDAAjiSaPzFInEiQIP.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "文吉吉"
+    },
+    {
+      "comment_id": "7651578538768499492",
+      "parent_comment_id": null,
+      "comment": "拉我拉我",
+      "create_time": 1781521957,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "嘿爷",
+      "user_id": "76446796595",
+      "sec_uid": "MS4wLjABAAAAFWV2pt7VD9EhSWke5-Vytb40tjFRf86_uOn70pb8Wug",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/mosaic-legacy_3793_3114521287.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "嘿爷"
+    },
+    {
+      "comment_id": "7651564279863690033",
+      "parent_comment_id": null,
+      "comment": "拉一下谢谢",
+      "create_time": 1781518638,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "987",
+      "user_id": "111085111253",
+      "sec_uid": "MS4wLjABAAAAsb7HbW69eYV241wn9t-cT0jYdSYiffTAP8QX9x46j2U",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_d83ea56aa7976788e1ad1fbdc9abcdc9.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "987"
+    },
+    {
+      "comment_id": "7651542707232506667",
+      "parent_comment_id": null,
+      "comment": "拉",
+      "create_time": 1781513615,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "思言空.",
+      "user_id": "94224715266",
+      "sec_uid": "MS4wLjABAAAAHRyH26jWLc9yiJnefCm_d9C1sUv6bUmbMjIaksikPx4",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_187d5a7bb53c32e2663017e13654faa7.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "思言空."
+    },
+    {
+      "comment_id": "7651438839248503552",
+      "parent_comment_id": null,
+      "comment": "拉",
+      "create_time": 1781489432,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "Jarvan",
+      "user_id": "94780282746",
+      "sec_uid": "MS4wLjABAAAAOfXVHlds7dvvGshmdk69bDfF5J6OBRZnvkqSAHpw8Bc",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_261ad82ab84d099cb73e0a2f5401c21a.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "Jarvan"
+    },
+    {
+      "comment_id": "7651421537338360626",
+      "parent_comment_id": null,
+      "comment": "拉拉拉[玫瑰][玫瑰]",
+      "create_time": 1781485403,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "啸天-",
+      "user_id": "64334034993",
+      "sec_uid": "MS4wLjABAAAAv69VYIHdWL7Mt-UAmUNh3gA7S1OKtvE-WILbf_Odz1A",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_oUH7MQAPIfPAjcBAQEkAjGWAe5of7B8OAHAWwF.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "啸天-"
+    },
+    {
+      "comment_id": "7651417065920856851",
+      "parent_comment_id": null,
+      "comment": "拉",
+      "create_time": 1781484364,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "哈个",
+      "user_id": "3847889963189124",
+      "sec_uid": "MS4wLjABAAAA6ySCqmmMah7Nse2Uw3VwquYGlEEGy-2VqnKPG7GjsIp58SsUXeFG7cg8YaiEGlC1",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/mosaic-legacy_3797_2889309425.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "哈个"
+    },
+    {
+      "comment_id": "7651416703117771539",
+      "parent_comment_id": null,
+      "comment": "拉起来 我学习学习",
+      "create_time": 1781484277,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "曜申车改上海俱乐部—卓麒正",
+      "user_id": "514213604497175",
+      "sec_uid": "MS4wLjABAAAAYnAHEuyL2Zb_DLglvDH38W0jxkVhzx65dccQIpb79yU",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_534eaef24e955e1a428eedf880ee7f77.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "曜申车改上海俱乐部—卓麒正"
+    },
+    {
+      "comment_id": "7651415941821301554",
+      "parent_comment_id": null,
+      "comment": "拉一下",
+      "create_time": 1781484100,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "王子说*",
+      "user_id": "82115182293",
+      "sec_uid": "MS4wLjABAAAAnjGKZZ_0lnFxM-GWS4mcRWraAv3qFv_7IsGG5NDE2vk",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_db60514abea099424af727b8b12ba5cb.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "王子说*"
+    },
+    {
+      "comment_id": "7651411466146825010",
+      "parent_comment_id": null,
+      "comment": "拉",
+      "create_time": 1781483058,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "咔咔西",
+      "user_id": "2560078894079576",
+      "sec_uid": "MS4wLjABAAAAlZtvIQrwtSu8UAqNRY-txXFDOmwd-8WIqmtpEgq9DRE5EdnDkVeIykN1UF4gnswV",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/mosaic-legacy_3796_2975850990.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "咔咔西"
+    },
+    {
+      "comment_id": "7651395341044859691",
+      "parent_comment_id": null,
+      "comment": "拉拉啦",
+      "create_time": 1781479305,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "xxxxxx",
+      "user_id": "246740449233335",
+      "sec_uid": "MS4wLjABAAAAVq94qzgG7cYWtwXukb-4R7vWMYP9FGsgiPWAB9V6jZc",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_b89f4d3097414b80944e6c3c71836955.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "xxxxxx"
+    },
+    {
+      "comment_id": "7651391520365527865",
+      "parent_comment_id": null,
+      "comment": "拉一下谢谢",
+      "create_time": 1781478416,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "TonySnake0009",
+      "user_id": "59058471452",
+      "sec_uid": "MS4wLjABAAAAKaQN4oOdDbXJPz6lIFTBgj4CRPgXyOwIUqxZoo4k4Mg",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/e8974d725a9cc4abf0d6d553b3fd2c3f.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "TonySnake0009"
+    },
+    {
+      "comment_id": "7651384109729645354",
+      "parent_comment_id": null,
+      "comment": "[抱拳]交流一下",
+      "create_time": 1781476689,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "菠萝君",
+      "user_id": "85697233191",
+      "sec_uid": "MS4wLjABAAAA0JMY1GuBbvgLy6mvevxtDwyuJ4_gk4_oVQj5M6IruRU",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_0b757ed8a8a5bb3026ae14a0c95d0d3d.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "菠萝君"
+    },
+    {
+      "comment_id": "7651382001307648825",
+      "parent_comment_id": null,
+      "comment": "拉一下，谢谢",
+      "create_time": 1781476198,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "一休哥",
+      "user_id": "817634632274095",
+      "sec_uid": "MS4wLjABAAAAN9cjwmEJlMH0vjUbNm8mnM23RZwjh_R84jgWI5rDj-w",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_25f73b7edb0dc3378a795f49639cd6c5.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "一休哥"
+    },
+    {
+      "comment_id": "7651322173642113829",
+      "parent_comment_id": null,
+      "comment": "拉一下",
+      "create_time": 1781462270,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "食刻惊喜创始人",
+      "user_id": "95580150554",
+      "sec_uid": "MS4wLjABAAAAzj35lKy-yqZdSDlNlsz0FWpVG9GOkfj7ic8kFzZN3_E",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_87319a0a80b0bc42d3d4ed85ffe36fb3.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "食刻惊喜创始人"
+    },
+    {
+      "comment_id": "7651290534515360552",
+      "parent_comment_id": null,
+      "comment": "拉一下着",
+      "create_time": 1781454904,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "班超",
+      "user_id": "54693077594",
+      "sec_uid": "MS4wLjABAAAAksDSnGhGPeKTMsRvsj2Y4x6Mo4Qffqc6MaN5X5VoM5E",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_owLq9ySshUuUAfkCCANEAgAn5KA1CCzNAIpte0.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "班超"
+    },
+    {
+      "comment_id": "7651285627849720582",
+      "parent_comment_id": "7651281512365605642",
+      "comment": "已拉同志们",
+      "create_time": 1781453759,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "Nashland",
+      "user_id": "1603559935981916",
+      "sec_uid": "MS4wLjABAAAA0Q-JIrOBkq69ACgdM-SpNGzHtWjrBoSVjsIRS6jTTT1Zx53fAJbTP3zdVVJisUnX",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_ee4c2776ed3558d9da87ec55ab33bf81.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "Nashland"
+    },
+    {
+      "comment_id": "7651281512365605642",
+      "parent_comment_id": null,
+      "comment": "拉吧",
+      "create_time": 1781452801,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "戴维斯AI",
+      "user_id": "84418636569",
+      "sec_uid": "MS4wLjABAAAAk5M0VGmXeFeNKDFhdCGbjTmS2LCAxVYKYx-go8WGRF4",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_0247010bba05e1ca8991e2f121262f2a.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "戴维斯AI"
+    },
+    {
+      "comment_id": "7651279564963300134",
+      "parent_comment_id": null,
+      "comment": "拉我",
+      "create_time": 1781452347,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "大奖章星舰2025",
+      "user_id": "4490041377698158",
+      "sec_uid": "MS4wLjABAAAAnFt381fT1XwDvI5Yh0iXJoDE8-KT7MvToF-mJFxPW13ABl-6Scvr_x1qgpgiBxnQ",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_bd944b10b4b8c63e30285f2446d2f42f.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "大奖章星舰2025"
+    },
+    {
+      "comment_id": "7651277367738254114",
+      "parent_comment_id": null,
+      "comment": "来",
+      "create_time": 1781451835,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "KidsWork",
+      "user_id": "77389124753",
+      "sec_uid": "MS4wLjABAAAAKSicze8PpYX-gastNSMoiTd9Nbd2FJ5FDNLkIUMUh6k",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_a376825facc5420e342c6a4ed60aa79d.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "KidsWork"
+    },
+    {
+      "comment_id": "7651274284153963313",
+      "parent_comment_id": null,
+      "comment": "来[戳手手]",
+      "create_time": 1781451118,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "Ai豆包真人版",
+      "user_id": "1637600932664075",
+      "sec_uid": "MS4wLjABAAAAL2X1hTwS0mEEr75nU32lzPe8rqeICK2AXdLmz1EKCuKaTKjti-j7lEDKy1NBN4p_",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_oAGIZivhaAZMD9XER0bpAnPxAAA2hUD3ZkAiB.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "Ai豆包真人版"
+    },
+    {
+      "comment_id": "7651264240690971427",
+      "parent_comment_id": null,
+      "comment": "来来来",
+      "create_time": 1781448779,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "徐洪飞",
+      "user_id": "69831481214",
+      "sec_uid": "MS4wLjABAAAAswBCLnAW-XoyJAXkCMbI1vi2yKa9ONGD26fg-jjZ2FQ",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_a45ada873f1406443fd66fdd4a6f2ab0.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "118462d7-2d96-4f98-b73d-ec4e7a338363",
+        "source_keyword": "ai获客"
+      },
+      "nickname": "徐洪飞"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "ai获客",
+    "search_keyword": "上海 ai获客",
+    "days": 7,
+    "region": "上海",
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  },
+  "content_id": "7650789620006898102",
+  "note_url": "https://www.douyin.com/video/7650789620006898102",
+  "total_comments_captured": 26,
+  "top_comments_captured": 25,
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-17T13:32:35.669690",
+    "db_total_comments": 26,
+    "new_comments_added": 0,
+    "updated_comments": 0
+  }
+}

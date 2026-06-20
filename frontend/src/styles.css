@@ -1,0 +1,78 @@
+:root {
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --text: #1e293b;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --primary: #2563eb;
+  --accent: #ea580c;
+  --sidebar-width: 240px;
+  --sidebar-bg: linear-gradient(180deg, rgba(10, 16, 30, 0.98), rgba(8, 12, 24, 0.98));
+  --sidebar-glow: rgba(0, 229, 255, 0.18);
+  --sidebar-text: #d0d7e2;
+  --sidebar-text-muted: #64748b;
+  --sidebar-text-strong: #e6f3ff;
+  --sidebar-accent: #00e5ff;
+  --sidebar-accent-soft: rgba(0, 229, 255, 0.14);
+  --sidebar-border: rgba(148, 163, 184, 0.18);
+  --el-color-primary: #2563eb;
+  --el-color-primary-light-3: #93c5fd;
+  --el-color-primary-light-5: #bfdbfe;
+  --el-color-primary-light-7: #dbeafe;
+  --el-color-primary-light-8: #eff6ff;
+  --el-color-primary-light-9: #f0f7ff;
+  --el-color-primary-dark-2: #1d4ed8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+}
+
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0;
+}
+
+.panel {
+  background: var(--panel);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.page-subtitle {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.table-card {
+  overflow: hidden;
+}
+

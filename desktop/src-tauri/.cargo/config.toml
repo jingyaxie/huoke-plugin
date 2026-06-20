@@ -1,0 +1,10 @@
+# CI / 弱网：降低 crates.io 拉取失败（HTTP2 framing layer 等）
+[net]
+retry = 10
+git-fetch-with-cli = true
+
+[http]
+multiplexing = false
+
+[registries.crates-io]
+protocol = "sparse"

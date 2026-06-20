@@ -1,0 +1,568 @@
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+pub mod outreach;
+pub use outreach::{
+    OutreachItem, OutreachItemDraft, OutreachItemStatus, OutreachTask, OutreachTaskStatus, QuotaStatus,
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JobStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+impl JobStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "running" => Self::Running,
+            "completed" => Self::Completed,
+            "failed" => Self::Failed,
+            _ => Self::Pending,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CollectJob {
+    pub id: String,
+    pub platform: String,
+    pub keyword: String,
+    pub name: String,
+    pub job_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_url: Option<String>,
+    pub status: JobStatus,
+    pub limit_videos: i64,
+    pub max_comments_per_video: i64,
+    pub error_message: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub video_count: i64,
+    pub comment_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CapturedVideo {
+    pub id: String,
+    pub job_id: String,
+    pub aweme_id: String,
+    pub video_url: String,
+    pub title: String,
+    pub author: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CapturedComment {
+    pub id: String,
+    pub job_id: String,
+    pub aweme_id: String,
+    pub comment_id: String,
+    pub parent_comment_id: Option<String>,
+    pub content: String,
+    pub username: String,
+    pub user_id: String,
+    pub sec_uid: String,
+    pub digg_count: i64,
+    pub create_time: Option<i64>,
+    pub created_at: i64,
+}
+
+#[derive(Clone)]
+pub struct Database {
+    conn: Arc<Mutex<Connection>>,
+}
+
+impl Database {
+    pub fn open(path: &Path) -> Result<Self, String> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let conn = Connection::open(path).map_err(|e| e.to_string())?;
+        let db = Self {
+            conn: Arc::new(Mutex::new(conn)),
+        };
+        db.migrate()?;
+        Ok(db)
+    }
+
+    fn migrate(&self) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS collect_jobs (
+                id TEXT PRIMARY KEY,
+                platform TEXT NOT NULL DEFAULT 'douyin',
+                keyword TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                limit_videos INTEGER NOT NULL DEFAULT 5,
+                max_comments_per_video INTEGER NOT NULL DEFAULT 50,
+                error_message TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS captured_videos (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                aweme_id TEXT NOT NULL,
+                video_url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                author TEXT NOT NULL DEFAULT '',
+                raw_json TEXT,
+                created_at INTEGER NOT NULL,
+                UNIQUE(job_id, aweme_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS captured_comments (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                aweme_id TEXT NOT NULL,
+                comment_id TEXT NOT NULL,
+                parent_comment_id TEXT,
+                content TEXT NOT NULL DEFAULT '',
+                username TEXT NOT NULL DEFAULT '',
+                user_id TEXT NOT NULL DEFAULT '',
+                sec_uid TEXT NOT NULL DEFAULT '',
+                digg_count INTEGER NOT NULL DEFAULT 0,
+                create_time INTEGER,
+                raw_json TEXT,
+                created_at INTEGER NOT NULL,
+                UNIQUE(job_id, comment_id)
+            );
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
+        self.migrate_outreach(&conn)?;
+        let _ = conn.execute(
+            "ALTER TABLE collect_jobs ADD COLUMN name TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute("ALTER TABLE collect_jobs ADD COLUMN config_json TEXT", []);
+        let _ = conn.execute(
+            "ALTER TABLE collect_jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'keyword'",
+            [],
+        );
+        let _ = conn.execute("ALTER TABLE collect_jobs ADD COLUMN input_url TEXT", []);
+        Ok(())
+    }
+
+    fn parse_config_json(raw: Option<String>) -> Option<serde_json::Value> {
+        raw.and_then(|text| serde_json::from_str(&text).ok())
+    }
+
+    fn build_collect_job(
+        &self,
+        id: String,
+        platform: String,
+        keyword: String,
+        name: String,
+        job_type: String,
+        input_url: Option<String>,
+        status: String,
+        limit_videos: i64,
+        max_comments_per_video: i64,
+        error_message: Option<String>,
+        created_at: i64,
+        updated_at: i64,
+        config_json: Option<String>,
+    ) -> Result<CollectJob, String> {
+        let (video_count, comment_count) = self.counts_for_job(&id)?;
+        Ok(CollectJob {
+            id,
+            platform,
+            keyword,
+            name,
+            job_type,
+            input_url,
+            status: JobStatus::from_str(&status),
+            limit_videos,
+            max_comments_per_video,
+            error_message,
+            created_at,
+            updated_at,
+            video_count,
+            comment_count,
+            config: Self::parse_config_json(config_json),
+        })
+    }
+
+    fn now_ms() -> i64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+
+    pub fn create_job(
+        &self,
+        platform: &str,
+        keyword: &str,
+        name: &str,
+        job_type: &str,
+        input_url: Option<&str>,
+        limit_videos: i64,
+        max_comments_per_video: i64,
+        config_json: Option<&str>,
+    ) -> Result<CollectJob, String> {
+        let id = Uuid::new_v4().to_string();
+        let now = Self::now_ms();
+        let display_name = if name.trim().is_empty() {
+            if job_type == "manual" {
+                "手动获客".to_string()
+            } else {
+                format!("关键词获客-{}", keyword.trim())
+            }
+        } else {
+            name.trim().to_string()
+        };
+        {
+            let conn = self.conn.lock().map_err(|e| e.to_string())?;
+            conn.execute(
+                "INSERT INTO collect_jobs (id, platform, keyword, name, job_type, input_url, status, limit_videos, max_comments_per_video, config_json, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?10)",
+                params![
+                    id,
+                    platform,
+                    keyword,
+                    display_name,
+                    job_type,
+                    input_url,
+                    limit_videos,
+                    max_comments_per_video,
+                    config_json,
+                    now
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        self.get_job(&id)
+    }
+
+    pub fn list_jobs(&self, limit: i64) -> Result<Vec<CollectJob>, String> {
+        let rows = {
+            let conn = self.conn.lock().map_err(|e| e.to_string())?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, platform, keyword, name, job_type, input_url, status, limit_videos, max_comments_per_video, error_message, created_at, updated_at, config_json
+                     FROM collect_jobs ORDER BY created_at DESC LIMIT ?1",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![limit], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                        row.get::<_, Option<String>>(9)?,
+                        row.get::<_, i64>(10)?,
+                        row.get::<_, i64>(11)?,
+                        row.get::<_, Option<String>>(12)?,
+                    ))
+                })
+                .map_err(|e| e.to_string())?;
+            rows.map(|row| row.map_err(|e| e.to_string()))
+                .collect::<Result<Vec<_>, _>>()?
+        };
+
+        let mut jobs = Vec::new();
+        for (
+            id,
+            platform,
+            keyword,
+            name,
+            job_type,
+            input_url,
+            status,
+            limit_videos,
+            max_comments_per_video,
+            error_message,
+            created_at,
+            updated_at,
+            config_json,
+        ) in rows
+        {
+            jobs.push(self.build_collect_job(
+                id,
+                platform,
+                keyword,
+                name,
+                job_type,
+                input_url,
+                status,
+                limit_videos,
+                max_comments_per_video,
+                error_message,
+                created_at,
+                updated_at,
+                config_json,
+            )?);
+        }
+        Ok(jobs)
+    }
+
+    fn counts_for_job(&self, job_id: &str) -> Result<(i64, i64), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let video_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM captured_videos WHERE job_id = ?1",
+                params![job_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let comment_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM captured_comments WHERE job_id = ?1",
+                params![job_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok((video_count, comment_count))
+    }
+
+    pub fn get_job(&self, job_id: &str) -> Result<CollectJob, String> {
+        let row = {
+            let conn = self.conn.lock().map_err(|e| e.to_string())?;
+            conn.query_row(
+                "SELECT id, platform, keyword, name, job_type, input_url, status, limit_videos, max_comments_per_video, error_message, created_at, updated_at, config_json
+                 FROM collect_jobs WHERE id = ?1",
+                params![job_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                        row.get::<_, Option<String>>(9)?,
+                        row.get::<_, i64>(10)?,
+                        row.get::<_, i64>(11)?,
+                        row.get::<_, Option<String>>(12)?,
+                    ))
+                },
+            )
+            .map_err(|e| e.to_string())?
+        };
+
+        self.build_collect_job(
+            row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11,
+            row.12,
+        )
+    }
+
+    pub fn update_job_status(
+        &self,
+        job_id: &str,
+        status: JobStatus,
+        error_message: Option<&str>,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE collect_jobs SET status = ?1, error_message = ?2, updated_at = ?3 WHERE id = ?4",
+            params![status.as_str(), error_message, Self::now_ms(), job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn list_running_job_ids(&self) -> Result<Vec<String>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT id FROM collect_jobs WHERE status = 'running'")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        rows.map(|row| row.map_err(|e| e.to_string())).collect()
+    }
+
+    pub fn upsert_videos(
+        &self,
+        job_id: &str,
+        videos: &[crate::douyin::parser::ParsedVideo],
+    ) -> Result<usize, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let now = Self::now_ms();
+        let mut inserted = 0usize;
+        for video in videos {
+            let changed = conn
+                .execute(
+                    "INSERT INTO captured_videos (id, job_id, aweme_id, video_url, title, author, raw_json, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                     ON CONFLICT(job_id, aweme_id) DO UPDATE SET
+                       title = excluded.title,
+                       author = excluded.author,
+                       raw_json = excluded.raw_json",
+                    params![
+                        Uuid::new_v4().to_string(),
+                        job_id,
+                        video.aweme_id,
+                        video.video_url,
+                        video.title,
+                        video.author,
+                        video.raw_json,
+                        now,
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+            if changed > 0 {
+                inserted += 1;
+            }
+        }
+        Ok(inserted)
+    }
+
+    pub fn upsert_comments(
+        &self,
+        job_id: &str,
+        aweme_id: &str,
+        comments: &[crate::douyin::parser::ParsedComment],
+    ) -> Result<usize, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let now = Self::now_ms();
+        let mut inserted = 0usize;
+        for comment in comments {
+            let changed = conn
+                .execute(
+                    "INSERT INTO captured_comments
+                     (id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, digg_count, create_time, raw_json, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                     ON CONFLICT(job_id, comment_id) DO UPDATE SET
+                       content = excluded.content,
+                       digg_count = excluded.digg_count,
+                       raw_json = excluded.raw_json",
+                    params![
+                        Uuid::new_v4().to_string(),
+                        job_id,
+                        aweme_id,
+                        comment.comment_id,
+                        comment.parent_comment_id,
+                        comment.content,
+                        comment.username,
+                        comment.user_id,
+                        comment.sec_uid,
+                        comment.digg_count,
+                        comment.create_time,
+                        comment.raw_json,
+                        now,
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+            if changed > 0 {
+                inserted += 1;
+            }
+        }
+        Ok(inserted)
+    }
+
+    pub fn list_videos_for_job(&self, job_id: &str) -> Result<Vec<CapturedVideo>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, job_id, aweme_id, video_url, title, author, created_at
+                 FROM captured_videos WHERE job_id = ?1 ORDER BY created_at ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![job_id], |row| {
+                Ok(CapturedVideo {
+                    id: row.get(0)?,
+                    job_id: row.get(1)?,
+                    aweme_id: row.get(2)?,
+                    video_url: row.get(3)?,
+                    title: row.get(4)?,
+                    author: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.map(|row| row.map_err(|e| e.to_string())).collect()
+    }
+
+    pub fn list_comments_for_job(
+        &self,
+        job_id: &str,
+        aweme_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<CapturedComment>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut comments = Vec::new();
+        if let Some(aweme_id) = aweme_id {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, digg_count, create_time, created_at
+                     FROM captured_comments WHERE job_id = ?1 AND aweme_id = ?2
+                     ORDER BY create_time DESC LIMIT ?3",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![job_id, aweme_id, limit], map_comment_row)
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                comments.push(row.map_err(|e| e.to_string())?);
+            }
+        } else {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, digg_count, create_time, created_at
+                     FROM captured_comments WHERE job_id = ?1
+                     ORDER BY create_time DESC LIMIT ?2",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![job_id, limit], map_comment_row)
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                comments.push(row.map_err(|e| e.to_string())?);
+            }
+        }
+        Ok(comments)
+    }
+}
+
+fn map_comment_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CapturedComment> {
+    Ok(CapturedComment {
+        id: row.get(0)?,
+        job_id: row.get(1)?,
+        aweme_id: row.get(2)?,
+        comment_id: row.get(3)?,
+        parent_comment_id: row.get(4)?,
+        content: row.get(5)?,
+        username: row.get(6)?,
+        user_id: row.get(7)?,
+        sec_uid: row.get(8)?,
+        digg_count: row.get(9)?,
+        create_time: row.get(10)?,
+        created_at: row.get(11)?,
+    })
+}

@@ -1,0 +1,87 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7649240321276005651",
+  "video_url": "https://www.douyin.com/video/7649240321276005651",
+  "comments": [
+    {
+      "comment_id": "7649620413580706575",
+      "parent_comment_id": null,
+      "comment": "成熟的AI供应链项目，流程都标准化了，专注执行就能出结果，靠谱！寻长期合伙人🔥",
+      "create_time": 1781066531,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "星蚁科技_星蚁",
+      "user_id": "86166971584",
+      "sec_uid": "MS4wLjABAAAAGaBlijZ2yhKI0tb_NeKlqpYtJ-2f4bCByselvwtzo2o",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_ossJDfutAEENQltS7AqgFCJOI291AAckBAqAHe.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "1e4db1c3-5608-4a6f-bcc6-b8a50a5a85a1"
+      },
+      "nickname": "星蚁科技_星蚁"
+    },
+    {
+      "comment_id": "7649440218482836265",
+      "parent_comment_id": null,
+      "comment": "应该快了",
+      "create_time": 1781024091,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "6666.CYZYYMX！",
+      "user_id": "2440568593449613",
+      "sec_uid": "MS4wLjABAAAAvY_U23VVgveHfFi-bDfumnl5xeUexfaCkeH5_XU8r61YsaujcTT9EX27w0QEy5zk",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_osIBrFSZeFAuJlDBQfMKAQAgEe2zm6pwXD2A72.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "1e4db1c3-5608-4a6f-bcc6-b8a50a5a85a1"
+      },
+      "nickname": "6666.CYZYYMX！"
+    },
+    {
+      "comment_id": "7649374292480951082",
+      "parent_comment_id": "7649353581607551795",
+      "comment": "还没出来，开发者入口开通了",
+      "create_time": 1781008741,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "谷发条AI智能体定制",
+      "user_id": "3438871448660787",
+      "sec_uid": "MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_937c5235fc823aaff870020f6f89ce86.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "1e4db1c3-5608-4a6f-bcc6-b8a50a5a85a1"
+      },
+      "nickname": "谷发条AI智能体定制"
+    },
+    {
+      "comment_id": "7649353581607551795",
+      "parent_comment_id": null,
+      "comment": "啥时候出的产品？",
+      "create_time": 1781003919,
+      "digg_count": 0,
+      "reply_comment_total": 1,
+      "username": "炼狱人生",
+      "user_id": "7438159075860366395",
+      "sec_uid": "MS4wLjABAAAAD8VPry8fAWCL0f8Di577QytOQWMUfj7wn22WsNhSbWq4D5t8FXlh-dGvWSg7D0FW",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_ooFETBMeIkwACisC9ioDfAS9PqAFAAQgAoSpQ1.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_job_id": "1e4db1c3-5608-4a6f-bcc6-b8a50a5a85a1"
+      },
+      "nickname": "炼狱人生"
+    }
+  ],
+  "keyword_context": {
+    "video_url": "https://www.douyin.com/video/7649240321276005651",
+    "capture_mode": "video_url_ui_passive",
+    "days": 30
+  },
+  "content_id": "7649240321276005651",
+  "note_url": "https://www.douyin.com/video/7649240321276005651",
+  "total_comments_captured": 4,
+  "top_comments_captured": 3,
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-20T06:39:57.870055",
+    "db_total_comments": 4,
+    "new_comments_added": 4,
+    "updated_comments": 0
+  }
+}

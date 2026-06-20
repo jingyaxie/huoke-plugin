@@ -1,0 +1,121 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7651814294875465137",
+  "video_url": "https://www.douyin.com/video/7651814294875465137",
+  "content_id": "7651814294875465137",
+  "content_url": "https://www.douyin.com/video/7651814294875465137",
+  "api_total_top_comments": 8,
+  "top_comments_captured": 8,
+  "total_comments_captured": 8,
+  "raw_comments_scanned": 8,
+  "capture_method": "video_url_ui_passive",
+  "comment_days": 7,
+  "comments": [
+    {
+      "comment_id": "7652189474802320128",
+      "parent_comment_id": null,
+      "comment": "客户不是不找你，只是找不到你。GEO优化能让企业在AI问答中自然露出，提升被你被用户看见的机会",
+      "create_time": 1781664773,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "摘星AIGEO优化获客",
+      "user_id": "7622935226445104165",
+      "sec_uid": "MS4wLjABAAAAVfLzIuQBnAJkjINT11BNGm8WLCIWqpDaQG3hcb38nU_gF3fA72ZKGQGXPIa7_9tn",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_okqsuaqiAieiAIqEaCi0AKDBwCouAEjrvweA79.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7652180351087084330",
+      "parent_comment_id": null,
+      "comment": "[送心]",
+      "create_time": 1781662078,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "星梦SPA养生官方号",
+      "user_id": "3841016005134663",
+      "sec_uid": "MS4wLjABAAAA6nWxmrkxXGnft4peX2apE4AgI5MpkB28mOsMHdNGLkrXqHVbpj6Z8DFCZ0ILOO7Z",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_d3457d72313464570b835d90e376f4a7.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7652005572607230769",
+      "parent_comment_id": null,
+      "comment": "[呲牙]",
+      "create_time": 1781621384,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "淼淼",
+      "user_id": "3511216410733472",
+      "sec_uid": "MS4wLjABAAAAWdNtlJoxeo40eCk_lVS8-clel2_FhPcgsZ6LDrDAkDWSw6bg5yYGLJyX0_Ut3NOb",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_oEDd4Xf1AH8ETFAB0lfFA0OSEeIJTEMg7rDAQu.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7651927437173097253",
+      "parent_comment_id": null,
+      "comment": "[玫瑰][玫瑰]",
+      "create_time": 1781603191,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "腾讯朋友圈推广（全行业）",
+      "user_id": "1401231145964787",
+      "sec_uid": "MS4wLjABAAAAHGFSOkBvhbv3sxsGur_ThRVUfeQsojTxaLbyyvjNDwSj3DO21UBJywFPdvU1SZi3",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_oYgYwexDAZ9yAIBE6CelAzCngoCSAA0HbMmAKL.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7651891515488322361",
+      "parent_comment_id": null,
+      "comment": "",
+      "create_time": 1781594827,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "鹏嵘商贸客源推送",
+      "user_id": "7636690318746469434",
+      "sec_uid": "MS4wLjABAAAAjMocXv9sMHWj4Eda1BG2HUbN1L8NL-6doI9SJdNk7u1jDDtL8S4JvexV4kMza3WF",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_o4nyGSB9pIvLAl7EEqUwQtDnFwfAACuAAQeyAU.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7651869640180007729",
+      "parent_comment_id": null,
+      "comment": "[赞]",
+      "create_time": 1781589735,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "张廷运",
+      "user_id": "2228025480187955",
+      "sec_uid": "MS4wLjABAAAAZj_ErKI_42IZHkbC-hYhkiJa8xGcFx7IyUdT6SGsWAwGmERCsUSv0ylF4jjeh72y",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_758802111bfc4135b56a4492057ba9a2.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7651840633469453115",
+      "parent_comment_id": null,
+      "comment": "什么客户",
+      "create_time": 1781582981,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "用户2493595905526",
+      "user_id": "3823420624628515",
+      "sec_uid": "MS4wLjABAAAA76pOnSO_aSaE8yQ4LQZrnVbva_Z8QA9uL5IQHcvk6YsTXzI6QSlRHBe7KzczsGw1",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c001_o0fqOy9AA6DGwbsEFMFBBEAEA5AeIgCjzuACLA.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7651825261746848569",
+      "parent_comment_id": null,
+      "comment": "来来来",
+      "create_time": 1781579402,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "安之",
+      "user_id": "68167621163",
+      "sec_uid": "MS4wLjABAAAASpsdsqOA6P6WjD0LbjGY0I1umRe2KG8KTyD-a9EQzPE",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_fbd6dbfd57bc30dcd224d84c54359baa.jpeg?from=2064092626"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "ai获客",
+    "search_keyword": "上海 ai获客",
+    "days": 7,
+    "region": "上海",
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  },
+  "stop_reason": "评论接口已无更多分页",
+  "output_file": "/Users/macbook/project/ai/aihuoke/huoke/backend/reports/comments_douyin_default_7651814294875465137_20260617_222855.json"
+}

@@ -1,0 +1,16 @@
+{
+  "platform": "douyin",
+  "tenant_id": "default",
+  "action": "reply_comment",
+  "aweme_id": "7526073048076979516",
+  "comment_id": "7528605197275611943",
+  "reply_text": "您好 Miss.Holmes D，看到您咨询「目前有没有国内品牌做一体式淋浴房」，可以私信发您案例和报价～",
+  "content_url": "https://www.douyin.com/video/7526073048076979516",
+  "page_url": "https://www.douyin.com/video/7526073048076979516",
+  "page_title": "为什么日本人要这样做淋浴房 来看下为什么日本人要这样做淋浴房#装修知识 #老房改造 #日本淋浴房 #日式设计 #装修日记vlog - 抖音",
+  "capture_method": "video_page_js_api",
+  "reply": {
+    "ok": false,
+    "error": "status_code=8"
+  }
+}

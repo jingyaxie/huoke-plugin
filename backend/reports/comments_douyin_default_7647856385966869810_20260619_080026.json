@@ -1,0 +1,46 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7647856385966869810",
+  "video_url": "https://www.douyin.com/video/7647856385966869810",
+  "api_total_top_comments": 2,
+  "top_comments_captured": 2,
+  "reply_comments_captured_preview": 0,
+  "expected_reply_total_from_top_comments": 0,
+  "total_comments_captured": 2,
+  "capture_method": "js_api",
+  "warning": null,
+  "comments": [
+    {
+      "comment_id": "7648081445844648741",
+      "parent_comment_id": null,
+      "comment": "缺电[阴险][阴险][阴险]",
+      "create_time": 1780707727,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "宇宙尽头",
+      "user_id": "1899590794881819",
+      "sec_uid": "MS4wLjABAAAAzLp4Ld7ItaOVsz2Wzv0golpmkxya47z-z3YhylQEuyTm5y8BN8WN8odcrMmwOW6O",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_2a56fca42a9a478eabf6ccb18d27230f.jpeg?from=2064092626"
+    },
+    {
+      "comment_id": "7648075205046682417",
+      "parent_comment_id": null,
+      "comment": "ai可能会创造有史以来最大量的屎山代码。只是很多人意识不到。",
+      "create_time": 1780706274,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "头大的大头",
+      "user_id": "2676643504602139",
+      "sec_uid": "MS4wLjABAAAAbCaWtl51t1eLtDZqMa_kCobzRJoUEoiqA3eehKLXTS4wufLfyQZHE_WgxHvpCEpy",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_oIe7QBuqczZfJAQmL6ElgzpegAL5JPA3MqG8AI.jpeg?from=2064092626"
+    }
+  ],
+  "comment_days": 30,
+  "profile_context": {
+    "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5?from_tab_name=main",
+    "sec_uid": "MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5",
+    "video_publish_days": null,
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  }
+}

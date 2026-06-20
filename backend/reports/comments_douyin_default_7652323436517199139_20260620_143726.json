@@ -1,0 +1,41 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7652323436517199139",
+  "video_url": "https://www.douyin.com/video/7652323436517199139",
+  "content_id": "7652323436517199139",
+  "content_url": "https://www.douyin.com/video/7652323436517199139",
+  "api_total_top_comments": 1,
+  "top_comments_captured": 1,
+  "total_comments_captured": 1,
+  "raw_comments_scanned": 1,
+  "capture_method": "video_url_ui_passive",
+  "comment_days": 30,
+  "comments": [
+    {
+      "comment_id": "7652459316977156874",
+      "parent_comment_id": null,
+      "comment": "考考你session是什么？跨机怎么解决被劫持的问题[看][看][看]",
+      "create_time": 1781727037,
+      "digg_count": 1,
+      "reply_comment_total": 0,
+      "username": "用户7794875725667",
+      "user_id": "4118142420004361",
+      "sec_uid": "MS4wLjABAAAA_X1el_RV3g-_yVmtSfMw6fZFsLVXpY2LfG5XIKyRMPKNZCXs8fL-5c18QQJhALBX",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_o0AfAeycGBNRLAwBpwIJBfQ1uEEgLgVAuK7qOA.jpeg?from=2064092626"
+    }
+  ],
+  "keyword_context": {
+    "video_url": "https://www.douyin.com/video/7652323436517199139",
+    "capture_mode": "video_url_ui_passive",
+    "days": 30
+  },
+  "stop_reason": "评论已全部加载（暂时没有更多评论）",
+  "output_file": "/Users/macbook/project/ai/aihuoke/huoke/backend/reports/comments_douyin_default_7652323436517199139_20260620_143726.json",
+  "profile_context": {
+    "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5?from_tab_name=main",
+    "sec_uid": "MS4wLjABAAAAR-hiJNkDpOJIXZ7D-H-F7MhLvQo-5q_gGXHP45xq4WXgejcno6YtUnkzlncgy1n5",
+    "video_publish_days": null,
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "platform": "douyin",
+  "aweme_id": "7530648219384335631",
+  "video_url": "https://www.douyin.com/video/7530648219384335631",
+  "api_total_top_comments": 7,
+  "top_comments_captured": 6,
+  "reply_comments_captured_preview": 0,
+  "expected_reply_total_from_top_comments": 0,
+  "total_comments_captured": 6,
+  "capture_method": "js_api",
+  "warning": null,
+  "comments": [
+    {
+      "comment_id": "7648978236836709179",
+      "parent_comment_id": null,
+      "comment": "怎么联系，有有业务聊聊",
+      "create_time": 1780916528,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "厨界柔术者，功夫菜春哥",
+      "user_id": "73165111288",
+      "sec_uid": "MS4wLjABAAAAK7k91CXniJ6EnXq2pYZ55TfknqOFmPQ8Sr_zzIXpVe8",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_ooEAypfAUCpAJg9I7KIABFEAclDsdcAVZfFFwD.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "厨界柔术者，功夫菜春哥"
+    },
+    {
+      "comment_id": "7598010711843324718",
+      "parent_comment_id": null,
+      "comment": "你好，我想问一下，你这边可以送员工餐吗，我在南山有的话可以联系我 谢谢[呲牙]",
+      "create_time": 1769049726,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "Maggie_",
+      "user_id": "61421319097",
+      "sec_uid": "MS4wLjABAAAAVX2C88c3tsbyPA5KJjrq0ndBuGW9m9ziye1tHtY3URM",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_fbd11b3954f39fed753adc629632ef31.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "Maggie_"
+    },
+    {
+      "comment_id": "7595138550937649957",
+      "parent_comment_id": null,
+      "comment": "[赞][赞]",
+      "create_time": 1768380999,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "深圳金水河营养餐",
+      "user_id": "4343539859462778",
+      "sec_uid": "MS4wLjABAAAA53LOsDirAUd3lkWPyJXrjQW71xyPPt_ZDa4FbtoHRNGJMTCFpydd1onP7AIOnv-5",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-c9aec8xkvj_6ad2168c84f1472e85131f3d0f0ee27b.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "深圳金水河营养餐"
+    },
+    {
+      "comment_id": "7575403380563641125",
+      "parent_comment_id": null,
+      "comment": "在固戍明天中午两份能送吗",
+      "create_time": 1763786047,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "茉莉青提",
+      "user_id": "74142839494",
+      "sec_uid": "MS4wLjABAAAAp94YO6uGjH5ZJ4CA_RBYdVs2ylTSTNWsyaNclRnf1x8",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813c000-ce_ooewI4HPAt9Awwnp9ZACEh9RpEQqIAF2AAAGfD.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "茉莉青提"
+    },
+    {
+      "comment_id": "7574241692368454419",
+      "parent_comment_id": null,
+      "comment": "怎么定",
+      "create_time": 1763515574,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "Tian天",
+      "user_id": "3644219201169838",
+      "sec_uid": "MS4wLjABAAAADhX9AHb7SeTDH4joGfl8o1-jDOOkb403ejQ-wJEqZbftx_QCieet7wYcZVbcUQt4",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_b1e48546c8345c03ba2071bc69527626.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "Tian天"
+    },
+    {
+      "comment_id": "7533188604467151643",
+      "parent_comment_id": null,
+      "comment": "一天20来份的量，多少钱一份啊",
+      "create_time": 1753957155,
+      "digg_count": 0,
+      "reply_comment_total": 0,
+      "username": "左一 🔥ZN札南男士发型",
+      "user_id": "2135732563220492",
+      "sec_uid": "MS4wLjABAAAAzeVnmf4h0R_5bsLhtpozvftaqIYw5YcRmW53ZfL3MvLl-gdkCPqAMI_LjaTYOWoq",
+      "avatar": "https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_11d996e87bb592b3af1ec96e9814bfc9.jpeg?from=2064092626",
+      "_agent_meta": {
+        "source_keyword": "团餐配送"
+      },
+      "nickname": "左一 🔥ZN札南男士发型"
+    }
+  ],
+  "keyword_context": {
+    "keyword": "团餐配送",
+    "search_keyword": "深圳 团餐配送",
+    "days": 3,
+    "region": "深圳",
+    "guest_mode": false,
+    "session_mode": "logged_in"
+  },
+  "content_id": "7530648219384335631",
+  "note_url": "https://www.douyin.com/video/7530648219384335631",
+  "storage_meta": {
+    "canonical": true,
+    "last_merged_at": "2026-06-15T15:42:31.590282",
+    "db_total_comments": 6,
+    "new_comments_added": 6,
+    "updated_comments": 0
+  }
+}
