@@ -21,12 +21,26 @@
       class="panel-block"
     >
       <template #default>
-        请确认：① 已在 <code>chrome://extensions</code> 加载 <code>extension/dist</code> 并重新加载；
-        ② 插件图标角标为 <strong>OK</strong>（点击图标可唤醒连接）；
-        ③ 本地服务已启动（<code>npm run dev</code>，端口 18766）。
-        也可先到
-        <router-link to="/platform-login">平台登录</router-link>
-        页在 Chrome 打开抖音并登录。
+        <template v-if="desktopMode">
+          <p>{{ extensionSetup.message || "正在准备浏览器插件…" }}</p>
+          <div class="extension-setup-actions">
+            <el-button type="primary" :loading="launchingExtension" @click="onLaunchChromeExtension">
+              启动浏览器插件
+            </el-button>
+            <el-button @click="onOpenExtensionFolder">打开插件目录</el-button>
+          </div>
+          <p class="field-hint">
+            安装版会自动加载插件并打开抖音。首次使用请在 Chrome 窗口登录抖音；之后点击「启动浏览器插件」即可。
+          </p>
+        </template>
+        <template v-else>
+          请确认：① 已在 <code>chrome://extensions</code> 加载 <code>extension/dist</code> 并重新加载；
+          ② 插件图标角标为 <strong>OK</strong>；
+          ③ 本地服务已启动（<code>npm run dev</code>，端口 18766）。
+          也可先到
+          <router-link to="/platform-login">平台登录</router-link>
+          页在 Chrome 打开抖音并登录。
+        </template>
       </template>
     </el-alert>
 
@@ -205,9 +219,19 @@ import {
   startOutreachTask,
 } from "../../api/localService";
 import { loadReplyPresetOptions } from "../../utils/localPresets";
+import {
+  getExtensionSetupStatus,
+  isDesktopMode,
+  isTauriApp,
+  launchChromeExtension,
+  openExtensionFolder,
+} from "../../utils/desktopApp";
 
 const loading = ref(false);
 const submitting = ref(false);
+const launchingExtension = ref(false);
+const desktopMode = ref(false);
+const extensionSetup = ref({ message: "" });
 const collectJobs = ref([]);
 const outreachTasks = ref([]);
 const bridgeStatus = ref({ connected_clients: 0 });
@@ -308,6 +332,40 @@ function formatTime(ts) {
   if (!Number.isFinite(num) || num <= 0) return "—";
   const ms = num > 1e12 ? num : num * 1000;
   return new Date(ms).toLocaleString("zh-CN", { hour12: false });
+}
+
+async function refreshExtensionSetup() {
+  if (!desktopMode.value || !isTauriApp()) return;
+  try {
+    extensionSetup.value = await getExtensionSetupStatus();
+  } catch {
+    extensionSetup.value = { message: "读取插件状态失败" };
+  }
+}
+
+async function onLaunchChromeExtension() {
+  launchingExtension.value = true;
+  try {
+    extensionSetup.value = await launchChromeExtension();
+    await refreshAll();
+    if (Number(bridgeStatus.value.connected_clients || 0) > 0) {
+      ElMessage.success("Chrome 插件已连接");
+    } else {
+      ElMessage.warning("已启动 Chrome，请在窗口中登录抖音并保持页面打开");
+    }
+  } catch (err) {
+    ElMessage.error(err?.message || "启动 Chrome 插件失败");
+  } finally {
+    launchingExtension.value = false;
+  }
+}
+
+async function onOpenExtensionFolder() {
+  try {
+    await openExtensionFolder();
+  } catch (err) {
+    ElMessage.error(err?.message || "打开插件目录失败");
+  }
 }
 
 async function refreshAll() {
@@ -448,9 +506,11 @@ async function selectVideo(row) {
 }
 
 onMounted(async () => {
-  await Promise.all([refreshAll(), loadReplyPresets()]);
+  desktopMode.value = await isDesktopMode();
+  await Promise.all([refreshAll(), loadReplyPresets(), refreshExtensionSetup()]);
   pollTimer = window.setInterval(() => {
     refreshAll();
+    refreshExtensionSetup();
   }, 8000);
 });
 
@@ -508,6 +568,13 @@ onUnmounted(() => {
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.extension-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 4px;
 }
 
 .detail-body h4 {

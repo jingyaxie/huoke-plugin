@@ -8,7 +8,10 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
+mod extension_bootstrap;
 mod static_server;
+
+use extension_bootstrap::ExtensionSetupStatus;
 
 const DESKTOP_PORT: u16 = 18765;
 const LOCAL_SERVICE_PORT: u16 = 18766;
@@ -19,6 +22,8 @@ const BACKEND_LOG_CAP: usize = 120;
 
 struct ServiceState {
     backend: Mutex<Option<Child>>,
+    bundle_dir: Mutex<Option<PathBuf>>,
+    data_dir: Mutex<Option<PathBuf>>,
 }
 
 struct BackendLogState {
@@ -51,7 +56,7 @@ struct BackendProcess {
 }
 
 fn launch_marker_name() -> &'static str {
-    "prepare_desktop_thin_bundle.sh"
+    "prepare-bundle.sh"
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -199,7 +204,7 @@ fn find_local_service_binary(root: &Path, bundle_dir: &Path) -> Result<PathBuf, 
         }
     }
     Err(format!(
-        "未找到 local-service 二进制 ({name})，请先运行 scripts/prepare_desktop_thin_bundle.sh"
+        "未找到 local-service 二进制 ({name})，请先运行 npm run bundle"
     ))
 }
 
@@ -242,13 +247,42 @@ fn repo_root(app: &AppHandle) -> Result<PathBuf, String> {
     Err("无法定位 Huoke 工程根目录，请重新安装应用".into())
 }
 
-fn resolve_bundle_dir(root: &Path) -> Result<PathBuf, String> {
-    find_bundle_dir(root).ok_or_else(|| {
-        format!(
-            "未找到桌面 bundle。HUOKE_ROOT={}",
-            root.display()
-        )
-    })
+fn resolve_bundle_dir(root: &Path, app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(dir) = find_bundle_dir(root) {
+        return Ok(dir);
+    }
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let resource_dir = normalize_path(&resource_dir);
+        for candidate in [
+            resource_dir.join("desktop/bundle"),
+            resource_dir.join("bundle"),
+        ] {
+            if is_bundle_dir(&candidate) {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    if cfg!(windows) {
+        if let Ok(exe_dir) = app.path().executable_dir() {
+            let exe_dir = normalize_path(&exe_dir);
+            for candidate in [
+                exe_dir.join("resources/desktop/bundle"),
+                exe_dir.join("desktop/bundle"),
+                exe_dir.join("bundle"),
+            ] {
+                if is_bundle_dir(&candidate) {
+                    return Ok(candidate);
+                }
+            }
+        }
+    }
+
+    Err(format!(
+        "未找到桌面 bundle。HUOKE_ROOT={}",
+        root.display()
+    ))
 }
 
 fn desktop_data_dir(app: &AppHandle) -> PathBuf {
@@ -620,7 +654,8 @@ fn bootstrap(app: &AppHandle, log_state: Arc<BackendLogState>) -> Result<(), Str
     log::info!("Huoke root: {}", root.display());
     log::info!("Unified log file: {log_hint}");
 
-    let bundle_dir = resolve_bundle_dir(&root)?;
+    let bundle_dir = resolve_bundle_dir(&root, app)?;
+    let data_dir = desktop_data_dir(app);
     let (mut backend, _static_server) =
         start_thin_stack(&root, &bundle_dir, app, &log_file, Arc::clone(&log_state))?;
     wait_backend_ready(
@@ -630,15 +665,40 @@ fn bootstrap(app: &AppHandle, log_state: Arc<BackendLogState>) -> Result<(), Str
         &log_hint,
     )?;
 
+    let extension_status = match extension_bootstrap::bootstrap_extension(&bundle_dir, &data_dir) {
+        Ok(status) => {
+            log::info!(
+                "extension bootstrap: installed={} chrome={} connected={}",
+                status.extension_installed,
+                status.chrome_found,
+                status.bridge_connected
+            );
+            status
+        }
+        Err(err) => {
+            log::warn!("extension bootstrap failed: {err}");
+            extension_bootstrap::build_setup_status(&bundle_dir, &data_dir, Some(&err))
+        }
+    };
+
+    if !extension_status.bridge_connected && !extension_status.chrome_found {
+        log::warn!("Chrome not found — user must install Chrome to use automation");
+    }
+
     // Do not join log reader threads here: they block until backend stdout/stderr
     // close, which only happens when the process exits — leaving the UI on about:blank.
     let BackendProcess { child, log_readers: _ } = backend;
 
-    app.state::<ServiceState>()
-        .backend
-        .lock()
-        .expect("backend lock")
-        .replace(child);
+    {
+        let state = app.state::<ServiceState>();
+        state
+            .backend
+            .lock()
+            .expect("backend lock")
+            .replace(child);
+        *state.bundle_dir.lock().expect("bundle lock") = Some(bundle_dir);
+        *state.data_dir.lock().expect("data lock") = Some(data_dir);
+    }
 
     with_main_thread(app, open_app_home)?;
     log::info!("Huoke thin desktop ready at {APP_HOME_URL}");
@@ -651,6 +711,81 @@ fn restart_desktop_app(app: AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+#[tauri::command]
+fn get_extension_setup_status(app: AppHandle) -> Result<ExtensionSetupStatus, String> {
+    let state = app.state::<ServiceState>();
+    let bundle_dir = state
+        .bundle_dir
+        .lock()
+        .expect("bundle lock")
+        .clone()
+        .ok_or_else(|| "桌面服务尚未就绪".to_string())?;
+    let data_dir = state
+        .data_dir
+        .lock()
+        .expect("data lock")
+        .clone()
+        .ok_or_else(|| "桌面服务尚未就绪".to_string())?;
+    Ok(extension_bootstrap::build_setup_status(
+        &bundle_dir,
+        &data_dir,
+        None,
+    ))
+}
+
+#[tauri::command]
+fn launch_chrome_extension(app: AppHandle) -> Result<ExtensionSetupStatus, String> {
+    let state = app.state::<ServiceState>();
+    let bundle_dir = state
+        .bundle_dir
+        .lock()
+        .expect("bundle lock")
+        .clone()
+        .ok_or_else(|| "桌面服务尚未就绪".to_string())?;
+    let data_dir = state
+        .data_dir
+        .lock()
+        .expect("data lock")
+        .clone()
+        .ok_or_else(|| "桌面服务尚未就绪".to_string())?;
+
+    let extension_dir = extension_bootstrap::ensure_extension_installed(&bundle_dir, &data_dir)?;
+    let chrome = extension_bootstrap::find_chrome_executable()
+        .ok_or_else(|| "未找到 Google Chrome，请先安装 https://www.google.com/chrome/".to_string())?;
+    extension_bootstrap::launch_chrome_with_extension(
+        &chrome,
+        &extension_dir,
+        &extension_bootstrap::chrome_profile_dir(&data_dir),
+    )?;
+
+    for _ in 0..24 {
+        std::thread::sleep(Duration::from_millis(500));
+        if extension_bootstrap::bridge_client_count() > 0 {
+            break;
+        }
+    }
+
+    Ok(extension_bootstrap::build_setup_status(
+        &bundle_dir,
+        &data_dir,
+        None,
+    ))
+}
+
+#[tauri::command]
+fn open_extension_folder(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<ServiceState>();
+    let data_dir = state
+        .data_dir
+        .lock()
+        .expect("data lock")
+        .clone()
+        .ok_or_else(|| "桌面服务尚未就绪".to_string())?;
+    extension_bootstrap::open_path_in_explorer(&extension_bootstrap::extension_install_dir(
+        &data_dir,
+    ))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -661,11 +796,18 @@ pub fn run() {
         )
         .manage(ServiceState {
             backend: Mutex::new(None),
+            bundle_dir: Mutex::new(None),
+            data_dir: Mutex::new(None),
         })
         .manage(Arc::new(BackendLogState {
             lines: Mutex::new(Vec::new()),
         }))
-        .invoke_handler(tauri::generate_handler![restart_desktop_app])
+        .invoke_handler(tauri::generate_handler![
+            restart_desktop_app,
+            get_extension_setup_status,
+            launch_chrome_extension,
+            open_extension_folder,
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             let log_state = {

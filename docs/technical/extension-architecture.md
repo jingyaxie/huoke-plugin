@@ -45,9 +45,8 @@
 
 | 服务 | 端口 | 说明 |
 |------|------|------|
-| Python 开发后端（旧） | 8000 | `dev-native.sh`，保留 |
-| Tauri 桌面版（旧） | 18765 | 保留至迁移完成 |
-| Rust local-service（新） | **18766** | 插件专用，避免冲突 |
+| Rust local-service | **18766** | 插件专用 |
+| 桌面静态 UI | 18765 | Tauri 瘦壳托管前端 |
 
 ---
 
@@ -225,12 +224,10 @@ interface PlatformAdapter {
 
 ### 阶段 4：下线 Python 执行层
 
-- [x] 默认路由与导航指向「插件获客」；旧 Playwright 页标注「（旧）」并显示降级横幅
-- [x] `npm run setup` / `dev` / `verify` 默认走插件栈；`*:legacy` 保留旧路径
-- [x] `setup-extension.sh`、`verify-extension-stack.sh` 替代旧 setup/verify 为推荐入口
-- [x] 旧 Playwright 打包脚本标 `[DEPRECATED]`；Tauri 瘦壳移除 Python 后端启动代码
+- [x] 默认路由与导航指向「插件获客」
+- [x] `npm run setup` / `dev` / `verify` / `bundle` / `build:*` 统一插件栈脚本
+- [x] 移除 Python / Playwright 打包与开发脚本
 - [ ] Agent 编排迁到 Rust 或保留 Python 仅做 LLM 实验（长期）
-- [ ] 完全移除 Playwright 依赖与 legacy bundle 脚本（待存量任务清空后）
 
 ---
 
@@ -313,43 +310,35 @@ Vue 管理页：侧边栏 **插件获客** → `/extension-bridge`
 
 ## 10. 开发与打包
 
-### 10.0 根目录快捷命令（推荐）
+### 10.0 根目录快捷命令
 
 | 命令 | 说明 |
 |------|------|
-| `npm run setup` | `setup-extension.sh --install` |
-| `npm run dev` | `dev-extension.sh` |
-| `npm run verify` | `verify-extension-stack.sh` |
-| `npm run setup:legacy` | 旧 Playwright 栈安装 |
-| `npm run dev:legacy` | 旧 `dev.sh` |
-| `npm run verify:legacy` | 旧 `verify-huoke-standalone.sh` |
+| `npm run setup` | `scripts/setup.sh --install` |
+| `npm run dev` | `scripts/dev.sh` |
+| `npm run verify` | `scripts/verify.sh` |
+| `npm run bundle` | `scripts/prepare-bundle.sh` |
+| `npm run build:mac` | macOS Tauri 安装包 |
+| `npm run build:win` | Windows NSIS 安装包 |
 
 ### 10.1 本地开发
 
 ```bash
-# 终端 1：Rust 本地服务
-cd local-service && cargo run
+npm run setup
+npm run dev
 
-# 终端 2：插件开发构建
-cd extension && npm install && npm run dev
-
-# Chrome → chrome://extensions → 开发者模式 → 加载 extension/dist
+# 另开终端
+cd frontend && npm run dev
 ```
 
-或使用根目录：
+Chrome → `chrome://extensions` → 加载 `extension/dist`
+
+### 10.2 生产打包
 
 ```bash
-bash scripts/dev-extension.sh
-```
-
-### 10.2 生产打包（瘦壳，默认）
-
-```bash
-# 组装 bundle：前端 + local-service + extension.zip
-bash scripts/prepare_desktop_thin_bundle.sh
-
-# 打 Tauri 安装包
-cd desktop && npm run tauri build
+npm run bundle          # 或 Tauri build 时自动执行 prepare-bundle.cjs
+npm run build:mac       # macOS
+npm run build:win       # Windows
 ```
 
 `desktop/bundle/` 内容：
@@ -360,13 +349,14 @@ cd desktop && npm run tauri build
 | `frontend-dist/` | Vue 静态资源（18765） |
 | `huoke-extension.zip` | Chrome 插件，需手动加载 |
 
-瘦壳启动后默认打开 `/extension-bridge`。旧 Python bundle 仍可通过 `HUOKE_DESKTOP_LEGACY=1` 使用 `prepare_desktop_bundle.sh`。
+瘦壳启动后默认打开 `/extension-bridge`。
 
 ### 10.3 Tauri 瘦壳开发
 
 ```bash
-cd desktop && npm run tauri dev
-# 自动执行 scripts/desktop-dev-thin.sh
+npm run bundle
+cd desktop && npm run dev
+# beforeDevCommand 自动执行 scripts/desktop-dev.sh
 ```
 
 ---
@@ -390,7 +380,7 @@ cd desktop && npm run tauri dev
 ### 11.3 验收
 
 - [ ] 三平台 `get_page_info` 返回正确 platform
-- [ ] `prepare_desktop_thin_bundle.sh` 成功
+- [ ] `scripts/prepare-bundle.sh` 成功
 - [ ] Tauri 启动后打开 `/extension-bridge` 无白屏
 - [ ] `huoke-extension.zip` 可加载到 Chrome
 

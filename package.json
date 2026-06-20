@@ -4,17 +4,13 @@
   "private": true,
   "description": "Huoke 独立获客平台（Chrome 插件 + Rust local-service + Tauri 瘦壳）",
   "scripts": {
-    "setup": "bash scripts/setup-extension.sh --install",
-    "setup:legacy": "bash scripts/setup-local.sh",
-    "setup:start": "bash scripts/dev-extension.sh",
-    "dev": "bash scripts/dev-extension.sh",
-    "dev:extension": "bash scripts/dev-extension.sh",
-    "dev:legacy": "bash scripts/dev.sh",
-    "dev:backend": "bash scripts/dev-native.sh",
-    "build:mac": "bash scripts/build_native_mac.sh",
-    "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_native_win.ps1",
-    "verify": "bash scripts/verify-extension-stack.sh",
-    "verify:legacy": "bash scripts/verify-huoke-standalone.sh",
-    "test:task-flow": "bash scripts/test_task_flow.sh"
+    "setup": "bash scripts/setup.sh --install",
+    "dev": "bash scripts/dev.sh",
+    "verify": "bash scripts/verify.sh",
+    "bundle": "bash scripts/prepare-bundle.sh",
+    "build:mac": "bash scripts/build-desktop-mac.sh",
+    "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-win.ps1",
+    "test:collect": "bash scripts/test-douyin-collect.sh",
+    "test:extension": "bash scripts/test-douyin-extension-cases.sh"
   }
 }
