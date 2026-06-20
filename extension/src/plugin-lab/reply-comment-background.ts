@@ -43,13 +43,21 @@ export async function replyCommentBackground(payload: Record<string, unknown> = 
   if (!replyText) throw new Error("reply_comment: missing reply_text");
 
   const commentIndex = Math.max(1, Number(payload.comment_index ?? payload.index ?? 1));
+  const commentId = String(payload.comment_id ?? "").trim();
+  const commentText = String(payload.comment_text ?? "").trim();
+  const scrollRounds = Math.max(1, Math.min(Number(payload.scroll_rounds ?? 12), 24));
   const tab = await resolveLabTargetTab();
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
 
-  let probe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_probe", {
+  const probePayload = {
     comment_index: commentIndex,
-  })) as ReplyProbe;
+    comment_id: commentId || undefined,
+    comment_text: commentText || undefined,
+    scroll_rounds: scrollRounds,
+  };
+
+  let probe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_probe", probePayload)) as ReplyProbe;
 
   if (!probe.ok || !probe.item_center) {
     return {
@@ -65,9 +73,7 @@ export async function replyCommentBackground(payload: Record<string, unknown> = 
 
   // 先用 content hover 触发 React 显示「回复」按钮（不依赖 debugger）
   for (let attempt = 0; attempt < 3 && !probe.reply_btn?.center; attempt += 1) {
-    probe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_hover", {
-      comment_index: commentIndex,
-    })) as ReplyProbe;
+    probe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_hover", probePayload)) as ReplyProbe;
     if (probe.reply_btn?.center) break;
     await sleep(randDelay(350, 550));
   }
@@ -89,9 +95,7 @@ export async function replyCommentBackground(payload: Record<string, unknown> = 
         await sleep(randDelay(280, 450));
       }
 
-      probe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_hover", {
-        comment_index: commentIndex,
-      })) as ReplyProbe;
+      probe = (await sendContentPluginLabCommand(tabId, "plugin_lab.reply_comment_hover", probePayload)) as ReplyProbe;
 
       if (probe.reply_btn?.center) break;
       await sleep(randDelay(400, 650));

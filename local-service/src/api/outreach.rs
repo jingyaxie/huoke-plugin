@@ -246,22 +246,34 @@ pub async fn reply_once(
         ));
     }
 
-    let payload = json!({
-        "video_url": body.video_url,
-        "aweme_id": body.aweme_id,
-        "comment_id": body.comment_id,
-        "comment_text": body.comment_text,
-        "reply_text": reply_text,
-        "dry_run": body.dry_run,
-        "scroll_rounds": 12,
-    });
+    let aweme_id = body
+        .aweme_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            body.video_url
+                .as_deref()
+                .and_then(|url| crate::douyin::parser::extract_aweme_id_from_url(url))
+        })
+        .ok_or_else(|| bad_request("aweme_id or video_url is required"))?;
 
-    let result = state
-        .hub
-        .request_command(
-            "douyin.comment.reply",
-            payload,
-            std::time::Duration::from_secs(45),
+    let comment_id = body.comment_id.as_deref().unwrap_or("").trim();
+    let comment_text = body.comment_text.as_deref().unwrap_or("").trim();
+    if comment_id.is_empty() && comment_text.is_empty() {
+        return Err(bad_request("comment_id or comment_text is required"));
+    }
+
+    let lab = crate::lab_commands::LabCommands::new(&state.hub);
+    let result = lab
+        .reply_to_comment(
+            &aweme_id,
+            comment_id,
+            comment_text,
+            reply_text,
+            12,
+            body.dry_run,
         )
         .await
         .map_err(|err| internal_error(err))?;

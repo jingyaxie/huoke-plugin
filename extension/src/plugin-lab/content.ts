@@ -25,6 +25,7 @@ import {
   probeReplyInput,
   typeReplyCommentText,
 } from "./reply-comment-dom";
+import { type ResolveCommentPayload } from "./resolve-comment-item";
 import { scrollAndCollectComments, type ScrollCollectCommentsPayload } from "./scroll-collect-comments";
 import { sendComment } from "./send-comment";
 import { sendDm } from "./send-dm";
@@ -83,9 +84,9 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
     case "plugin_lab.filter_find_option":
       return findFilterOptionPoint(String((payload as { label?: string })?.label ?? ""));
     case "plugin_lab.reply_comment_probe":
-      return probeReplyCommentTargets((payload ?? {}) as { comment_index?: number; index?: number });
+      return probeReplyCommentTargets((payload ?? {}) as ResolveCommentPayload);
     case "plugin_lab.reply_comment_hover":
-      return hoverReplyCommentTarget((payload ?? {}) as { comment_index?: number; index?: number });
+      return hoverReplyCommentTarget((payload ?? {}) as ResolveCommentPayload);
     case "plugin_lab.reply_comment_input_probe":
       return probeReplyInput();
     case "plugin_lab.reply_comment_type":

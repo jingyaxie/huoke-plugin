@@ -1,4 +1,5 @@
 import { humanClick, isVisible, randDelay, sleep } from "./search-input";
+import { resolveCommentItem, type ResolveCommentPayload } from "./resolve-comment-item";
 
 export interface DomRect {
   top: number;
@@ -122,28 +123,27 @@ export function findReplyInputElement(): HTMLElement | null {
 }
 
 /** 供 background 查询：评论项 / 回复按钮坐标 */
-export function probeReplyCommentTargets(payload: { comment_index?: number; index?: number } = {}) {
-  const index = Math.max(1, Number(payload.comment_index ?? payload.index ?? 1));
-  const items = getCommentItems();
-  if (items.length === 0) {
+export async function probeReplyCommentTargets(payload: ResolveCommentPayload = {}) {
+  const resolved = await resolveCommentItem(payload);
+  if (!resolved.ok || !resolved.item) {
     return {
       ok: false,
-      comment_index: index,
-      comment_count: 0,
+      comment_index: resolved.index || Number(payload.comment_index ?? payload.index ?? 1),
+      comment_count: resolved.comment_count ?? 0,
       url: location.href,
-      message: "未找到评论项",
+      message: resolved.message ?? "未找到评论项",
     };
   }
 
-  const item = items[Math.min(index, items.length) - 1];
+  const item = resolved.item;
   const itemRect = item.getBoundingClientRect();
   const serializedItemRect = serializeRect(itemRect);
   const replyBtn = findReplyButtonInItem(item);
 
   return {
     ok: true,
-    comment_index: Math.min(index, items.length),
-    comment_count: items.length,
+    comment_index: resolved.index,
+    comment_count: resolved.comment_count,
     item_rect: serializedItemRect,
     item_center: centerOf(itemRect),
     hover_point: hoverPointForRect(serializedItemRect),
@@ -158,22 +158,19 @@ export function probeReplyCommentTargets(payload: { comment_index?: number; inde
 }
 
 /** 滚动到评论项并派发 hover，再探测回复按钮（CDP 鼠标 alone 无法触发 React hover） */
-export async function hoverReplyCommentTarget(payload: { comment_index?: number; index?: number } = {}) {
-  const index = Math.max(1, Number(payload.comment_index ?? payload.index ?? 1));
-  const items = getCommentItems();
-  if (items.length === 0) {
+export async function hoverReplyCommentTarget(payload: ResolveCommentPayload = {}) {
+  const resolved = await resolveCommentItem(payload);
+  if (!resolved.ok || !resolved.item) {
     return {
       ok: false,
-      comment_index: index,
-      comment_count: 0,
+      comment_index: resolved.index || Number(payload.comment_index ?? payload.index ?? 1),
+      comment_count: resolved.comment_count ?? 0,
       url: location.href,
-      message: "未找到评论项",
+      message: resolved.message ?? "未找到评论项",
     };
   }
 
-  const item = items[Math.min(index, items.length) - 1];
-  item.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-  await sleep(randDelay(120, 220));
+  const item = resolved.item;
   hoverCommentItem(item);
 
   const actionRow = item.querySelector('[class*="action"], [class*="Action"], [class*="footer"]') as HTMLElement | null;

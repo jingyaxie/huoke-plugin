@@ -266,10 +266,12 @@ curl -X POST http://127.0.0.1:18766/api/douyin/jobs/{job_id}/start
 ### 8.4 同步命令（调试）
 
 ```bash
-curl -X POST http://127.0.0.1:18766/bridge/command \
+curl -X POST http://127.0.0.1:18766/api/plugin-lab/actions/input_search_text \
   -H 'Content-Type: application/json' \
-  -d '{"action":"douyin.search.navigate","payload":{"keyword":"装修"},"wait":true}'
+  -d '{"platform":"douyin","search_text":"装修"}'
 ```
+
+抖音 UI 自动化统一走 **插件实验室** `plugin_lab.*` 步骤（见 `frontend` 侧边栏「插件实验室」或 `GET /api/plugin-lab/status`），不再提供 legacy `douyin.search.*` / `douyin.comment.*` 命令。
 
 ---
 
@@ -365,11 +367,11 @@ cd desktop && npm run dev
 
 ### 11.1 平台 adapter
 
-| 平台 | 搜索导航 | 内容导航 | 评论滚动 |
-|------|----------|----------|----------|
-| 抖音 | `douyin.search.navigate` | `douyin.video.navigate` | `douyin.comments.scroll` |
-| 小红书 | `xhs.search.navigate` | `xhs.note.navigate` | `xhs.comments.scroll` |
-| 快手 | `kuaishou.search.navigate` | `kuaishou.video.navigate` | `kuaishou.comments.scroll` |
+| 平台 | UI 自动化 | 页面探测 | 网络抓包 |
+|------|-----------|----------|----------|
+| 抖音 | `plugin_lab.*`（实验室步骤） | `get_page_info` / `douyin.page.detect` | `network.hook.*` |
+| 小红书 | `xhs.search.navigate` 等（待迁移） | 同上 | `network.hook.*` |
+| 快手 | `kuaishou.search.navigate` 等（待迁移） | 同上 | `network.hook.*` |
 
 ### 11.2 安装 Chrome 插件
 
@@ -445,7 +447,7 @@ cd desktop && npm run dev
 
 ### 阶段 2
 
-- [ ] `douyin.comment.reply` 在视频页找到目标评论并发送
+- [ ] `POST /api/douyin/reply`（内部走 `plugin_lab.reply_comment` + `send_comment`）在视频页找到目标评论
 - [ ] `POST /api/douyin/outreach/tasks` 从采集任务生成触达队列
 - [ ] 触达任务遵守每日配额，失败自动重试
 - [ ] Vue `/extension-bridge` 页面可管理采集与触达

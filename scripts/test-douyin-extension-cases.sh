@@ -88,6 +88,48 @@ bridge_cmd() {
     -d "{\"action\":\"${action}\",\"payload\":${payload},\"wait\":true,\"timeout_ms\":${timeout_ms}}" 2>/dev/null
 }
 
+lab_cmd() {
+  local action_id="$1"
+  local payload="${2:-{}}"
+  curl -fsS -X POST "${BASE}/api/plugin-lab/actions/${action_id}" \
+    -H 'Content-Type: application/json' \
+    -d "${payload}" 2>/dev/null
+}
+
+run_lab_case() {
+  local id="$1"
+  local title="$2"
+  local action_id="$3"
+  local payload="${4:-{}}"
+
+  log ""
+  log "━━ CASE ${id}: ${title}"
+  focus_douyin_window
+  pause 3
+
+  local resp
+  if ! resp="$(lab_cmd "$action_id" "$payload")"; then
+    log "✗ FAIL — curl 请求失败"
+    FAIL=$((FAIL + 1))
+    return 1
+  fi
+
+  echo "$resp" | tee -a "$REPORT" | jq . 2>/dev/null || echo "$resp" | tee -a "$REPORT"
+
+  local err ok
+  err="$(echo "$resp" | jq -r '.error // empty' 2>/dev/null || true)"
+  ok="$(echo "$resp" | jq -r '.ok // false' 2>/dev/null || echo false)"
+  if [[ -n "$err" || "$ok" != "true" ]]; then
+    log "✗ FAIL — ${err:-plugin_lab action failed}"
+    FAIL=$((FAIL + 1))
+    return 1
+  fi
+
+  log "✓ PASS"
+  PASS=$((PASS + 1))
+  pause
+}
+
 run_case() {
   local id="$1"
   local title="$2"
@@ -203,19 +245,24 @@ run_case "B1" "启用 network hook" "network.hook.enable" \
 assert_field "B2" "Hook 状态应为 enabled" "network.hook.status" "{}" \
   '.result.enabled == true'
 
-# ── C. 导航 ──
-run_case "C1" "关键词搜索导航 douyin.search.navigate" "douyin.search.navigate" \
-  "{\"keyword\":\"${KEYWORD}\"}" 60000
+# ── C. 插件实验室搜索（替代 legacy douyin.search.*）──
+run_lab_case "C1" "打开抖音浏览器" "open_browser" \
+  '{"platform":"douyin","reuse_existing":true}'
+
+run_lab_case "C2" "定位搜索框" "find_search_box" '{"platform":"douyin"}'
+
+run_lab_case "C3" "输入关键词并搜索" "input_search_text" \
+  "{\"platform\":\"douyin\",\"search_text\":\"${KEYWORD}\"}"
+pause 2
+run_lab_case "C4" "点击搜索按钮" "click_search_btn" "{}"
 pause 10
 
-assert_field "C2" "搜索页 pageKind=search" "douyin.page.detect" "{}" \
+assert_field "C5" "搜索页 pageKind=search" "douyin.page.detect" "{}" \
   '.result.pageKind == "search"'
 
-run_case "C3" "重复搜索（应 already_on_page）" "douyin.search.navigate" \
-  "{\"keyword\":\"${KEYWORD}\"}"
-
-# ── D. 滚动（轻量）──
-run_case "D1" "评论区滚动 2 轮（搜索页容错）" "douyin.comments.scroll" '{"rounds":2}' 60000
+# ── D. 页面滑动（轻量）──
+run_lab_case "D1" "搜索结果页下滑" "swipe_page" \
+  '{"direction":"down","distance":600,"segments":2}'
 
 # ── E. 采集任务（小规模）──
 log ""
@@ -293,17 +340,19 @@ if [[ -n "${JOB_ID:-}" ]]; then
     COMMENT_TEXT="$(echo "$SAMPLE" | jq -r '.content // .text // empty' | head -c 40)"
     VIDEO_URL="https://www.douyin.com/video/${AWEME_ID}"
     log ""
-    log "━━ CASE F1: 回复 dry_run（不真正发送）"
+    log "━━ CASE F1: 回复 dry_run（API → plugin_lab，不真正发送）"
     focus_douyin_window
     REPLY_PAYLOAD="$(jq -nc \
       --arg url "$VIDEO_URL" \
       --arg aid "$AWEME_ID" \
       --arg cid "$COMMENT_ID" \
       --arg text "$COMMENT_TEXT" \
-      '{video_url:$url, aweme_id:$aid, comment_id:$cid, comment_text:$text, reply_text:"[测试]感谢分享～", dry_run:true, scroll_rounds:2}')"
-    REPLY_RESP="$(bridge_cmd "douyin.comment.reply" "$REPLY_PAYLOAD" 90000)"
+      '{video_url:$url, aweme_id:$aid, comment_id:$cid, comment_text:$text, reply_text:"[测试]感谢分享～", dry_run:true}')"
+    REPLY_RESP="$(curl -fsS -X POST "${BASE}/api/douyin/reply" \
+      -H 'Content-Type: application/json' \
+      -d "$REPLY_PAYLOAD" 2>/dev/null || true)"
     echo "$REPLY_RESP" | tee -a "$REPORT" | jq .
-    if echo "$REPLY_RESP" | jq -e '.error == null' >/dev/null 2>&1; then
+    if echo "$REPLY_RESP" | jq -e '.ok == true' >/dev/null 2>&1; then
       log "✓ PASS dry_run 回复"
       PASS=$((PASS + 1))
     else

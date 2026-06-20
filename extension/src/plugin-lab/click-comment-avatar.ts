@@ -1,4 +1,5 @@
 import { randDelay, sleep } from "./search-input";
+import { resolveCommentItem, type ResolveCommentPayload } from "./resolve-comment-item";
 
 const AVATAR_SELECTORS = [
   '[data-e2e="comment-item"] div.comment-item-avatar a',
@@ -22,26 +23,26 @@ function findAvatarLink(item: HTMLElement): HTMLAnchorElement | null {
   return link instanceof HTMLAnchorElement ? link : null;
 }
 
-export interface ClickCommentAvatarPayload {
-  comment_index?: number;
-  index?: number;
-}
+export interface ClickCommentAvatarPayload extends ResolveCommentPayload {}
 
 /** 步骤 14：点击评论用户头像进入主页 */
 export async function clickCommentAvatar(payload: ClickCommentAvatarPayload = {}) {
-  const index = Math.max(1, Number(payload.comment_index ?? payload.index ?? 1));
-  const items = getCommentItems();
+  const resolved = await resolveCommentItem({
+    ...payload,
+    scroll_rounds: payload.scroll_rounds ?? 12,
+  });
 
-  if (items.length === 0) {
+  if (!resolved.ok || !resolved.item) {
     return {
       ok: false,
-      comment_index: index,
+      comment_index: resolved.index || Number(payload.comment_index ?? payload.index ?? 1),
       url: location.href,
-      message: "未找到评论项",
+      message: resolved.message ?? "未找到评论项",
     };
   }
 
-  const item = items[Math.min(index, items.length) - 1];
+  const item = resolved.item;
+  const index = resolved.index;
   const avatar = findAvatarLink(item);
   if (!avatar) {
     return {

@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rand::Rng;
-use serde_json::json;
 use tracing::{error, info, warn};
+
+use crate::lab_commands::LabCommands;
 
 use crate::db::{Database, OutreachTaskStatus};
 use crate::ws::BridgeHub;
@@ -70,18 +71,16 @@ impl OutreachService {
 
             self.db.mark_outreach_item_running(&item.id)?;
 
-            let command_payload = json!({
-                "video_url": item.video_url,
-                "aweme_id": item.aweme_id,
-                "comment_id": item.comment_id,
-                "comment_text": item.comment_text,
-                "reply_text": item.reply_text,
-                "scroll_rounds": 12,
-            });
-
-            let result = self
-                .hub
-                .request_command("douyin.comment.reply", command_payload, Duration::from_secs(45))
+            let lab = LabCommands::new(&self.hub);
+            let result = lab
+                .reply_to_comment(
+                    &item.aweme_id,
+                    &item.comment_id,
+                    &item.comment_text,
+                    &item.reply_text,
+                    12,
+                    false,
+                )
                 .await;
 
             match result {
@@ -95,6 +94,7 @@ impl OutreachService {
                     } else {
                         let err = data
                             .get("error")
+                            .or_else(|| data.get("message"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("reply failed");
                         let retryable = err == "navigating_to_video" || err.contains("not loaded");

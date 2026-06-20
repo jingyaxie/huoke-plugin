@@ -9,6 +9,7 @@ mod outreach;
 mod plugin_lab;
 mod job_config;
 mod filters;
+mod lab_commands;
 mod orchestration;
 mod state;
 

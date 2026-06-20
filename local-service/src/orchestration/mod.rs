@@ -3,13 +3,13 @@ mod outreach;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::json;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
 use crate::db::{CapturedVideo, Database, JobStatus};
 use crate::filters;
 use crate::job_config::JobConfig;
+use crate::lab_commands::LabCommands;
 use crate::orchestration::outreach::InlineOutreachRunner;
 use crate::ws::BridgeHub;
 
@@ -73,31 +73,17 @@ impl JobOrchestrator {
             cfg.target_count, job.limit_videos, cfg.comment_days
         );
 
-        let ui_payload = json!({
-            "keyword": search_kw,
-            "days": cfg.filter_publish_days_for_ui(),
-            "max_videos": job.limit_videos,
-        });
-
-        let ui_result = self
-            .hub
-            .request_command("douyin.search.ui_flow", ui_payload, Duration::from_secs(180))
+        let lab = LabCommands::new(&self.hub);
+        let search_result = lab
+            .run_keyword_search(&search_kw, cfg.filter_publish_days_for_ui())
             .await?;
-
-        let ok = ui_result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
+        let ok = search_result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
         if !ok {
-            warn!("ui_flow returned ok=false, falling back to navigate+hook");
-            self.hub
-                .request_command(
-                    "douyin.search.navigate",
-                    json!({ "keyword": search_kw }),
-                    Duration::from_secs(30),
-                )
-                .await?;
-            sleep(Duration::from_secs(5)).await;
+            warn!("plugin_lab keyword search returned ok=false: {search_result:?}");
         }
 
-        self.enable_network_hook().await?;
+        lab.enable_network_hook().await?;
+        let _ = lab.swipe_search_results(3).await;
         sleep(Duration::from_secs(6)).await;
 
         self.collect_until_target(job_id, job, cfg).await
@@ -123,37 +109,18 @@ impl JobOrchestrator {
             cfg.intent, input_url
         );
 
-        self.hub
-            .request_command(
-                "douyin.url.navigate",
-                json!({ "url": input_url }),
-                Duration::from_secs(30),
-            )
-            .await?;
-
+        let lab = LabCommands::new(&self.hub);
+        lab.open_url(&input_url).await?;
         sleep(Duration::from_secs(5)).await;
-        self.enable_network_hook().await?;
+        lab.enable_network_hook().await?;
 
         if cfg.intent == "account_home" {
-            let _ = self
-                .hub
-                .request_command(
-                    "douyin.profile.scroll",
-                    json!({ "rounds": 4 }),
-                    Duration::from_secs(25),
-                )
-                .await;
+            let _ = lab.swipe_page_down(4).await;
             sleep(Duration::from_secs(6)).await;
         } else {
             sleep(Duration::from_secs(4)).await;
-            let _ = self
-                .hub
-                .request_command(
-                    "douyin.comments.scroll",
-                    json!({ "rounds": 6 }),
-                    Duration::from_secs(25),
-                )
-                .await;
+            let _ = lab.open_comment_sidebar().await;
+            let _ = lab.scroll_comments(6).await;
             sleep(Duration::from_secs(3)).await;
         }
 
@@ -194,14 +161,8 @@ impl JobOrchestrator {
             if self.db.count_comments_for_job(job_id)? >= cfg.target_count {
                 break;
             }
-            let _ = self
-                .hub
-                .request_command(
-                    "douyin.comments.scroll",
-                    json!({ "rounds": 2 }),
-                    Duration::from_secs(15),
-                )
-                .await;
+            let lab = LabCommands::new(&self.hub);
+            let _ = lab.scroll_comments(2).await;
             sleep(Duration::from_secs(3)).await;
         }
 
@@ -231,34 +192,12 @@ impl JobOrchestrator {
     }
 
     async fn open_and_scroll_video(&self, aweme_id: &str, scroll_rounds: i64) -> Result<(), String> {
-        self.hub
-            .request_command(
-                "douyin.video.navigate",
-                json!({ "aweme_id": aweme_id }),
-                Duration::from_secs(30),
-            )
-            .await?;
+        let lab = LabCommands::new(&self.hub);
+        lab.open_video(aweme_id, None).await?;
         sleep(Duration::from_secs(5)).await;
-        let _ = self
-            .hub
-            .request_command(
-                "douyin.comments.scroll",
-                json!({ "rounds": scroll_rounds }),
-                Duration::from_secs(30),
-            )
-            .await;
+        let _ = lab.open_comment_sidebar().await;
+        let _ = lab.scroll_comments(scroll_rounds).await;
         sleep(Duration::from_secs(4)).await;
-        Ok(())
-    }
-
-    async fn enable_network_hook(&self) -> Result<(), String> {
-        self.hub
-            .request_command(
-                "network.hook.enable",
-                json!({ "patterns": ["/aweme/", "/comment/", "/search/"] }),
-                Duration::from_secs(10),
-            )
-            .await?;
         Ok(())
     }
 }

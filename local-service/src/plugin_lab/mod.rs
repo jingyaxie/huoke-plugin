@@ -206,24 +206,50 @@ fn normalize_scroll_collect_comments_payload(payload: Value) -> Value {
 }
 
 fn normalize_reply_comment_payload(payload: Value) -> Value {
-    json!({
+    let mut out = json!({
         "reply_text": payload.get("reply_text").and_then(|v| v.as_str()).unwrap_or(""),
         "comment_index": payload
             .get("comment_index")
             .and_then(|v| v.as_i64())
             .or_else(|| payload.get("index").and_then(|v| v.as_i64()))
             .unwrap_or(1),
-    })
+    });
+    merge_comment_target_fields(&mut out, &payload);
+    out
 }
 
 fn normalize_click_comment_avatar_payload(payload: Value) -> Value {
-    json!({
+    let mut out = json!({
         "comment_index": payload
             .get("comment_index")
             .and_then(|v| v.as_i64())
             .or_else(|| payload.get("index").and_then(|v| v.as_i64()))
             .unwrap_or(1),
-    })
+    });
+    merge_comment_target_fields(&mut out, &payload);
+    out
+}
+
+fn merge_comment_target_fields(out: &mut Value, payload: &Value) {
+    if let Some(id) = payload
+        .get("comment_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out["comment_id"] = json!(id);
+    }
+    if let Some(text) = payload
+        .get("comment_text")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out["comment_text"] = json!(text);
+    }
+    if let Some(rounds) = payload.get("scroll_rounds").and_then(|v| v.as_i64()) {
+        out["scroll_rounds"] = json!(rounds);
+    }
 }
 
 fn normalize_input_dm_text_payload(payload: Value) -> Value {

@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use rand::Rng;
-use serde_json::json;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
 use crate::db::{CapturedComment, Database};
 use crate::job_config::JobConfig;
+use crate::lab_commands::LabCommands;
 use crate::ws::BridgeHub;
 
 pub struct InlineOutreachRunner<'a> {
@@ -146,18 +146,16 @@ impl<'a> InlineOutreachRunner<'a> {
     }
 
     async fn send_reply(&self, job_id: &str, comment: &CapturedComment, text: &str) -> Result<bool, String> {
-        let video_url = format!("https://www.douyin.com/video/{}", comment.aweme_id);
-        let payload = json!({
-            "video_url": video_url,
-            "aweme_id": comment.aweme_id,
-            "comment_id": comment.comment_id,
-            "comment_text": comment.content,
-            "reply_text": text,
-            "scroll_rounds": 12,
-        });
-        let data = self
-            .hub
-            .request_command("douyin.comment.reply", payload, Duration::from_secs(45))
+        let lab = LabCommands::new(self.hub);
+        let data = lab
+            .reply_to_comment(
+                &comment.aweme_id,
+                &comment.comment_id,
+                &comment.content,
+                text,
+                12,
+                false,
+            )
             .await?;
         let ok = data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
         if ok {
@@ -165,77 +163,33 @@ impl<'a> InlineOutreachRunner<'a> {
             let _ = self.db.consume_reply_quota(limit)?;
             let _ = self.db.record_interaction(job_id, "reply", &comment.comment_id, &comment.user_id);
         } else {
-            warn!("reply failed {:?} for {}", data.get("error"), comment.comment_id);
+            warn!("reply failed {:?} for {}", data.get("message"), comment.comment_id);
         }
         Ok(ok)
     }
 
     async fn send_dm(&self, job_id: &str, comment: &CapturedComment, text: &str) -> Result<bool, String> {
-        let profile_payload = json!({
-            "video_url": format!("https://www.douyin.com/video/{}", comment.aweme_id),
-            "aweme_id": comment.aweme_id,
-            "comment_id": comment.comment_id,
-            "comment_text": comment.content,
-            "scroll_rounds": 12,
-        });
+        let lab = LabCommands::new(self.hub);
 
-        for attempt in 0..2 {
-            let opened = self
-                .hub
-                .request_command(
-                    "douyin.outreach.open_profile_from_comment",
-                    profile_payload.clone(),
-                    Duration::from_secs(45),
-                )
-                .await?;
-            let err = opened.get("error").and_then(|v| v.as_str()).unwrap_or("");
-            if err == "navigating_to_video" {
-                sleep(Duration::from_secs(5)).await;
-                continue;
-            }
-            if !opened.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                warn!("open profile failed for dm: {err}");
-                return Ok(false);
-            }
-            break;
+        let opened = lab
+            .open_profile_from_comment(
+                &comment.aweme_id,
+                &comment.comment_id,
+                &comment.content,
+                12,
+            )
+            .await?;
+        if !opened.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+            warn!(
+                "open profile failed for dm: {:?}",
+                opened.get("message").or(opened.get("error"))
+            );
+            return Ok(false);
         }
 
         sleep(Duration::from_secs(2)).await;
 
-        let dm_open = self
-            .hub
-            .request_command("plugin_lab.click_dm_btn", json!({}), Duration::from_secs(30))
-            .await?;
-        if !dm_open.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-            warn!("dm button click failed");
-            return Ok(false);
-        }
-
-        sleep(Duration::from_millis(800)).await;
-
-        let typed = self
-            .hub
-            .request_command(
-                "plugin_lab.input_dm_text",
-                json!({ "dm_text": text }),
-                Duration::from_secs(60),
-            )
-            .await?;
-        if !typed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-            warn!("dm input failed");
-            return Ok(false);
-        }
-
-        sleep(Duration::from_millis(500)).await;
-
-        let sent = self
-            .hub
-            .request_command(
-                "plugin_lab.send_dm",
-                json!({ "dm_text": text }),
-                Duration::from_secs(45),
-            )
-            .await?;
+        let sent = lab.send_dm_on_profile(text).await?;
         let ok = sent.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
         if ok {
             let _ = self.db.record_interaction(job_id, "dm", &comment.comment_id, &comment.user_id);
@@ -244,35 +198,20 @@ impl<'a> InlineOutreachRunner<'a> {
     }
 
     async fn send_follow(&self, job_id: &str, comment: &CapturedComment) -> Result<bool, String> {
-        let payload = json!({
-            "video_url": format!("https://www.douyin.com/video/{}", comment.aweme_id),
-            "aweme_id": comment.aweme_id,
-            "comment_id": comment.comment_id,
-            "comment_text": comment.content,
-            "scroll_rounds": 12,
-        });
-
-        for attempt in 0..2 {
-            let result = self
-                .hub
-                .request_command(
-                    "douyin.outreach.follow_from_comment",
-                    payload.clone(),
-                    Duration::from_secs(60),
-                )
-                .await?;
-            let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("");
-            if err == "navigating_to_video" {
-                sleep(Duration::from_secs(5)).await;
-                continue;
-            }
-            let ok = result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-            if ok {
-                let _ = self.db.record_interaction(job_id, "follow", &comment.comment_id, &comment.user_id);
-            }
-            return Ok(ok);
+        let lab = LabCommands::new(self.hub);
+        let result = lab
+            .follow_from_comment(
+                &comment.aweme_id,
+                &comment.comment_id,
+                &comment.content,
+                12,
+            )
+            .await?;
+        let ok = result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+        if ok {
+            let _ = self.db.record_interaction(job_id, "follow", &comment.comment_id, &comment.user_id);
         }
-        Ok(false)
+        Ok(ok)
     }
 
     async fn sleep_interval(&self, min_ms: i64, max_ms: i64) {
