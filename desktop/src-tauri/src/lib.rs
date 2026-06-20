@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
 mod extension_bootstrap;
+mod port_reclaim;
 mod static_server;
 
 use extension_bootstrap::ExtensionSetupStatus;
@@ -344,6 +345,8 @@ fn start_thin_stack(
     let frontend_dist = resolve_frontend_dist(root, bundle_dir)?;
     let data_dir = desktop_data_dir(app);
     std::fs::create_dir_all(&data_dir).map_err(|err| err.to_string())?;
+
+    port_reclaim::reclaim_huoke_ports(DESKTOP_PORT, LOCAL_SERVICE_PORT);
 
     let static_handle =
         static_server::spawn_static_server(frontend_dist, DESKTOP_PORT).map_err(|err| err.to_string())?;

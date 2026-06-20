@@ -125,10 +125,24 @@ async fn main() {
     info!("websocket endpoint: ws://{addr}/ws");
     info!("sqlite database: {}", config.db_path().display());
 
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect("bind local-service port");
-    axum::serve(listener, app).await.expect("server failed");
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(listener) => listener,
+        Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {
+            eprintln!(
+                "端口 {addr} 已被占用。请关闭其它获客平台实例，或执行: lsof -tiTCP:{port} -sTCP:LISTEN | xargs kill",
+                port = config.port
+            );
+            std::process::exit(101);
+        }
+        Err(err) => {
+            eprintln!("绑定 local-service 端口 {addr} 失败: {err}");
+            std::process::exit(101);
+        }
+    };
+    if let Err(err) = axum::serve(listener, app).await {
+        eprintln!("local-service 运行失败: {err}");
+        std::process::exit(1);
+    }
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
