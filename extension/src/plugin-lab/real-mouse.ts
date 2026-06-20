@@ -101,6 +101,10 @@ export async function typeCharacter(tabId: number, ch: string) {
   });
 }
 
+export async function insertTextCdp(tabId: number, text: string) {
+  await chrome.debugger.sendCommand({ tabId }, "Input.insertText", { text });
+}
+
 export async function typeText(
   tabId: number,
   text: string,
@@ -120,4 +124,28 @@ export async function selectAllInFocusedField(tabId: number) {
 
 export async function pressBackspace(tabId: number) {
   await pressKey(tabId, "Backspace", { code: "Backspace" });
+}
+
+export async function pressEnter(tabId: number) {
+  const base = {
+    key: "Enter",
+    code: "Enter",
+    text: "\r",
+    unmodifiedText: "\r",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+    modifiers: 0,
+  };
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+    ...base,
+    type: "keyDown",
+  });
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+    ...base,
+    type: "char",
+  });
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+    ...base,
+    type: "keyUp",
+  });
 }

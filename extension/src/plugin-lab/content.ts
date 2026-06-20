@@ -7,6 +7,7 @@ import {
   probeCommentSidebar,
 } from "./comment-sidebar-dom";
 import { clickDmButton } from "./click-dm-btn";
+import { probeDmButton, probeDmInput, probeDmSendButton, probeDmSendVerify, typeDmTextFallback } from "./dm-dom";
 import { clickFollowButton } from "./click-follow-btn";
 import { clickSearchButton } from "./click-search-btn";
 import {
@@ -17,7 +18,6 @@ import { closeVideoDetail } from "./close-video-detail";
 import { findFilterOptionPoint, probeFilterDom } from "./filter-dom";
 import { fetchSearchResults, type FetchSearchResultsPayload } from "./fetch-search-results";
 import { findAndFocusSearchBox } from "./find-search-box";
-import { inputDmText, type InputDmTextPayload } from "./input-dm-text";
 import { inputSearchText, type InputSearchTextPayload } from "./input-search-text";
 import {
   probeReplyCommentTargets,
@@ -63,8 +63,16 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
       return clickFollowButton();
     case "plugin_lab.click_dm_btn":
       return clickDmButton();
+    case "plugin_lab.dm_button_probe":
+      return probeDmButton();
+    case "plugin_lab.dm_input_probe":
+      return probeDmInput();
     case "plugin_lab.input_dm_text":
-      return inputDmText((payload ?? {}) as InputDmTextPayload);
+      return typeDmTextFallback((payload ?? {}) as { dm_text?: string; text?: string });
+    case "plugin_lab.dm_send_probe":
+      return probeDmSendButton();
+    case "plugin_lab.dm_send_verify":
+      return probeDmSendVerify((payload ?? {}) as { dm_text?: string; text?: string });
     case "plugin_lab.send_dm":
       return sendDm();
     case "plugin_lab.close_video_detail":

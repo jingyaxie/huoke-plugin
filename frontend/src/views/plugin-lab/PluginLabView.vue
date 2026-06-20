@@ -290,6 +290,7 @@ function buildPayload(action) {
     payload.comment_index = params.commentIndex;
   }
   if (action.needsDmText) payload.dm_text = params.dmText;
+  if (action.id === "send_dm" && params.dmText.trim()) payload.dm_text = params.dmText;
   if (action.id === "click_comment_avatar") payload.comment_index = params.commentIndex;
   return payload;
 }
