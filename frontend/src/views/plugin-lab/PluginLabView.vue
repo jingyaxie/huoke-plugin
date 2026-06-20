@@ -329,7 +329,7 @@ function normalizeDisplayData(actionId, data) {
   return items.map((row, index) => ({
     title: row.title || row.content || row.desc || row.text || `条目 ${index + 1}`,
     author: row.author || row.username || row.nickname || row.user || "—",
-    extra: row.id || row.aweme_id || row.index || "",
+    extra: row.id || row.aweme_id || row.index || row.comment_id || "",
   }));
 }
 

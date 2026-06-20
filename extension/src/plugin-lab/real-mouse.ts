@@ -52,3 +52,72 @@ export async function clickMouse(tabId: number, x: number, y: number) {
 export function randDelay(min: number, max: number) {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
+
+const MOD_ALT = 1;
+const MOD_CTRL = 2;
+const MOD_META = 4;
+const MOD_SHIFT = 8;
+
+export async function pressKey(
+  tabId: number,
+  key: string,
+  options: { modifiers?: number; code?: string } = {},
+) {
+  const modifiers = options.modifiers ?? 0;
+  const code = options.code ?? key;
+  const base = { key, code, modifiers, windowsVirtualKeyCode: 0, nativeVirtualKeyCode: 0 };
+
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+    ...base,
+    type: "keyDown",
+  });
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+    ...base,
+    type: "keyUp",
+  });
+}
+
+export async function typeCharacter(tabId: number, ch: string) {
+  const codePoint = ch.codePointAt(0) ?? 0;
+  const shared = {
+    key: ch,
+    text: ch,
+    unmodifiedText: ch,
+    windowsVirtualKeyCode: codePoint,
+    nativeVirtualKeyCode: codePoint,
+  };
+
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+    ...shared,
+    type: "keyDown",
+  });
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+    ...shared,
+    type: "char",
+  });
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+    ...shared,
+    type: "keyUp",
+  });
+}
+
+export async function typeText(
+  tabId: number,
+  text: string,
+  charDelayMs: { min: number; max: number } = { min: 70, max: 160 },
+) {
+  for (const ch of text) {
+    await typeCharacter(tabId, ch);
+    await sleep(randDelay(charDelayMs.min, charDelayMs.max));
+  }
+}
+
+export async function selectAllInFocusedField(tabId: number) {
+  const info = await chrome.runtime.getPlatformInfo();
+  const mod = info.os === "mac" ? MOD_META : MOD_CTRL;
+  await pressKey(tabId, "a", { modifiers: mod, code: "KeyA" });
+}
+
+export async function pressBackspace(tabId: number) {
+  await pressKey(tabId, "Backspace", { code: "Backspace" });
+}

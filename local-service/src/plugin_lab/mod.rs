@@ -9,6 +9,19 @@ pub fn bridge_action_for(action_id: &str) -> Option<&'static str> {
         "input_search_text" => Some("plugin_lab.input_search_text"),
         "click_filter_btn" => Some("plugin_lab.click_filter_btn"),
         "click_filter_overlay" => Some("plugin_lab.click_filter_overlay"),
+        "click_search_btn" => Some("plugin_lab.click_search_btn"),
+        "fetch_search_results" => Some("plugin_lab.fetch_search_results"),
+        "click_search_video" => Some("plugin_lab.click_search_video"),
+        "click_comment_btn" => Some("plugin_lab.click_comment_btn"),
+        "scroll_and_collect_comments" => Some("plugin_lab.scroll_and_collect_comments"),
+        "reply_comment" => Some("plugin_lab.reply_comment"),
+        "send_comment" => Some("plugin_lab.send_comment"),
+        "click_comment_avatar" => Some("plugin_lab.click_comment_avatar"),
+        "click_follow_btn" => Some("plugin_lab.click_follow_btn"),
+        "click_dm_btn" => Some("plugin_lab.click_dm_btn"),
+        "input_dm_text" => Some("plugin_lab.input_dm_text"),
+        "send_dm" => Some("plugin_lab.send_dm"),
+        "close_video_detail" => Some("plugin_lab.close_video_detail"),
         _ => None,
     }
 }
@@ -20,6 +33,12 @@ pub fn normalize_payload(action_id: &str, payload: Value) -> Value {
         "find_search_box" => normalize_find_search_box_payload(payload),
         "input_search_text" => normalize_input_search_text_payload(payload),
         "click_filter_overlay" => normalize_click_filter_overlay_payload(payload),
+        "fetch_search_results" => normalize_fetch_search_results_payload(payload),
+        "click_search_video" => normalize_click_search_video_payload(payload),
+        "scroll_and_collect_comments" => normalize_scroll_collect_comments_payload(payload),
+        "reply_comment" => normalize_reply_comment_payload(payload),
+        "click_comment_avatar" => normalize_click_comment_avatar_payload(payload),
+        "input_dm_text" => normalize_input_dm_text_payload(payload),
         _ => payload,
     }
 }
@@ -58,6 +77,19 @@ pub fn supported_actions() -> &'static [&'static str] {
         "input_search_text",
         "click_filter_btn",
         "click_filter_overlay",
+        "click_search_btn",
+        "fetch_search_results",
+        "click_search_video",
+        "click_comment_btn",
+        "scroll_and_collect_comments",
+        "reply_comment",
+        "send_comment",
+        "click_comment_avatar",
+        "click_follow_btn",
+        "click_dm_btn",
+        "input_dm_text",
+        "send_dm",
+        "close_video_detail",
     ]
 }
 
@@ -148,4 +180,58 @@ fn normalize_click_filter_overlay_payload(payload: Value) -> Value {
     }
 
     out
+}
+
+fn normalize_fetch_search_results_payload(payload: Value) -> Value {
+    json!({
+        "limit": payload.get("limit").and_then(|v| v.as_i64()).unwrap_or(20),
+    })
+}
+
+fn normalize_click_search_video_payload(payload: Value) -> Value {
+    json!({
+        "video_index": payload
+            .get("video_index")
+            .and_then(|v| v.as_i64())
+            .or_else(|| payload.get("index").and_then(|v| v.as_i64()))
+            .unwrap_or(1),
+    })
+}
+
+fn normalize_scroll_collect_comments_payload(payload: Value) -> Value {
+    json!({
+        "scroll_rounds": payload.get("scroll_rounds").and_then(|v| v.as_i64()).unwrap_or(4),
+        "max_comments": payload.get("max_comments").and_then(|v| v.as_i64()).unwrap_or(30),
+    })
+}
+
+fn normalize_reply_comment_payload(payload: Value) -> Value {
+    json!({
+        "reply_text": payload.get("reply_text").and_then(|v| v.as_str()).unwrap_or(""),
+        "comment_index": payload
+            .get("comment_index")
+            .and_then(|v| v.as_i64())
+            .or_else(|| payload.get("index").and_then(|v| v.as_i64()))
+            .unwrap_or(1),
+    })
+}
+
+fn normalize_click_comment_avatar_payload(payload: Value) -> Value {
+    json!({
+        "comment_index": payload
+            .get("comment_index")
+            .and_then(|v| v.as_i64())
+            .or_else(|| payload.get("index").and_then(|v| v.as_i64()))
+            .unwrap_or(1),
+    })
+}
+
+fn normalize_input_dm_text_payload(payload: Value) -> Value {
+    json!({
+        "dm_text": payload
+            .get("dm_text")
+            .and_then(|v| v.as_str())
+            .or_else(|| payload.get("text").and_then(|v| v.as_str()))
+            .unwrap_or(""),
+    })
 }

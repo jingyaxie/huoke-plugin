@@ -107,7 +107,8 @@ pub async fn run_action(
 
 fn action_timeout(action_id: &str) -> Duration {
     match action_id {
-        "input_search_text" => Duration::from_secs(120),
+        "input_search_text" | "scroll_and_collect_comments" => Duration::from_secs(120),
+        "reply_comment" | "input_dm_text" => Duration::from_secs(60),
         _ => Duration::from_secs(45),
     }
 }
