@@ -57,6 +57,7 @@ function buildPayload(actionId, platform) {
     case "open_browser":
       payload.platform = platform;
       payload.reuse_existing = false;
+      payload.wait_load = true;
       break;
     case "swipe_page":
       payload.direction = "down";
@@ -86,26 +87,35 @@ function buildPayload(actionId, platform) {
   return payload;
 }
 
-async function runAction(actionId, platform) {
+async function runAction(actionId, platform, attempt = 1) {
   const url = `${BASE}/api/plugin-lab/actions/${actionId}`;
   const payload = buildPayload(actionId, platform);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(180_000),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || data.message || `HTTP ${res.status}`);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(180_000),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || data.message || `HTTP ${res.status}`);
+    }
+    const body = data.data ?? data;
+    const ok = data.ok !== false && body?.ok !== false;
+    return {
+      ok,
+      message: body?.message || data.message || data.error || (ok ? "ok" : "failed"),
+      count: body?.count ?? body?.items?.length,
+    };
+  } catch (err) {
+    const msg = err?.message || String(err);
+    if (attempt < 3 && /content script not responding|no platform tab open/i.test(msg)) {
+      await new Promise((r) => setTimeout(r, 2000));
+      return runAction(actionId, platform, attempt + 1);
+    }
+    throw err;
   }
-  const body = data.data ?? data;
-  const ok = data.ok !== false && body?.ok !== false;
-  return {
-    ok,
-    message: body?.message || data.message || data.error || (ok ? "ok" : "failed"),
-    count: body?.count ?? body?.items?.length,
-  };
 }
 
 async function runPlatform(platform) {
@@ -121,6 +131,9 @@ async function runPlatform(platform) {
     const start = Date.now();
     try {
       const r = await runAction(actionId, platform);
+      if (actionId === "open_browser" && r.ok) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
       const sec = ((Date.now() - start) / 1000).toFixed(1);
       const extra = r.count != null ? ` (count=${r.count})` : "";
       if (r.ok) {

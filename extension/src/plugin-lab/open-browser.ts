@@ -122,11 +122,22 @@ function needsJobStartReset(url: string | undefined, platform: PlatformId): bool
   return false;
 }
 
-/** 后台预热 content script，不阻塞 open_browser 返回 */
-function scheduleContentScriptWarmup(tabId: number) {
-  void ensureContentScript(tabId).catch((err) => {
-    warn("content script warmup deferred", tabId, err);
-  });
+/** 等待 content script 就绪（超时后不阻塞 open_browser 返回） */
+async function ensureContentScriptReady(tabId: number, timeoutMs = 10_000) {
+  try {
+    await Promise.race([
+      ensureContentScript(tabId),
+      sleep(timeoutMs).then(() => {
+        throw new Error("content script warmup timeout");
+      }),
+    ]);
+  } catch (err) {
+    warn("content script warmup incomplete", tabId, err);
+  }
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function focusTab(tab: chrome.tabs.Tab) {
@@ -137,6 +148,22 @@ async function focusTab(tab: chrome.tabs.Tab) {
   } catch (err) {
     warn("focusTab failed", err);
   }
+}
+
+async function waitForPlatformUrl(tabId: number, platform: PlatformId, timeoutMs = 8_000): Promise<chrome.tabs.Tab> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.url && isPlatformUrl(tab.url) && detectPlatformFromUrl(tab.url) === platform) {
+        return tab;
+      }
+    } catch {
+      break;
+    }
+    await sleep(200);
+  }
+  return chrome.tabs.get(tabId);
 }
 
 async function waitForTabLoad(tabId: number, timeoutMs = 5_000): Promise<void> {
@@ -337,9 +364,9 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
       await waitForTabLoad(existing.id, 8_000);
     }
 
-    const refreshed = await chrome.tabs.get(existing.id);
+    const refreshed = await waitForPlatformUrl(existing.id, platform);
     await pinLabSession(refreshed, platform);
-    scheduleContentScriptWarmup(refreshed.id!);
+    await ensureContentScriptReady(refreshed.id!);
     return buildResult(platform, refreshed, {
       opened: false,
       newWindow: false,
@@ -362,9 +389,9 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
   const { tab, bounds, newWindow } = await createPlatformWindow(url);
   if (waitLoad) await waitForTabLoad(tab.id!, 8_000);
 
-  const refreshed = await chrome.tabs.get(tab.id!);
+  const refreshed = await waitForPlatformUrl(tab.id!, platform);
   await pinLabSession(refreshed, platform);
-  scheduleContentScriptWarmup(refreshed.id!);
+  await ensureContentScriptReady(refreshed.id!);
   return buildResult(platform, refreshed, {
     opened: true,
     newWindow,

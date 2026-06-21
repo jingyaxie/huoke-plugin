@@ -1,4 +1,4 @@
-import { findSearchInputMatch, humanClick, randDelay, sleep } from "../../search-input";
+import { findSearchInputMatch, humanClick, isVisible, randDelay, sleep } from "../../search-input";
 import { buildSearchResultPayload } from "../shared/content-item";
 import {
   clearXhsSearchApiCache,
@@ -245,18 +245,62 @@ export function xhsProbeCommentSidebar() {
   };
 }
 
+const XHS_CLOSE_SELECTORS = [
+  ".close-circle",
+  ".close-box",
+  '[class*="close-circle"]',
+  '[class*="close-box"]',
+  '[class*="close-wrapper"]',
+  '[aria-label="关闭"]',
+  'button[aria-label="关闭"]',
+] as const;
+
 export async function xhsCloseNoteDetail() {
-  const closeBtn = document.querySelector('[class*="close"], .close-circle, .close-box') as HTMLElement | null;
-  if (closeBtn) {
-    humanClick(closeBtn);
-    await sleep(400);
-  } else if (window.history.length > 1) {
-    window.history.back();
-    await sleep(500);
+  if (!noteDetailReady()) {
+    return { ok: true, already_closed: true, message: "笔记详情未打开" };
   }
+
+  for (let i = 0; i < 2; i += 1) {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }),
+    );
+    await sleep(randDelay(250, 400));
+  }
+  if (!noteDetailReady()) {
+    return { ok: true, method: "escape", message: "已通过 Escape 关闭笔记详情" };
+  }
+
+  for (const selector of XHS_CLOSE_SELECTORS) {
+    const node = document.querySelector(selector) as HTMLElement | null;
+    if (!node || !isVisible(node)) continue;
+    humanClick(node);
+    await sleep(randDelay(400, 650));
+    if (!noteDetailReady()) break;
+  }
+
+  if (noteDetailReady()) {
+    const masks = document.querySelectorAll('[class*="mask"], [class*="Mask"], .overlay');
+    for (let i = 0; i < masks.length; i += 1) {
+      const mask = masks[i] as HTMLElement;
+      if (!isVisible(mask)) continue;
+      const rect = mask.getBoundingClientRect();
+      if (rect.width < window.innerWidth * 0.5) continue;
+      humanClick(mask);
+      await sleep(randDelay(350, 550));
+      if (!noteDetailReady()) break;
+    }
+  }
+
+  if (noteDetailReady() && /\/explore\/[0-9a-fA-F]{16,32}/i.test(location.href)) {
+    window.history.back();
+    await sleep(randDelay(500, 800));
+  }
+
+  const closed = !noteDetailReady();
   return {
-    ok: !isXhsNotePage() || isXhsSearchResultsPage(),
-    message: "已尝试关闭笔记详情",
+    ok: closed,
+    method: closed ? "close" : "attempt",
+    message: closed ? "已关闭笔记详情" : "已尝试关闭笔记详情",
   };
 }
 

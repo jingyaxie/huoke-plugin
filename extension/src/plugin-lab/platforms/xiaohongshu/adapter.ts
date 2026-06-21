@@ -29,6 +29,9 @@ export const xiaohongshuPluginLabAdapter: PluginLabPlatformAdapter = {
   networkHookPatterns: ["/api/sns/web/", "edith.xiaohongshu.com"],
 
   detectPageContext(url: string): LabPageContext | null {
+    if (url && /xiaohongshu\.com\/explore(?:\?|$)/i.test(url)) {
+      return "search";
+    }
     return detectPageContextWithRules(url, PAGE_CONTEXT, isPlatformUrl);
   },
 
@@ -37,6 +40,9 @@ export const xiaohongshuPluginLabAdapter: PluginLabPlatformAdapter = {
   },
 
   contextMatchesUrl(required: LabPageContext, url?: string | null): boolean {
+    if (required === "search" && url && /xiaohongshu\.com\/explore/i.test(url)) {
+      return true;
+    }
     return contextMatchesUrlWithRules(required, url, PAGE_CONTEXT, isPlatformUrl);
   },
 
