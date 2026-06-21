@@ -19,7 +19,7 @@ import {
   stripModalFromSearchUrl,
   waitForSearchFeedOverlay,
 } from "./search-feed-open";
-import { humanClick, randDelay, sleep } from "./search-input";
+import { humanClick, humanPace, randDelay, sleep } from "./search-input";
 import { closeVideoDetail } from "./close-video-detail";
 
 export interface DomPoint {
@@ -83,7 +83,7 @@ export async function prepareSearchForVideoClick() {
 
   rememberSearchResultsUrl(stripModalFromSearchUrl(location.href));
   window.scrollTo({ top: 0, behavior: "auto" });
-  await sleep(randDelay(280, 420));
+  await sleep(humanPace.listPrepare());
   const cards = await waitForSearchResultCards(10);
 
   return {

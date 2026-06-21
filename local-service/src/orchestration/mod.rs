@@ -332,7 +332,7 @@ impl JobOrchestrator {
             )
             .await?;
         }
-        simulate::pause(Duration::from_secs(4)).await;
+        simulate::human_pause_ms(5500, 8500).await;
 
         let sidebar = lab.open_comment_sidebar().await?;
         if !sidebar.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
@@ -342,7 +342,7 @@ impl JobOrchestrator {
                 .unwrap_or("failed to open comment sidebar");
             warn!("job {job_id}: {msg}");
         }
-        simulate::pause(Duration::from_millis(800)).await;
+        simulate::human_pause_ms(1500, 2800).await;
 
         let scroll_resp = lab
             .scroll_comments(
@@ -374,7 +374,7 @@ impl JobOrchestrator {
             );
         }
 
-        simulate::pause(Duration::from_secs(2)).await;
+        simulate::human_pause_ms(2500, 4500).await;
         if is_dom_poster_aweme_id(&video.aweme_id) {
             let closed = lab.close_video_detail().await?;
             if !closed.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
@@ -384,7 +384,7 @@ impl JobOrchestrator {
                 );
             }
             let _ = lab.prepare_search_for_video().await;
-            simulate::pause(Duration::from_millis(800)).await;
+            simulate::human_pause_ms(1200, 2200).await;
         }
         Ok(())
     }

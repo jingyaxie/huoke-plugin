@@ -21,3 +21,10 @@ pub async fn pause(duration: Duration) {
         tokio::time::sleep(duration).await;
     }
 }
+
+/// 随机等待 min..=max 毫秒，模拟真人操作间隔
+pub async fn human_pause_ms(min_ms: u64, max_ms: u64) {
+    use rand::Rng;
+    let ms = rand::thread_rng().gen_range(min_ms..=max_ms);
+    pause(Duration::from_millis(ms)).await;
+}

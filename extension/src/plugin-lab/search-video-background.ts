@@ -1,10 +1,10 @@
+import { humanPace } from "./search-input";
 import { resolveLabTabForAction } from "./resolve-lab-tab";
 import {
   attachDebugger,
   clickMouse,
   detachDebugger,
   moveMouse,
-  randDelay,
 } from "./real-mouse";
 import { sendContentPluginLabCommand } from "./tab-command";
 
@@ -72,9 +72,9 @@ async function domOpenFeed(
   )) as ClickResult;
 }
 
-async function waitSearchFeedOpen(tabId: number, videoIndex: number, maxPolls = 28): Promise<boolean> {
+async function waitSearchFeedOpen(tabId: number, videoIndex: number, maxPolls = 36): Promise<boolean> {
   for (let i = 0; i < maxPolls; i += 1) {
-    await sleep(160 + i * 35);
+    await sleep(220 + i * 45);
     const status = await probeVideo(tabId, { video_index: videoIndex, status_only: true });
     if (status.is_search_feed) return true;
     if (status.is_standalone_video) return false;
@@ -87,8 +87,9 @@ async function cdpClickAt(tabId: number, x: number, y: number): Promise<void> {
   await attachDebugger(tabId);
   try {
     await moveMouse(tabId, x, y);
-    await sleep(randDelay(100, 180));
+    await sleep(humanPace.mouseHover());
     await clickMouse(tabId, x, y);
+    await sleep(humanPace.posterClick());
   } finally {
     await detachDebugger(tabId);
   }
@@ -113,7 +114,7 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
     const prep = await prepareSearchPage(tabId);
     if (!prep.ok) {
       lastMessage = prep.message ?? "搜索列表未就绪";
-      await sleep(500 + attempt * 200);
+      await sleep(800 + attempt * 350);
       continue;
     }
 
@@ -206,7 +207,7 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
     }
 
     lastMessage = domFallback.message ?? lastMessage;
-    await sleep(700 + attempt * 300);
+    await sleep(1000 + attempt * 400);
   }
 
   return {

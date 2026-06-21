@@ -1,4 +1,4 @@
-import { randDelay, sleep } from "./search-input";
+import { humanPace, sleep } from "./search-input";
 
 const COMMENT_ITEM_SELECTOR = '[data-e2e="comment-item"]';
 const END_MARKERS = ["暂时没有更多评论", "没有更多评论"] as const;
@@ -68,7 +68,8 @@ function scrollCommentSidebar(): boolean {
       const ch = node.clientHeight || 0;
       if (sh > ch + 30) {
         const before = node.scrollTop || 0;
-        node.scrollTop = Math.min(before + 520, sh);
+        const step = 240 + Math.floor(Math.random() * 140);
+        node.scrollTop = Math.min(before + step, sh);
         if (node.scrollTop > before || sh > ch + 120) return true;
       }
       node = node.parentElement;
@@ -238,7 +239,7 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
     }
 
     if (scrollCommentSidebar()) scrolledRounds += 1;
-    await sleep(randDelay(320, 520));
+    await sleep(humanPace.commentScrollRound());
     collectVisible();
 
     if (comments.length >= maxComments) {

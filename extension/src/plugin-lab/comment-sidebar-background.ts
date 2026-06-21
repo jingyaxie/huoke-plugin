@@ -4,8 +4,8 @@ import {
   clickMouse,
   detachDebugger,
   moveMouse,
-  randDelay,
 } from "./real-mouse";
+import { humanPace } from "./search-input";
 import { sendContentPluginLabCommand } from "./tab-command";
 
 function sleep(ms: number) {
@@ -114,7 +114,7 @@ export async function clickCommentButtonBackground() {
     // 非搜索 Feed 才点视频暂停，搜索浮层右侧常已有评论栏，点视频易误触点赞
     if (!status.is_search_feed && status.video_player_center) {
       await clickMouse(tabId, status.video_player_center.x, status.video_player_center.y);
-      await sleep(randDelay(350, 600));
+      await sleep(humanPace.afterCommentClick());
       status = await probe(tabId);
       if (sidebarOpen(status)) {
         method = "video_pause";
@@ -125,17 +125,17 @@ export async function clickCommentButtonBackground() {
       const roundTargets = status.icon_targets ?? targets;
       for (const target of roundTargets) {
         await moveMouse(tabId, target.center.x, target.center.y);
-        await sleep(randDelay(220, 380));
+        await sleep(humanPace.mouseHover());
         await clickMouse(tabId, target.center.x, target.center.y);
         method = target.selector;
-        await sleep(randDelay(550, 900));
+        await sleep(humanPace.afterCommentClick());
 
         status = await probe(tabId);
         if (sidebarOpen(status)) break;
       }
 
       if (sidebarOpen(status)) break;
-      await sleep(350);
+      await sleep(humanPace.beforeCommentAction());
     }
   } finally {
     await detachDebugger(tabId);

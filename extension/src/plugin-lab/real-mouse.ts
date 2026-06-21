@@ -32,7 +32,7 @@ export async function clickMouse(tabId: number, x: number, y: number) {
   const px = Math.round(x);
   const py = Math.round(y);
   await moveMouse(tabId, px, py);
-  await sleep(60);
+  await sleep(randDelay(120, 220));
   await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
     type: "mousePressed",
     x: px,
@@ -47,6 +47,7 @@ export async function clickMouse(tabId: number, x: number, y: number) {
     button: "left",
     clickCount: 1,
   });
+  await sleep(randDelay(80, 160));
 }
 
 export function randDelay(min: number, max: number) {

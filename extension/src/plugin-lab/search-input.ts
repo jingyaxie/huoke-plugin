@@ -16,6 +16,23 @@ export function randDelay(min: number, max: number) {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 
+/** 关键词采集：打开视频 → 评论 → 滚动，更接近真人节奏 */
+export const humanPace = {
+  videoFeedSettle: () => randDelay(2800, 4800),
+  beforeCommentAction: () => randDelay(1200, 2200),
+  afterCommentClick: () => randDelay(1500, 2600),
+  commentScrollRound: () => randDelay(1100, 1900),
+  mouseHover: () => randDelay(450, 850),
+  afterMouseClick: () => randDelay(900, 1500),
+  betweenVideos: () => randDelay(1200, 2000),
+  listPrepare: () => randDelay(500, 900),
+  posterClick: () => randDelay(400, 700),
+} as const;
+
+export async function humanSleep(delay: () => number) {
+  await sleep(delay());
+}
+
 export function clickElement(el: HTMLElement) {
   el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   humanClick(el);

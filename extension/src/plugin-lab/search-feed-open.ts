@@ -1,4 +1,4 @@
-import { humanClick, randDelay, sleep } from "./search-input";
+import { humanClick, humanPace, randDelay, sleep } from "./search-input";
 import {
   collectSearchResultCards,
   extractAwemeFromCard,
@@ -117,7 +117,7 @@ export async function waitForSearchFeedOverlay(maxMs = 6000): Promise<boolean> {
   const deadline = Date.now() + maxMs;
   while (Date.now() < deadline) {
     if (isSearchFeedOverlay()) return true;
-    await sleep(180);
+    await sleep(280);
   }
   return isSearchFeedOverlay();
 }
@@ -219,9 +219,10 @@ export async function clickSearchPosterAtIndex(index: number): Promise<{
   const card = cards[targetIndex - 1];
   const awemeId = extractAwemeFromCard(card) ?? "";
   scrollCardIntoView(card);
-  await sleep(220);
+  await sleep(humanPace.posterClick());
   const clickTarget = pickSearchCardClickTarget(card);
   humanClick(clickTarget);
+  await sleep(humanPace.videoFeedSettle());
 
   return {
     ok: true,
