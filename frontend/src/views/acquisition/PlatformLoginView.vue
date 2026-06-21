@@ -14,6 +14,7 @@
     </header>
 
     <PlatformBrowserPanel
+      :bridge-status="bridgeStatus"
       :extension-setup="extensionSetup"
       :launching="launchingExtension"
       :checking="checking"

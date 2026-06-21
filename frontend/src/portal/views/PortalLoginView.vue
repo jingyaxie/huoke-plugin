@@ -225,9 +225,9 @@ async function onSubmit() {
     await submitPortalLoginForm(fields);
     const loginLabel = loginMethod.value === "sms" ? fields.sms_phone : fields.username;
     setPortalAuthenticated({ displayName: loginLabel, username: loginLabel });
-    await syncPortalDisplayName();
     ElMessage.success("登录成功");
     redirectAfterLogin();
+    void syncPortalDisplayName().catch(() => {});
   } catch (err) {
     errorMessage.value = err?.message || "登录失败，请检查账号信息";
   } finally {

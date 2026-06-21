@@ -1,6 +1,6 @@
 (async () => {
   try {
-    await import(chrome.runtime.getURL("assets/index.ts-DjkE4qN4.js"));
+    await import(chrome.runtime.getURL("assets/index.ts-CdYASeNo.js"));
   } catch (error) {
     console.error("[huoke-ext] content import failed", error);
   }

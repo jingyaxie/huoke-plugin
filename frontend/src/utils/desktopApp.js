@@ -25,9 +25,19 @@ export async function launchChromeExtension() {
   return invoke("launch_chrome_extension");
 }
 
+function readInvokeError(err, fallback) {
+  if (!err) return fallback;
+  if (typeof err === "string") return err;
+  return err.message || fallback;
+}
+
 export async function openExtensionFolder() {
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke("open_extension_folder");
+  try {
+    return await invoke("open_extension_folder");
+  } catch (err) {
+    throw new Error(readInvokeError(err, "打开插件目录失败"));
+  }
 }
 
 export async function restartDesktopApp() {

@@ -12,6 +12,7 @@ mod extension_bootstrap;
 mod port_reclaim;
 mod splash_screen;
 mod static_server;
+mod win_process;
 
 use extension_bootstrap::ExtensionSetupStatus;
 
@@ -330,7 +331,7 @@ fn start_local_service(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    hide_backend_console(&mut command);
+    win_process::hide_console(&mut command);
 
     let log_file = Arc::new(log_file.to_path_buf());
     let mut child = command
@@ -405,16 +406,6 @@ fn drain_log_readers(handles: Vec<JoinHandle<()>>) {
         let _ = handle.join();
     }
 }
-
-#[cfg(windows)]
-fn hide_backend_console(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    command.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(not(windows))]
-fn hide_backend_console(_command: &mut Command) {}
 
 fn verify_desktop_frontend(
     client: &reqwest::blocking::Client,
@@ -831,13 +822,20 @@ fn launch_chrome_extension(app: AppHandle) -> Result<ExtensionSetupStatus, Strin
 
 #[tauri::command]
 fn open_extension_folder(app: AppHandle) -> Result<(), String> {
-    let state = app.state::<ServiceState>();
-    let data_dir = state
+    let data_dir = app
+        .state::<ServiceState>()
         .data_dir
         .lock()
         .expect("data lock")
         .clone()
-        .ok_or_else(|| "桌面服务尚未就绪".to_string())?;
+        .unwrap_or_else(|| desktop_data_dir(&app));
+
+    if let Ok(root) = repo_root(&app) {
+        if let Ok(bundle_dir) = resolve_bundle_dir(&root, &app) {
+            let _ = extension_bootstrap::ensure_extension_installed(&bundle_dir, &data_dir);
+        }
+    }
+
     extension_bootstrap::open_path_in_explorer(&extension_bootstrap::extension_install_dir(
         &data_dir,
     ))

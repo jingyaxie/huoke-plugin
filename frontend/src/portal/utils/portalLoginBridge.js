@@ -5,8 +5,11 @@
 import { getPortalBaseUrl } from "../config/cloudNav";
 import {
   buildPortalEmbedUrl,
+  getPortalDisplayName,
   handlePortalMessage,
   isPortalAuthenticated,
+  isPortalMessageOrigin,
+  PORTAL_NAVIGATE_MESSAGE,
   PORTAL_PING_MESSAGE,
 } from "./portalShell";
 
@@ -28,6 +31,10 @@ function ensureBridgeFrame() {
   return frame;
 }
 
+function dashboardEmbedUrl() {
+  return buildPortalEmbedUrl(`${getPortalBaseUrl()}/customer/dashboard`);
+}
+
 function pingBridgeFrame(frame) {
   try {
     frame.contentWindow?.postMessage({ type: PORTAL_PING_MESSAGE }, "*");
@@ -36,86 +43,148 @@ function pingBridgeFrame(frame) {
   }
 }
 
+function isPortalNavigateMessage(event) {
+  if (!isPortalMessageOrigin(event.origin)) return false;
+  const data = event.data;
+  return Boolean(
+    data &&
+      typeof data === "object" &&
+      data.type === PORTAL_NAVIGATE_MESSAGE &&
+      typeof data.path === "string" &&
+      data.path.startsWith("/"),
+  );
+}
+
+function attachPortalSessionProbe(frame, options = {}) {
+  const {
+    timeoutMs = 10000,
+    onAuthenticated,
+    onTimeout,
+    onFrameLoad,
+  } = options;
+
+  let settled = false;
+  const probeTimers = [];
+
+  const timeout = window.setTimeout(() => {
+    finish(false);
+  }, timeoutMs);
+
+  function cleanup() {
+    window.clearTimeout(timeout);
+    window.removeEventListener("message", onMessage);
+    frame.removeEventListener("load", onLoad);
+    probeTimers.forEach((timer) => window.clearTimeout(timer));
+  }
+
+  function finish(ok) {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    if (ok) {
+      onAuthenticated?.();
+    } else {
+      onTimeout?.();
+    }
+  }
+
+  function tryComplete() {
+    if (isPortalAuthenticated()) {
+      finish(true);
+      return true;
+    }
+    return false;
+  }
+
+  function queueDashboardProbe(delayMs = 0) {
+    probeTimers.push(
+      window.setTimeout(() => {
+        if (settled) return;
+        frame.src = dashboardEmbedUrl();
+      }, delayMs),
+    );
+  }
+
+  function onMessage(event) {
+    handlePortalMessage(event);
+    if (tryComplete()) return;
+    if (isPortalNavigateMessage(event)) {
+      queueDashboardProbe(200);
+    }
+  }
+
+  function onLoad() {
+    pingBridgeFrame(frame);
+    window.setTimeout(() => {
+      pingBridgeFrame(frame);
+      tryComplete();
+    }, 400);
+    onFrameLoad?.();
+  }
+
+  window.addEventListener("message", onMessage);
+  frame.addEventListener("load", onLoad);
+
+  return {
+    queueDashboardProbe,
+    tryComplete,
+    finish,
+    cleanup,
+  };
+}
+
 /**
  * 探测 portal 域是否已有有效 session（例如刷新后 sessionStorage 丢失但 cookie 仍在）。
  */
 export function probePortalSession() {
   return new Promise((resolve) => {
     const frame = ensureBridgeFrame();
-    let settled = false;
-
-    const timeout = window.setTimeout(() => {
-      finish(false);
-    }, 10000);
-
-    function finish(ok) {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timeout);
-      window.removeEventListener("message", onMessage);
-      frame.removeEventListener("load", onLoad);
-      resolve(ok);
-    }
-
-    function onMessage(event) {
-      const result = handlePortalMessage(event);
-      if (!result || result.navigate) return;
-      if (isPortalAuthenticated()) {
-        finish(true);
-      }
-    }
-
-    function onLoad() {
-      pingBridgeFrame(frame);
-      window.setTimeout(() => pingBridgeFrame(frame), 400);
-    }
-
-    window.addEventListener("message", onMessage);
-    frame.addEventListener("load", onLoad);
-    frame.src = buildPortalEmbedUrl(`${getPortalBaseUrl()}/customer/dashboard`);
+    const probe = attachPortalSessionProbe(frame, {
+      timeoutMs: 10000,
+      onAuthenticated: () => resolve(true),
+      onTimeout: () => resolve(false),
+    });
+    probe.queueDashboardProbe(0);
   });
 }
 
 /**
  * 向 /customer/login 提交表单，成功后由 huoke_embed.js postMessage 通知壳层。
+ * 若仅返回 navigate 或 postMessage 丢失，则回退为 dashboard 探测（与重启后 probe 相同）。
  * @param {Record<string, string>} fields
  */
 export function submitPortalLoginForm(fields) {
   const action = `${getPortalBaseUrl()}/customer/login?huoke_embed=1`;
-  ensureBridgeFrame();
+  const frame = ensureBridgeFrame();
 
   return new Promise((resolve, reject) => {
     let settled = false;
+    let formSubmitted = false;
 
-    const timeout = window.setTimeout(() => {
-      finishReject(new Error("登录超时，请检查账号信息或网络连接"));
-    }, 45000);
+    const probe = attachPortalSessionProbe(frame, {
+      timeoutMs: 30000,
+      onAuthenticated: () => finishResolve({ authenticated: true }),
+      onTimeout: () => finishReject(new Error("登录超时，请检查账号信息或网络连接")),
+      onFrameLoad: () => {
+        if (!formSubmitted || settled) return;
+        probe.queueDashboardProbe(300);
+        probe.queueDashboardProbe(1200);
+      },
+    });
 
     function finishResolve(value) {
       if (settled) return;
       settled = true;
-      window.clearTimeout(timeout);
-      window.removeEventListener("message", onMessage);
+      probe.cleanup();
       resolve(value);
     }
 
     function finishReject(error) {
       if (settled) return;
       settled = true;
-      window.clearTimeout(timeout);
-      window.removeEventListener("message", onMessage);
+      probe.cleanup();
       reject(error instanceof Error ? error : new Error(String(error)));
     }
-
-    function onMessage(event) {
-      const result = handlePortalMessage(event);
-      if (!result || result.navigate) return;
-      if (isPortalAuthenticated()) {
-        finishResolve(result);
-      }
-    }
-
-    window.addEventListener("message", onMessage);
 
     const form = document.createElement("form");
     form.method = "POST";
@@ -134,8 +203,11 @@ export function submitPortalLoginForm(fields) {
     }
 
     document.body.appendChild(form);
+    formSubmitted = true;
     form.submit();
     form.remove();
+
+    [800, 1800, 3500, 6000].forEach((delay) => probe.queueDashboardProbe(delay));
   });
 }
 
@@ -183,6 +255,6 @@ export function syncPortalDisplayName(timeoutMs = 8000) {
 
     window.addEventListener("message", onMessage);
     frame.addEventListener("load", onLoad);
-    frame.src = buildPortalEmbedUrl(`${getPortalBaseUrl()}/customer/dashboard`);
+    frame.src = dashboardEmbedUrl();
   });
 }

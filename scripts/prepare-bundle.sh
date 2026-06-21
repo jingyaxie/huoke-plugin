@@ -47,9 +47,16 @@ rsync -a "$EXTENSION_DIR/dist/" "$BUNDLE_DIR/extension/"
   zip -qr "$BUNDLE_DIR/huoke-extension.zip" .
 )
 
+APP_VERSION="$(node -p "require('$ROOT/package.json').version")"
+EXT_VERSION="$(node -p "require('$EXTENSION_DIR/manifest.json').version")"
+LS_VERSION="$(grep '^version' "$LOCAL_SERVICE_DIR/Cargo.toml" | head -1 | sed 's/.*\"\(.*\)\".*/\1/')"
+
 cat > "$BUNDLE_DIR/BUNDLE_MANIFEST.json" <<EOF
 {
   "kind": "huoke-desktop-bundle",
+  "app_version": "$APP_VERSION",
+  "extension_version": "$EXT_VERSION",
+  "local_service_version": "$LS_VERSION",
   "runtime": "runtime/huoke-local-service",
   "frontend": "frontend-dist",
   "extension": "extension",

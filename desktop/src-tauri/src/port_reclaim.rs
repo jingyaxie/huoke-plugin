@@ -2,6 +2,9 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+#[cfg(windows)]
+use crate::win_process;
+
 pub fn reclaim_huoke_ports(static_port: u16, local_service_port: u16) {
     reclaim_port(static_port);
     reclaim_port(local_service_port);
@@ -37,7 +40,10 @@ fn find_listeners(port: u16) -> Vec<u32> {
 
 #[cfg(windows)]
 fn find_listeners(port: u16) -> Vec<u32> {
-    let output = match Command::new("netstat").args(["-ano"]).output() {
+    let mut command = Command::new("netstat");
+    command.args(["-ano"]);
+    win_process::hide_console(&mut command);
+    let output = match command.output() {
         Ok(output) if output.status.success() => output,
         _ => return Vec::new(),
     };
@@ -78,7 +84,8 @@ fn terminate_pid(pid: u32) {
 
 #[cfg(windows)]
 fn terminate_pid(pid: u32) {
-    let _ = Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/F"])
-        .status();
+    let mut command = Command::new("taskkill");
+    command.args(["/PID", &pid.to_string(), "/F"]);
+    win_process::hide_console(&mut command);
+    let _ = command.status();
 }

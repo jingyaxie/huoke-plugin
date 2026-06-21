@@ -3,6 +3,9 @@ use serde::Serialize;
 use serde_json::json;
 use std::time::Duration;
 
+use crate::bundle_info::{
+    evaluate_extension_versions, read_bundle_info, read_installed_extension_version,
+};
 use crate::state::AppState;
 
 #[derive(Serialize)]
@@ -26,15 +29,28 @@ pub struct BridgeStatusResponse {
     pub extension_clients: usize,
     pub ws_path: &'static str,
     pub extension_ready: bool,
+    #[serde(flatten)]
+    pub version: crate::bundle_info::ExtensionVersionStatus,
 }
 
 pub async fn bridge_status(State(state): State<AppState>) -> Json<BridgeStatusResponse> {
     let extension_clients = state.hub.extension_client_count();
+    let bundle = read_bundle_info(&state.data_dir);
+    let installed = read_installed_extension_version(&state.data_dir);
+    let connected = state.hub.connected_extension_version();
+    let build_id = state.hub.connected_extension_build_id();
+    let version = evaluate_extension_versions(
+        bundle.as_ref(),
+        installed.as_deref(),
+        connected.as_deref(),
+        build_id.as_deref(),
+    );
     Json(BridgeStatusResponse {
         connected_clients: extension_clients,
         extension_clients,
         ws_path: "/ws",
         extension_ready: extension_clients > 0,
+        version,
     })
 }
 

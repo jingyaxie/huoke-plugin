@@ -15,6 +15,15 @@
       </article>
     </div>
 
+    <ExtensionVersionAlert
+      :bridge-status="bridgeStatus"
+      :extension-setup="extensionSetup"
+      :can-launch="canLaunch"
+      :launching="launching"
+      @launch="$emit('launch')"
+      @open-folder="$emit('open-folder')"
+    />
+
     <ExtensionSetupGuide
       :can-launch="canLaunch"
       :runtime-path="runtimePath"
@@ -32,10 +41,12 @@
 import { computed } from "vue";
 import { ElMessage } from "element-plus";
 import ExtensionSetupGuide from "./ExtensionSetupGuide.vue";
+import ExtensionVersionAlert from "./ExtensionVersionAlert.vue";
 import { EXTENSION_PLATFORM_LOGIN_CARDS } from "../config/extensionPlatformCapabilities";
 import { isTauriApp } from "../utils/desktopApp";
 
 const props = defineProps({
+  bridgeStatus: { type: Object, default: () => ({}) },
   extensionSetup: { type: Object, default: () => ({}) },
   launching: { type: Boolean, default: false },
   checking: { type: Boolean, default: false },

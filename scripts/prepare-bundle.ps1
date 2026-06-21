@@ -68,18 +68,23 @@ $ZipPath = Join-Path $BundleDir "huoke-extension.zip"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 Compress-Archive -Path (Join-Path $ExtensionDir "dist/*") -DestinationPath $ZipPath -Force
 
-@'
-{
-  "kind": "huoke-desktop-bundle",
-  "runtime": "runtime/huoke-local-service.exe",
-  "frontend": "frontend-dist",
-  "extension": "extension",
-  "extension_zip": "huoke-extension.zip",
-  "static_port": 18765,
-  "local_service_port": 18766,
-  "notes": "Vue static + Rust local-service + Chrome extension (auto-loaded on first run)."
-}
-'@ | Set-Content -Path (Join-Path $BundleDir "BUNDLE_MANIFEST.json") -Encoding UTF8
+$AppVersion = node -p "require('$Root/package.json').version"
+$ExtVersion = node -p "require('$ExtensionDir/manifest.json').version"
+$LsVersion = (Select-String -Path (Join-Path $LocalServiceDir "Cargo.toml") -Pattern '^version' | Select-Object -First 1).Line -replace '.*"(.*)".*', '$1'
+
+@{
+  kind = "huoke-desktop-bundle"
+  app_version = $AppVersion
+  extension_version = $ExtVersion
+  local_service_version = $LsVersion
+  runtime = "runtime/huoke-local-service.exe"
+  frontend = "frontend-dist"
+  extension = "extension"
+  extension_zip = "huoke-extension.zip"
+  static_port = 18765
+  local_service_port = 18766
+  notes = "Vue static + Rust local-service + Chrome extension (auto-loaded on first run)."
+} | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $BundleDir "BUNDLE_MANIFEST.json") -Encoding UTF8
 
 Write-Host "bundle 就绪: $BundleDir"
 Write-Host "  - runtime/huoke-local-service.exe"

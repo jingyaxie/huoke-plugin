@@ -2,10 +2,30 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+use crate::win_process;
 
 const DOUYIN_HOME: &str = "https://www.douyin.com/";
 const BRIDGE_STATUS: &str = "http://127.0.0.1:18766/bridge/status";
+
+#[derive(Debug, Clone, Deserialize)]
+struct BundleManifest {
+    #[serde(default)]
+    app_version: String,
+    #[serde(default)]
+    extension_version: String,
+    #[serde(default)]
+    local_service_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleInfo {
+    app_version: String,
+    extension_version: String,
+    local_service_version: String,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +37,12 @@ pub struct ExtensionSetupStatus {
     pub chrome_path: Option<String>,
     pub bridge_connected: bool,
     pub connected_clients: u64,
+    pub app_version: Option<String>,
+    pub expected_extension_version: Option<String>,
+    pub installed_extension_version: Option<String>,
+    pub connected_extension_version: Option<String>,
+    pub extension_version_matched: bool,
+    pub extension_version_message: Option<String>,
     pub message: String,
 }
 
@@ -29,6 +55,7 @@ pub fn chrome_profile_dir(data_dir: &Path) -> PathBuf {
 }
 
 pub fn ensure_extension_installed(bundle_dir: &Path, data_dir: &Path) -> Result<PathBuf, String> {
+    let _ = sync_bundle_info(bundle_dir, data_dir);
     let target = extension_install_dir(data_dir);
     let unpacked = bundle_dir.join("extension").join("manifest.json");
     let zip = bundle_dir.join("huoke-extension.zip");
@@ -76,7 +103,10 @@ pub fn find_chrome_executable() -> Option<PathBuf> {
 
 fn which_command(name: &str) -> Result<PathBuf, String> {
     let output = if cfg!(windows) {
-        Command::new("where").arg(name).output()
+        let mut command = Command::new("where");
+        command.arg(name);
+        win_process::hide_console(&mut command);
+        command.output()
     } else {
         Command::new("which").arg(name).output()
     }
@@ -140,7 +170,8 @@ pub fn launch_chrome_with_extension(
     {
         use std::os::windows::process::CommandExt;
         const DETACHED_PROCESS: u32 = 0x00000008;
-        command.creation_flags(DETACHED_PROCESS);
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
     }
 
     command
@@ -149,23 +180,47 @@ pub fn launch_chrome_with_extension(
     Ok(())
 }
 
+fn prepare_explorer_target(path: &Path) -> Result<PathBuf, String> {
+    if path.is_file() {
+        return Ok(path.to_path_buf());
+    }
+    if !path.exists() {
+        fs::create_dir_all(path)
+            .map_err(|err| format!("创建目录失败: {} ({err})", path.display()))?;
+    }
+    let abs = path
+        .canonicalize()
+        .map_err(|err| format!("路径无效: {} ({err})", path.display()))?;
+    let text = abs.to_string_lossy();
+    if let Some(stripped) = text.strip_prefix(r"\\?\") {
+        Ok(PathBuf::from(stripped))
+    } else {
+        Ok(abs)
+    }
+}
+
 pub fn open_path_in_explorer(path: &Path) -> Result<(), String> {
+    let target = prepare_explorer_target(path)?;
+
     if cfg!(windows) {
-        Command::new("explorer")
-            .arg(path)
+        let path_str = target.display().to_string();
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", &path_str]);
+        win_process::hide_console(&mut command);
+        command
             .spawn()
-            .map_err(|err| err.to_string())?;
+            .map_err(|err| format!("打开目录失败: {err}"))?;
         return Ok(());
     }
     if cfg!(target_os = "macos") {
         Command::new("open")
-            .arg(path)
+            .arg(&target)
             .spawn()
             .map_err(|err| err.to_string())?;
         return Ok(());
     }
     Command::new("xdg-open")
-        .arg(path)
+        .arg(&target)
         .spawn()
         .map_err(|err| err.to_string())?;
     Ok(())
@@ -182,9 +237,27 @@ pub fn build_setup_status(
     let chrome_path = find_chrome_executable();
     let connected_clients = bridge_client_count();
     let bridge_connected = connected_clients > 0;
+    let bundle = read_bundle_manifest(bundle_dir);
+    let installed_extension_version = read_manifest_version(&extension_path);
+    let bridge_status = fetch_bridge_status_json();
+    let connected_extension_version = bridge_status
+        .as_ref()
+        .and_then(|body| {
+            body.get("connectedExtensionVersion")
+                .or_else(|| body.get("connected_extension_version"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        });
+    let version_eval = evaluate_extension_versions(
+        bundle.as_ref(),
+        installed_extension_version.as_deref(),
+        connected_extension_version.as_deref(),
+    );
 
     let message = if let Some(err) = bootstrap_error {
         err.to_string()
+    } else if let Some(version_message) = version_eval.message.clone() {
+        version_message
     } else if !extension_installed {
         "正在准备 Chrome 插件…".into()
     } else if chrome_path.is_none() {
@@ -203,12 +276,163 @@ pub fn build_setup_status(
         chrome_path: chrome_path.map(|p| p.to_string_lossy().replace('\\', "/")),
         bridge_connected,
         connected_clients,
+        app_version: version_eval.app_version,
+        expected_extension_version: version_eval.expected_extension_version,
+        installed_extension_version: version_eval.installed_extension_version,
+        connected_extension_version: version_eval.connected_extension_version,
+        extension_version_matched: version_eval.matched,
+        extension_version_message: version_eval.message,
         message,
     }
 }
 
+fn sync_bundle_info(bundle_dir: &Path, data_dir: &Path) -> Result<(), String> {
+    let manifest = read_bundle_manifest(bundle_dir).ok_or_else(|| {
+        format!(
+            "未找到 bundle 版本信息: {}",
+            bundle_dir.join("BUNDLE_MANIFEST.json").display()
+        )
+    })?;
+    if manifest.extension_version.is_empty() {
+        return Err("BUNDLE_MANIFEST.json 缺少 extension_version".into());
+    }
+    let info = BundleInfo {
+        app_version: if manifest.app_version.is_empty() {
+            env!("CARGO_PKG_VERSION").into()
+        } else {
+            manifest.app_version
+        },
+        extension_version: manifest.extension_version,
+        local_service_version: if manifest.local_service_version.is_empty() {
+            "0.1.0".into()
+        } else {
+            manifest.local_service_version
+        },
+    };
+    let path = data_dir.join("bundle-info.json");
+    let json = serde_json::to_string_pretty(&info).map_err(|err| err.to_string())?;
+    fs::write(path, json).map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn read_bundle_manifest(bundle_dir: &Path) -> Option<BundleManifest> {
+    let path = bundle_dir.join("BUNDLE_MANIFEST.json");
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+fn read_manifest_version(dir: &Path) -> Option<String> {
+    let path = dir.join("manifest.json");
+    let text = fs::read_to_string(path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+    json.get("version")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+fn fetch_bridge_status_json() -> Option<serde_json::Value> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .ok()?;
+    let resp = client.get(BRIDGE_STATUS).send().ok()?;
+    resp.json().ok()
+}
+
+struct VersionEval {
+    app_version: Option<String>,
+    expected_extension_version: Option<String>,
+    installed_extension_version: Option<String>,
+    connected_extension_version: Option<String>,
+    matched: bool,
+    message: Option<String>,
+}
+
+fn evaluate_extension_versions(
+    bundle: Option<&BundleManifest>,
+    installed: Option<&str>,
+    connected: Option<&str>,
+) -> VersionEval {
+    let expected = bundle
+        .map(|item| item.extension_version.as_str())
+        .filter(|value| !value.is_empty());
+    let app_version = bundle
+        .map(|item| {
+            if item.app_version.is_empty() {
+                env!("CARGO_PKG_VERSION").to_string()
+            } else {
+                item.app_version.clone()
+            }
+        });
+
+    let mut matched = true;
+    let mut message = None;
+
+    if let Some(expected_version) = expected {
+        if let Some(connected_version) = connected {
+            if version_older_than(connected_version, expected_version) {
+                matched = false;
+                message = Some(format!(
+                    "当前 Chrome 插件 v{connected_version} 低于 App 要求 v{expected_version}，请更新插件。"
+                ));
+            } else if !versions_equal(connected_version, expected_version) {
+                matched = false;
+                message = Some(format!(
+                    "当前 Chrome 插件 v{connected_version} 与 App 要求 v{expected_version} 不一致，请更新插件。"
+                ));
+            }
+        } else if let Some(installed_version) = installed {
+            if version_older_than(installed_version, expected_version)
+                || !versions_equal(installed_version, expected_version)
+            {
+                matched = false;
+                message = Some(format!(
+                    "本地插件目录仍为 v{installed_version}，App 要求 v{expected_version}，请重启 App 或点击「启动浏览器插件」。"
+                ));
+            }
+        }
+    }
+
+    VersionEval {
+        app_version,
+        expected_extension_version: expected.map(str::to_string),
+        installed_extension_version: installed.map(str::to_string),
+        connected_extension_version: connected.map(str::to_string),
+        matched,
+        message,
+    }
+}
+
+fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    let parse = |value: &str| -> Vec<u32> {
+        value
+            .split(|c: char| !c.is_ascii_digit())
+            .filter(|part| !part.is_empty())
+            .filter_map(|part| part.parse().ok())
+            .collect()
+    };
+    let mut left_parts = parse(left);
+    let mut right_parts = parse(right);
+    let max_len = left_parts.len().max(right_parts.len());
+    left_parts.resize(max_len, 0);
+    right_parts.resize(max_len, 0);
+    left_parts.partial_cmp(&right_parts)
+}
+
+fn versions_equal(left: &str, right: &str) -> bool {
+    compare_versions(left, right) == Some(std::cmp::Ordering::Equal)
+}
+
+fn version_older_than(actual: &str, expected: &str) -> bool {
+    matches!(
+        compare_versions(actual, expected),
+        Some(std::cmp::Ordering::Less)
+    )
+}
+
 pub fn bootstrap_extension(bundle_dir: &Path, data_dir: &Path) -> Result<ExtensionSetupStatus, String> {
     fs::create_dir_all(data_dir).map_err(|err| err.to_string())?;
+    sync_bundle_info(bundle_dir, data_dir)?;
     let extension_dir = ensure_extension_installed(bundle_dir, data_dir)?;
     let profile_dir = chrome_profile_dir(data_dir);
 
@@ -259,10 +483,10 @@ fn extract_zip(zip_path: &Path, dest_dir: &Path) -> Result<(), String> {
             zip_path.display(),
             dest_dir.display()
         );
-        let status = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &script])
-            .status()
-            .map_err(|err| err.to_string())?;
+        let mut command = Command::new("powershell");
+        command.args(["-NoProfile", "-Command", &script]);
+        win_process::hide_console(&mut command);
+        let status = command.status().map_err(|err| err.to_string())?;
         if !status.success() {
             return Err("解压 huoke-extension.zip 失败".into());
         }

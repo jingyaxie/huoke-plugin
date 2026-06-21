@@ -45,6 +45,17 @@
       </template>
     </el-alert>
 
+    <ExtensionVersionAlert
+      v-if="desktopMode"
+      class="panel-block"
+      :bridge-status="bridgeStatus"
+      :extension-setup="extensionSetup"
+      :can-launch="true"
+      :launching="launchingExtension"
+      @launch="onLaunchChromeExtension"
+      @open-folder="onOpenExtensionFolder"
+    />
+
     <AcquisitionStatsCards :data="dashboard" :loading="loading" class="panel-block" />
     </div>
 
@@ -143,6 +154,7 @@ import AcquisitionOutreachModal from "../../components/AcquisitionOutreachModal.
 import AcquisitionStatsCards from "../../components/AcquisitionStatsCards.vue";
 import CollectJobRowActions from "../../components/CollectJobRowActions.vue";
 import CreateExtensionAutoTaskDialog from "../../components/CreateExtensionAutoTaskDialog.vue";
+import ExtensionVersionAlert from "../../components/ExtensionVersionAlert.vue";
 import MetricLink from "../../components/MetricLink.vue";
 import {
   deleteCollectJob,

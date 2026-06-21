@@ -126,6 +126,13 @@ export function handlePortalMessage(event) {
   }
 
   if (data.type === PORTAL_NAVIGATE_MESSAGE && typeof data.path === "string" && data.path.startsWith("/")) {
+    if (data.path.startsWith("/customer/") && !data.path.startsWith("/customer/login")) {
+      setPortalAuthenticated({
+        displayName: data.displayName || data.userName || readPortalAuth()?.displayName || "",
+        username: data.userName || readPortalAuth()?.username || readPortalAuth()?.displayName || "",
+        path: data.path,
+      });
+    }
     return { navigate: data.path };
   }
 

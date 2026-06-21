@@ -21,6 +21,8 @@ struct HubInner {
     clients: Mutex<Vec<BridgeClient>>,
     active_extension_id: Mutex<Option<String>>,
     extension_client_count: AtomicUsize,
+    connected_extension_version: Mutex<Option<String>>,
+    connected_extension_build_id: Mutex<Option<String>>,
     events: broadcast::Sender<BridgeMessage>,
     pending: Mutex<HashMap<String, mpsc::Sender<BridgeMessage>>>,
 }
@@ -39,6 +41,8 @@ impl BridgeHub {
                 clients: Mutex::new(Vec::new()),
                 active_extension_id: Mutex::new(None),
                 extension_client_count: AtomicUsize::new(0),
+                connected_extension_version: Mutex::new(None),
+                connected_extension_build_id: Mutex::new(None),
                 events,
                 pending: Mutex::new(HashMap::new()),
             }),
@@ -61,6 +65,20 @@ impl BridgeHub {
         self.inner
             .extension_client_count
             .load(Ordering::Relaxed)
+    }
+
+    pub fn connected_extension_version(&self) -> Option<String> {
+        self.inner
+            .connected_extension_version
+            .blocking_lock()
+            .clone()
+    }
+
+    pub fn connected_extension_build_id(&self) -> Option<String> {
+        self.inner
+            .connected_extension_build_id
+            .blocking_lock()
+            .clone()
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<BridgeMessage> {
@@ -167,6 +185,8 @@ impl BridgeHub {
         if let Ok(mut active) = self.inner.active_extension_id.try_lock() {
             *active = None;
         }
+        *self.inner.connected_extension_version.blocking_lock() = None;
+        *self.inner.connected_extension_build_id.blocking_lock() = None;
         self.inner.extension_client_count.store(0, Ordering::Relaxed);
         info!("bridge hub reset on boot");
     }
@@ -242,6 +262,8 @@ impl BridgeHub {
         let mut active = self.inner.active_extension_id.lock().await;
         if active.as_deref() == Some(client_id) {
             *active = None;
+            *self.inner.connected_extension_version.lock().await = None;
+            *self.inner.connected_extension_build_id.lock().await = None;
         }
         self.sync_extension_count(&guard, active.as_deref());
     }
@@ -340,9 +362,24 @@ impl BridgeHub {
             }
             MessageType::Event => {
                 if msg.action == "bridge.connected" {
+                    let version = msg
+                        .payload
+                        .get("extensionVersion")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let build_id = msg
+                        .payload
+                        .get("buildId")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let mut version_guard = self.inner.connected_extension_version.lock().await;
+                    *version_guard = version.clone();
+                    let mut build_guard = self.inner.connected_extension_build_id.lock().await;
+                    *build_guard = build_id.clone();
                     self.adopt_single_extension(client_id).await;
                     info!(
-                        "extension ready id={client_id} (active extension only)"
+                        "extension ready id={client_id} version={:?} build={:?}",
+                        version, build_id
                     );
                 }
                 info!("event {} platform={:?}", msg.action, msg.platform);

@@ -1,3 +1,6 @@
+// Prevents console window on Windows in release builds.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use huoke_local_service::{app, config};
 
 use tracing::info;
