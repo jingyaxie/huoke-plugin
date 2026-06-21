@@ -9,12 +9,13 @@ use tracing::{info, warn};
 use crate::db::{CapturedVideo, Database, JobStatus};
 use crate::douyin::parser::{
     dom_poster_index, is_dom_poster_aweme_id, parse_aweme_id_from_page_url,
-    parse_dom_scroll_comments, parse_fetch_search_results, resolve_aweme_id_for_video,
+    parse_dom_scroll_comments, resolve_aweme_id_for_video,
     ParsedVideo,
 };
 use crate::filters;
 use crate::job_config::JobConfig;
 use crate::job_run::JobRunRegistry;
+use crate::platforms::parse_plugin_lab_search_results;
 use crate::lab_commands::LabCommands;
 use crate::orchestration::outreach::InlineOutreachRunner;
 use crate::ws::BridgeHub;
@@ -121,7 +122,7 @@ impl JobOrchestrator {
             cfg.target_count, job.limit_videos, cfg.comment_days
         );
 
-        let lab = LabCommands::new(&self.hub);
+        let lab = LabCommands::new(&self.hub, &job.platform);
         let search_result = lab
             .run_keyword_search(&search_kw, cfg.filter_publish_days_for_ui())
             .await?;
@@ -134,7 +135,7 @@ impl JobOrchestrator {
             return Err(msg.to_string());
         }
 
-        self.ensure_search_videos_captured(job_id, &lab, Some(&search_result))
+        self.ensure_search_videos_captured(job_id, &job.platform, &lab, Some(&search_result))
             .await?;
 
         self.collect_until_target(job_id, job, cfg).await
@@ -160,8 +161,9 @@ impl JobOrchestrator {
             cfg.intent, input_url
         );
 
-        let lab = LabCommands::new(&self.hub);
-        let open_url = normalize_manual_open_url(&input_url, &cfg.intent);
+        let lab = LabCommands::new(&self.hub, &job.platform);
+        let adapter = crate::platforms::get_platform_adapter(&job.platform);
+        let open_url = adapter.normalize_manual_open_url(&input_url, &cfg.intent);
         // 与自动获客一致：左侧半屏独立窗口，避免 hijack 用户日常抖音标签
         lab.open_url_in_new_window(&open_url).await?;
         self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
@@ -172,14 +174,22 @@ impl JobOrchestrator {
         if cfg.intent == "account_home" {
             let _ = lab.close_video_detail().await;
             self.wait_if_not_paused(job_id, Duration::from_millis(800)).await?;
-            self.ensure_profile_videos_captured(job_id, &lab, &open_url, job.limit_videos)
+            self.ensure_profile_videos_captured(job_id, &job.platform, &lab, &open_url, job.limit_videos)
                 .await?;
         } else {
             self.wait_if_not_paused(job_id, Duration::from_secs(4)).await?;
+            let max_comments = if cfg.intent == "single_video" {
+                job.max_comments_per_video.max(80)
+            } else {
+                80
+            };
+            let scroll_rounds = if cfg.intent == "single_video" { 12 } else { 6 };
             let _ = lab.open_comment_sidebar().await;
-            let _ = lab.scroll_comments(6, 80, cfg.comment_days).await;
+            let _ = lab
+                .scroll_comments(scroll_rounds, max_comments, cfg.comment_days)
+                .await;
             self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
-            if let Some(aweme_id) = parse_aweme_id_from_page_url(&input_url) {
+            if let Some(aweme_id) = adapter.extract_content_id_from_url(&input_url) {
                 let video = ParsedVideo {
                     aweme_id,
                     video_url: input_url.clone(),
@@ -197,6 +207,7 @@ impl JobOrchestrator {
     async fn ensure_profile_videos_captured(
         &self,
         job_id: &str,
+        platform: &str,
         lab: &LabCommands<'_>,
         profile_url: &str,
         limit_videos: i64,
@@ -223,7 +234,7 @@ impl JobOrchestrator {
             .get("capture_method")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let videos = parse_fetch_search_results(&resp);
+        let videos = parse_plugin_lab_search_results(platform, &resp);
         if videos.is_empty() {
             if !self.db.list_videos_for_job(job_id)?.is_empty() {
                 return Ok(());
@@ -261,7 +272,7 @@ impl JobOrchestrator {
         let mut pass = 0_u32;
         let mut opened_videos = 0_u32;
 
-        let lab = LabCommands::new(&self.hub);
+        let lab = LabCommands::new(&self.hub, &job.platform);
         if cfg.intent == "account_home" {
             let _ = lab.prepare_profile_for_video().await;
         } else {
@@ -317,7 +328,7 @@ impl JobOrchestrator {
             if self.db.count_comments_for_job(job_id)? >= cfg.target_count {
                 break;
             }
-            let lab = LabCommands::new(&self.hub);
+            let lab = LabCommands::new(&self.hub, &job.platform);
             let _ = lab
                 .scroll_comments(4, job.max_comments_per_video, cfg.comment_days)
                 .await;
@@ -344,16 +355,17 @@ impl JobOrchestrator {
     async fn ensure_search_videos_captured(
         &self,
         job_id: &str,
+        platform: &str,
         lab: &LabCommands<'_>,
         search_resp: Option<&serde_json::Value>,
     ) -> Result<(), String> {
         let mut videos = search_resp
-            .map(parse_fetch_search_results)
+            .map(|resp| parse_plugin_lab_search_results(platform, resp))
             .unwrap_or_default();
         let source = if videos.is_empty() {
             info!("job {job_id}: step 7 had no items, falling back to fetch_search_results (lab step 8)");
             let resp = lab.fetch_search_results(30).await?;
-            videos = parse_fetch_search_results(&resp);
+            videos = parse_plugin_lab_search_results(platform, &resp);
             "step8"
         } else {
             "step7"
@@ -427,7 +439,7 @@ impl JobOrchestrator {
         video_index: i64,
     ) -> Result<(), String> {
         self.bail_if_paused(job_id)?;
-        let lab = LabCommands::new(&self.hub);
+        let lab = LabCommands::new(&self.hub, &job.platform);
         if cfg.intent == "account_home" {
             let aweme_hint = if is_dom_poster_aweme_id(&video.aweme_id) {
                 parse_aweme_id_from_page_url(&video.video_url)
@@ -642,15 +654,6 @@ fn scroll_rounds_for_video(max_per_video: i64, comment_days: i64) -> i64 {
     load_rounds.max(days_rounds).clamp(4, 60)
 }
 
-/// 主页链接上的 `vid=` 会在进入时自动打开视频浮层，手动获客需先落到作品列表。
-fn normalize_manual_open_url(input_url: &str, intent: &str) -> String {
-    if intent != "account_home" {
-        return input_url.to_string();
-    }
-    let base = input_url.split('#').next().unwrap_or(input_url);
-    let (path, _query) = base.split_once('?').unwrap_or((base, ""));
-    format!("{path}?from_tab_name=main")
-}
 
 pub fn spawn_job(
     db: Database,

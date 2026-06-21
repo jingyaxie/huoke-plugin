@@ -1,9 +1,9 @@
 <template>
   <section class="settings-section panel">
     <header class="section-head">
-      <h2 class="section-title">模型</h2>
+      <h2 class="section-title">大模型</h2>
       <p class="section-desc">
-        配置 DeepSeek，用于任务编排、评论评估与线索筛选。密钥保存在本机 Sidecar 配置文件，不会上传云端。
+        配置 DeepSeek API，用于评论评估与线索筛选。密钥保存在本机 .env.local，不会上传云端。
       </p>
     </header>
 
@@ -41,7 +41,7 @@
       </div>
       <div class="field-block">
         <label class="field-label">模型</label>
-        <el-input v-model="form.deepseek_model" placeholder="deepseek-v4-flash" />
+        <el-input v-model="form.deepseek_model" placeholder="deepseek-chat" />
       </div>
       <p v-if="form.deepseek.configured" class="hint-text">
         当前已配置：{{ form.deepseek.api_key_masked || "已设置" }} · {{ form.deepseek.model }}

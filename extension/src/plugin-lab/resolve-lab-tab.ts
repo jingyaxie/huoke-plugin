@@ -64,7 +64,7 @@ function buildContextMismatchError(
   const actionHint = action ? `（${action}）` : "";
   return (
     `无匹配${contextLabel(required)}的标签${actionHint}。` +
-    `请先执行前置步骤（搜索：1→7→9；手动获客：打开主页→点击作品视频）。` +
+    `请先执行前置步骤（搜索：1→7→9；手动获客：打开主页→点击作品视频，或粘贴单条视频链接打开详情页）。` +
     `当前平台标签：${hints || "无"}`
   );
 }
@@ -82,7 +82,7 @@ async function pickBestTab(
   let bestScore = Number.NEGATIVE_INFINITY;
 
   for (const tab of tabs) {
-    const score = scoreTabForContext(tab, required, sessionTabId);
+    const score = scoreTabForContext(tab, required, sessionTabId, session?.platform);
     if (score > bestScore) {
       bestScore = score;
       best = tab;
@@ -98,7 +98,7 @@ async function pickBestTab(
     throw new Error(buildContextMismatchError(action, required, tabs));
   }
 
-  if (strict && !contextMatchesUrl(required, best.url)) {
+  if (strict && !contextMatchesUrl(required, best.url, session?.platform)) {
     throw new Error(buildContextMismatchError(action, required, tabs));
   }
 

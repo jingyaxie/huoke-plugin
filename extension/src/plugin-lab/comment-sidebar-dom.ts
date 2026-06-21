@@ -175,9 +175,31 @@ function pushIconTarget(
   });
 }
 
+function isCommentTabSelector(selector: string): boolean {
+  return selector.startsWith("tab:评论");
+}
+
+function clickTargetAt(primary: IconTarget): boolean {
+  const el = document.elementFromPoint(primary.center.x, primary.center.y) as HTMLElement | null;
+  if (!el || !isVisible(el)) return false;
+  if (isCommentTabSelector(primary.selector)) {
+    const target = resolveClickTarget(el);
+    target.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+    humanClick(target);
+    return true;
+  }
+  if (!isCommentActionElement(el)) return false;
+  humanClick(resolveClickTarget(el));
+  return true;
+}
+
 export function collectCommentIconTargets(): IconTarget[] {
   const out: IconTarget[] = [];
   const seen = new Set<string>();
+  const standalone = isStandaloneVideoPage();
+  const tabPriority = standalone ? 0 : 20;
+  const iconPriority = standalone ? 10 : 10;
+  const feedScopedPriority = standalone ? 15 : 0;
 
   for (const selector of FEED_SCOPED_ICON_SELECTORS) {
     const nodes = document.querySelectorAll(selector);
@@ -186,7 +208,7 @@ export function collectCommentIconTargets(): IconTarget[] {
       const key = `${selector}:${Math.round(el.getBoundingClientRect().top)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      pushIconTarget(out, el, selector, 0);
+      pushIconTarget(out, el, selector, feedScopedPriority);
     }
   }
 
@@ -197,7 +219,7 @@ export function collectCommentIconTargets(): IconTarget[] {
       const key = `${selector}:${Math.round(el.getBoundingClientRect().top)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      pushIconTarget(out, el, selector, 10);
+      pushIconTarget(out, el, selector, iconPriority);
     }
   }
 
@@ -209,7 +231,7 @@ export function collectCommentIconTargets(): IconTarget[] {
     const key = `tab:${Math.round(el.getBoundingClientRect().top)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    pushIconTarget(out, el, "tab:评论", 20);
+    pushIconTarget(out, el, "tab:评论", tabPriority);
   }
 
   out.sort((a, b) => a.priority - b.priority || a.center.y - b.center.y);
@@ -297,9 +319,10 @@ export async function activateCommentSidebar(maxAttempts = 5): Promise<{
   }
 
   const searchFeed = isSearchFeedOverlay();
+  const standalone = isStandaloneVideoPage();
   let lastMethod = "";
 
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (isCommentSidebarReadyForCollect()) {
       return {
         ok: true,
@@ -310,24 +333,20 @@ export async function activateCommentSidebar(maxAttempts = 5): Promise<{
     }
 
     const primary = pickPrimaryCommentTarget();
-    if (primary) {
-      const el = document.elementFromPoint(primary.center.x, primary.center.y) as HTMLElement | null;
-      if (el && isVisible(el) && isCommentActionElement(el)) {
-        humanClick(resolveClickTarget(el));
-        lastMethod = primary.selector;
-        await sleep(humanPace.afterCommentClick());
-        if (isCommentSidebarReadyForCollect()) {
-          return {
-            ok: true,
-            method: lastMethod,
-            comment_item_count: countVisibleCommentItems(),
-            message: `已通过 ${lastMethod} 打开评论区`,
-          };
-        }
-        if (isCollectOverlayOpen()) {
-          dismissTransientOverlay();
-          await sleep(300);
-        }
+    if (primary && clickTargetAt(primary)) {
+      lastMethod = primary.selector;
+      await sleep(humanPace.afterCommentClick());
+      if (isCommentSidebarReadyForCollect()) {
+        return {
+          ok: true,
+          method: lastMethod,
+          comment_item_count: countVisibleCommentItems(),
+          message: `已通过 ${lastMethod} 打开评论区`,
+        };
+      }
+      if (isCollectOverlayOpen()) {
+        dismissTransientOverlay();
+        await sleep(300);
       }
     }
 
@@ -349,11 +368,16 @@ export async function activateCommentSidebar(maxAttempts = 5): Promise<{
       }
     }
 
-    if (!searchFeed) {
+    if (!searchFeed && !standalone) {
       document.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }),
       );
       await sleep(300);
+    }
+
+    if (standalone && attempt === 0) {
+      window.scrollBy({ top: 320, behavior: "instant" });
+      await sleep(humanPace.beforeCommentAction());
     }
 
     await sleep(humanPace.beforeCommentAction());
@@ -363,9 +387,11 @@ export async function activateCommentSidebar(maxAttempts = 5): Promise<{
     ok: false,
     method: lastMethod || "none",
     comment_item_count: countVisibleCommentItems(),
-    message: searchFeed
-      ? "搜索 Feed 浮层已打开，但未能展开右侧评论区"
-      : "未能打开评论区，请确认视频 Feed 已打开",
+    message: standalone
+      ? "独立视频页未能展开评论区，请确认已登录且「评论」Tab 可见"
+      : searchFeed
+        ? "搜索 Feed 浮层已打开，但未能展开右侧评论区"
+        : "未能打开评论区，请确认视频 Feed 已打开",
   };
 }
 
@@ -395,7 +421,13 @@ export function probeCommentSidebar() {
     video_player_center: findVideoPlayerCenter(),
     url: location.href,
     message: standalone
-      ? "当前在独立视频详情页，评论在视频下方，需先恢复搜索 Feed 浮层"
+      ? sidebarReady
+        ? hasHeader && commentCount === 0
+          ? "独立视频页评论区已打开（可见「全部评论」标题）"
+          : `独立视频页评论区已打开（${commentCount} 条可见评论）`
+        : icons.length
+          ? `独立视频页，找到 ${icons.length} 个评论入口（评论在视频下方）`
+          : "独立视频页，等待点击「评论」Tab 展开下方评论区"
       : sidebarActive
         ? hasHeader && commentCount === 0
           ? "评论区已打开（可见「全部评论」标题）"

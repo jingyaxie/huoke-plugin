@@ -56,6 +56,118 @@ async function activateViaContent(tabId: number): Promise<{
   };
 }
 
+function buildSuccessResult(
+  tab: chrome.tabs.Tab,
+  status: SidebarProbe,
+  extra: {
+    already_open?: boolean;
+    mode: string;
+    method?: string;
+    message?: string;
+  },
+) {
+  return {
+    ok: true,
+    already_open: extra.already_open ?? false,
+    mode: extra.mode,
+    method: extra.method,
+    is_search_feed: status.is_search_feed,
+    is_standalone_video: status.is_standalone_video,
+    comment_item_count: status.comment_item_count ?? 0,
+    url: status.url ?? tab.url,
+    message: extra.message ?? status.message ?? "评论区已展开",
+  };
+}
+
+async function tryCdpCommentClick(
+  tabId: number,
+  status: SidebarProbe,
+  targets: Array<{ selector: string; center: { x: number; y: number }; priority?: number }>,
+): Promise<{ status: SidebarProbe; method: string }> {
+  let method = "none";
+  if (targets.length === 0) {
+    return { status, method };
+  }
+
+  await attachDebugger(tabId);
+  try {
+    for (let attempt = 0; attempt < 6 && !sidebarReady(status); attempt += 1) {
+      const primary = (status.icon_targets ?? targets)[0];
+      if (!primary) break;
+
+      await moveMouse(tabId, primary.center.x, primary.center.y);
+      await sleep(humanPace.mouseHover());
+      await clickMouse(tabId, primary.center.x, primary.center.y);
+      method = primary.selector;
+      await sleep(humanPace.afterCommentClick());
+
+      status = await probe(tabId);
+      if (sidebarReady(status)) break;
+      await sleep(humanPace.beforeCommentAction());
+    }
+  } finally {
+    await detachDebugger(tabId);
+  }
+
+  return { status, method };
+}
+
+/** 独立视频页：评论在视频下方，优先 content DOM 点「评论」Tab */
+async function activateStandaloneComments(tabId: number, tab: chrome.tabs.Tab) {
+  let status = await probe(tabId);
+
+  if (sidebarReady(status)) {
+    return buildSuccessResult(tab, status, {
+      already_open: true,
+      mode: "content_dom",
+      message: status.message ?? "独立视频页评论区已展开",
+    });
+  }
+
+  const domResult = await activateViaContent(tabId);
+  status = await probe(tabId);
+  if (domResult.ok || sidebarReady(status)) {
+    return buildSuccessResult(tab, status, {
+      mode: "content_dom",
+      method: domResult.method,
+      message: domResult.message ?? "已通过 DOM 展开独立视频页评论区",
+    });
+  }
+
+  const targets = status.icon_targets ?? [];
+  const cdp = await tryCdpCommentClick(tabId, status, targets);
+  status = cdp.status;
+
+  if (!sidebarReady(status)) {
+    const retryDom = await activateViaContent(tabId);
+    status = await probe(tabId);
+    if (retryDom.ok || sidebarReady(status)) {
+      return buildSuccessResult(tab, status, {
+        mode: "content_dom",
+        method: retryDom.method ?? cdp.method,
+        message: retryDom.message ?? "已通过 DOM 展开独立视频页评论区",
+      });
+    }
+  }
+
+  const ok = sidebarReady(status);
+  return {
+    ok,
+    already_open: false,
+    mode: ok ? "cdp_real_mouse" : "content_dom",
+    method: cdp.method,
+    is_standalone_video: true,
+    is_search_feed: false,
+    comment_item_count: status.comment_item_count ?? 0,
+    has_comments_header: status.has_comments_header,
+    icon_targets_tried: targets.length,
+    url: status.url ?? tab.url,
+    message: ok
+      ? status.message ?? "已打开独立视频页评论区"
+      : "未能展开独立视频页评论区，请确认视频页已加载且「评论」Tab 可见",
+  };
+}
+
 /** 步骤 10：CDP 真实鼠标打开评论区，失败则 content DOM 兜底 */
 export async function clickCommentButtonBackground() {
   const tab = await resolveLabTabForAction("plugin_lab.click_comment_btn");
@@ -65,25 +177,14 @@ export async function clickCommentButtonBackground() {
   let status = await probe(tabId);
 
   if (status.is_standalone_video) {
-    return {
-      ok: false,
-      mode: "cdp_real_mouse",
-      is_standalone_video: true,
-      url: status.url ?? tab.url,
-      message: "误入独立视频详情页，请先通过 modal_id 打开搜索 Feed 浮层",
-    };
+    return activateStandaloneComments(tabId, tab);
   }
 
   if (sidebarReady(status)) {
-    return {
-      ok: true,
+    return buildSuccessResult(tab, status, {
       already_open: true,
       mode: "cdp_real_mouse",
-      is_search_feed: status.is_search_feed,
-      comment_item_count: status.comment_item_count ?? 0,
-      url: status.url ?? tab.url,
-      message: status.message ?? "评论区已展开",
-    };
+    });
   }
 
   if (!status.is_search_feed && !status.feed_open) {
@@ -103,45 +204,19 @@ export async function clickCommentButtonBackground() {
   }
 
   const targets = status.icon_targets ?? [];
-  let method = "none";
-
-  if (targets.length > 0) {
-    await attachDebugger(tabId);
-    try {
-      // 搜索/主页 Feed 浮层：勿点视频区域（易误触点赞/收藏），只点评论图标
-      for (let attempt = 0; attempt < 6 && !sidebarReady(status); attempt += 1) {
-        const primary = (status.icon_targets ?? targets)[0];
-        if (!primary) break;
-
-        await moveMouse(tabId, primary.center.x, primary.center.y);
-        await sleep(humanPace.mouseHover());
-        await clickMouse(tabId, primary.center.x, primary.center.y);
-        method = primary.selector;
-        await sleep(humanPace.afterCommentClick());
-
-        status = await probe(tabId);
-        if (sidebarReady(status)) break;
-        await sleep(humanPace.beforeCommentAction());
-      }
-    } finally {
-      await detachDebugger(tabId);
-    }
-  }
+  const cdp = await tryCdpCommentClick(tabId, status, targets);
+  status = cdp.status;
+  let method = cdp.method;
 
   if (!sidebarReady(status)) {
     const domResult = await activateViaContent(tabId);
     status = await probe(tabId);
     if (domResult.ok || sidebarReady(status)) {
-      return {
-        ok: true,
-        already_open: false,
+      return buildSuccessResult(tab, status, {
         mode: "content_dom",
         method: domResult.method ?? method,
-        comment_item_count: status.comment_item_count ?? domResult.comment_item_count ?? 0,
-        is_search_feed: status.is_search_feed,
-        url: status.url ?? tab.url,
         message: domResult.message ?? "已通过 DOM 展开评论区",
-      };
+      });
     }
   }
 

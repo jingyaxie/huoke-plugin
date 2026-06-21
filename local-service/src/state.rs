@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::capture::CaptureService;
@@ -8,6 +9,7 @@ use crate::ws::BridgeHub;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub data_dir: PathBuf,
     pub hub: BridgeHub,
     pub db: Database,
     pub capture: Arc<CaptureService>,

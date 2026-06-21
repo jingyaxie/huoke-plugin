@@ -1,0 +1,1 @@
+export { xiaohongshuPluginLabAdapter } from "./adapter";

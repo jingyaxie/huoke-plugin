@@ -265,7 +265,7 @@ pub async fn reply_once(
         return Err(bad_request("comment_id or comment_text is required"));
     }
 
-    let lab = crate::lab_commands::LabCommands::new(&state.hub);
+    let lab = crate::lab_commands::LabCommands::new(&state.hub, "douyin");
     let result = lab
         .reply_to_comment(
             &aweme_id,

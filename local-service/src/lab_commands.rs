@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 
 use tracing::warn;
 
+use crate::platforms::PlatformCollectAdapter;
 use crate::plugin_lab;
 use crate::simulate;
 use crate::ws::BridgeHub;
@@ -11,22 +12,31 @@ use crate::ws::BridgeHub;
 /// 任务编排统一走插件实验室已验证步骤（`plugin_lab.*`），不再调用 legacy `douyin.*` UI 命令。
 pub struct LabCommands<'a> {
     hub: &'a BridgeHub,
+    platform: String,
 }
 
 impl<'a> LabCommands<'a> {
-    pub fn new(hub: &'a BridgeHub) -> Self {
-        Self { hub }
+    pub fn new(hub: &'a BridgeHub, platform: &str) -> Self {
+        Self {
+            hub,
+            platform: crate::platforms::normalize_platform(platform).to_string(),
+        }
+    }
+
+    fn adapter(&self) -> &'static dyn PlatformCollectAdapter {
+        crate::platforms::get_platform_adapter(&self.platform)
     }
 
     pub async fn enable_network_hook(&self) -> Result<(), String> {
         const MAX_ATTEMPTS: u32 = 3;
+        let patterns: Vec<&str> = self.adapter().network_hook_patterns().to_vec();
         let mut last_err = String::new();
         for attempt in 1..=MAX_ATTEMPTS {
             match self
                 .hub
                 .request_command(
                     "network.hook.enable",
-                    json!({ "patterns": ["/aweme/", "/comment/", "/search/"] }),
+                    json!({ "patterns": patterns }),
                     Duration::from_secs(45),
                 )
                 .await
@@ -45,11 +55,12 @@ impl<'a> LabCommands<'a> {
     }
 
     pub async fn run_keyword_search(&self, keyword: &str, publish_days: i64) -> Result<Value, String> {
+        let platform = self.platform.clone();
         // 与插件实验室单步流程一致：1 打开 → 3~7 搜索 →（可选）4~5 筛选
         self.action(
             "open_browser",
             json!({
-                "platform": "douyin",
+                "platform": platform,
                 "reuse_existing": true,
                 "reset_to_start": true,
                 "wait_load": true,
@@ -58,12 +69,12 @@ impl<'a> LabCommands<'a> {
         .await?;
         simulate::pause(Duration::from_secs(2)).await;
 
-        self.action("find_search_box", json!({ "platform": "douyin" }))
+        self.action("find_search_box", json!({ "platform": platform }))
             .await?;
 
         self.action(
             "input_search_text",
-            json!({ "platform": "douyin", "search_text": keyword }),
+            json!({ "platform": platform, "search_text": keyword }),
         )
         .await?;
 
@@ -191,7 +202,7 @@ impl<'a> LabCommands<'a> {
         self.action(
             "open_browser",
             json!({
-                "platform": "douyin",
+                "platform": self.platform,
                 "url": url,
                 "reuse_existing": reuse_existing,
                 "wait_load": true,
@@ -204,7 +215,7 @@ impl<'a> LabCommands<'a> {
         let url = video_url
             .filter(|s| !s.trim().is_empty())
             .map(str::to_string)
-            .unwrap_or_else(|| format!("https://www.douyin.com/video/{aweme_id}"));
+            .unwrap_or_else(|| self.adapter().content_url(aweme_id));
         self.open_url(&url).await
     }
 
@@ -284,7 +295,7 @@ impl<'a> LabCommands<'a> {
             return Ok(json!({ "ok": true, "dry_run": true }));
         }
 
-        let video_url = format!("https://www.douyin.com/video/{aweme_id}");
+        let video_url = self.adapter().content_url(aweme_id);
         self.prepare_video_for_outreach(aweme_id, Some(&video_url))
             .await?;
 
@@ -313,7 +324,7 @@ impl<'a> LabCommands<'a> {
         comment_text: &str,
         scroll_rounds: i64,
     ) -> Result<Value, String> {
-        let video_url = format!("https://www.douyin.com/video/{aweme_id}");
+        let video_url = self.adapter().content_url(aweme_id);
         self.prepare_video_for_outreach(aweme_id, Some(&video_url))
             .await?;
 

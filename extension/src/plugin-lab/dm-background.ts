@@ -1,4 +1,6 @@
 import { resolveLabTabForAction } from "./resolve-lab-tab";
+import { detectPlatformFromUrl, isDmSupportedPlatform } from "./platform-hosts";
+import { dmUnsupportedMessage } from "./platform-lab-helpers";
 import { dmInputMatchesExpected } from "./dm-dom";
 import {
   attachDebugger,
@@ -127,6 +129,15 @@ async function waitForDmInput(tabId: number, timeoutMs = 6000): Promise<DmInputP
 /** 步骤 16：CDP 真实鼠标点击私信按钮 */
 export async function clickDmButtonBackground() {
   const tab = await resolveLabTabForAction("plugin_lab.click_dm_btn");
+  const platform = detectPlatformFromUrl(tab.url);
+  if (!isDmSupportedPlatform(platform)) {
+    return {
+      ok: false,
+      unsupported: true,
+      platform,
+      message: dmUnsupportedMessage(platform),
+    };
+  }
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
 
@@ -180,6 +191,15 @@ export async function inputDmTextBackground(payload: Record<string, unknown> = {
   if (!text) throw new Error("input_dm_text: missing dm_text");
 
   const tab = await resolveLabTabForAction("plugin_lab.input_dm_text");
+  const platform = detectPlatformFromUrl(tab.url);
+  if (!isDmSupportedPlatform(platform)) {
+    return {
+      ok: false,
+      unsupported: true,
+      platform,
+      message: dmUnsupportedMessage(platform),
+    };
+  }
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
 
@@ -239,6 +259,15 @@ export async function inputDmTextBackground(payload: Record<string, unknown> = {
 /** 步骤 18：CDP 点击发送或 Enter（对齐 Python _human_dm_on_profile） */
 export async function sendDmBackground(payload: Record<string, unknown> = {}) {
   const tab = await resolveLabTabForAction("plugin_lab.send_dm");
+  const platform = detectPlatformFromUrl(tab.url);
+  if (!isDmSupportedPlatform(platform)) {
+    return {
+      ok: false,
+      unsupported: true,
+      platform,
+      message: dmUnsupportedMessage(platform),
+    };
+  }
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
 

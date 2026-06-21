@@ -106,7 +106,9 @@ pub async fn bridge_ping(State(state): State<AppState>) -> Json<serde_json::Valu
     Json(json!({ "queued": queued }))
 }
 
+pub mod collect;
 pub mod douyin;
 pub mod outreach;
 pub mod plugin_lab;
 pub mod runtime;
+pub mod settings;

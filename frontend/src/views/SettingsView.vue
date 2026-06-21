@@ -29,6 +29,7 @@
 <script setup>
 const navItems = [
   { path: "/settings/general", label: "通用", hint: "租户与 API" },
+  { path: "/settings/model", label: "大模型", hint: "DeepSeek 配置" },
   { path: "/settings/maintenance", label: "维护", hint: "修复与诊断" },
   { path: "/settings/plugin-lab", label: "插件实验室", hint: "逐步调试插件" },
 ];

@@ -1,18 +1,25 @@
 import {
   contextLabel,
+  contextMatchesUrl,
   contextRequirementForAction,
   detectPageContext,
-  isFeedOverlayUrl,
   type LabPageContext,
 } from "./lab-context";
+import { getPluginLabAdapterForUrl } from "./platforms/registry";
+import {
+  countPlatformSearchCards,
+  isPlatformFeedOverlayOpen,
+  isPlatformSearchResultsPage,
+} from "./platforms/platform-readiness";
 import { probeFilterDom } from "./filter-dom";
 import { findSearchInputMatch } from "./search-input";
-import { collectSearchResultCards, isFeedOverlayOpen, isSearchResultsPage } from "./search-results-dom";
 import { getCachedSearchApiResultsSync } from "./search-api";
 import { probeCommentSidebar } from "./comment-sidebar-dom";
 import { probeDmButton } from "./dm-dom";
 import { probeSearchVideoCard } from "./search-video-dom";
 import { collectProfileVideoCards, profileFeedOpen } from "./profile-video-dom";
+import { isXhsCommentReady, isXhsNotePage } from "./platforms/xiaohongshu/search-dom";
+import { isKsCommentReady, isKsVideoPage } from "./platforms/kuaishou/search-dom";
 
 export interface LabReadinessResult {
   ok: boolean;
@@ -84,15 +91,12 @@ function pass(targetAction: string, required: LabPageContext, signals?: Record<s
   };
 }
 
+function activePlatformId() {
+  return getPluginLabAdapterForUrl(location.href).id;
+}
+
 function urlContextOk(required: LabPageContext): boolean {
-  const detected = detectPageContext(location.href);
-  if (!detected) return false;
-  const feedOverlay = isFeedOverlayUrl(location.href);
-  if (required === "platform") return true;
-  if (required === "search") return detected === "search" || detected === "video" || feedOverlay;
-  if (required === "video") return detected === "video" || detected === "search" || feedOverlay;
-  if (required === "profile") return detected === "profile" && !feedOverlay;
-  return false;
+  return contextMatchesUrl(required, location.href);
 }
 
 /** 步骤执行前：检测当前 DOM 是否满足 target_action */
@@ -111,6 +115,14 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
   }
 
   const { context: required } = contextRequirementForAction(targetAction);
+  const adapter = getPluginLabAdapterForUrl(location.href);
+
+  if (!adapter.capabilities.collect && targetAction !== "plugin_lab.preflight" && targetAction !== "plugin_lab.page_snapshot") {
+    return fail(targetAction, required, `${adapter.label} 插件采集尚未实现`, {
+      platform: adapter.id,
+      collect_supported: false,
+    });
+  }
 
   if (!urlContextOk(required)) {
     return fail(
@@ -125,7 +137,7 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
     case "plugin_lab.find_search_box":
     case "plugin_lab.input_search_text":
     case "plugin_lab.click_search_btn": {
-      const match = findSearchInputMatch("douyin");
+      const match = findSearchInputMatch(activePlatformId());
       if (!match) {
         return fail(targetAction, required, "页面上未找到搜索框", { search_input: false });
       }
@@ -134,7 +146,10 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
 
     case "plugin_lab.click_filter_btn":
     case "plugin_lab.click_filter_overlay": {
-      if (!isSearchResultsPage()) {
+      if (activePlatformId() !== "douyin") {
+        return pass(targetAction, required, { filter_skipped: true, platform: activePlatformId() });
+      }
+      if (!isPlatformSearchResultsPage(activePlatformId())) {
         return fail(targetAction, required, "不在搜索结果页，无法操作筛选", { on_search_page: false });
       }
       const filter = probeFilterDom();
@@ -154,38 +169,39 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
     case "plugin_lab.fetch_search_results":
     case "plugin_lab.click_search_video":
     case "plugin_lab.search_video_probe": {
-      if (!isSearchResultsPage()) {
-        const apiItems = getCachedSearchApiResultsSync();
-        if (!apiItems?.length) {
+      const platform = activePlatformId();
+      if (!isPlatformSearchResultsPage(platform)) {
+        const apiItems = platform === "douyin" ? getCachedSearchApiResultsSync() : null;
+        if (!apiItems?.length && countPlatformSearchCards(platform) === 0) {
           return fail(targetAction, required, "不在搜索结果页", { on_search_page: false });
         }
       }
-      if (isFeedOverlayOpen()) {
+      if (isPlatformFeedOverlayOpen(platform)) {
         return fail(targetAction, required, "当前为视频浮层，请先关闭视频详情", {
           on_search_page: true,
           feed_overlay_open: true,
         });
       }
-      const apiItems = getCachedSearchApiResultsSync();
+      const apiItems = platform === "douyin" ? getCachedSearchApiResultsSync() : null;
       if (apiItems?.length) {
         return pass(targetAction, required, {
           search_card_count: apiItems.length,
           capture_method: "api",
         });
       }
-      const cards = collectSearchResultCards();
-      if (cards.length === 0) {
-        return fail(targetAction, required, "搜索列表尚无视频卡片（可能仍在加载）", {
+      const cardCount = countPlatformSearchCards(platform);
+      if (cardCount === 0) {
+        return fail(targetAction, required, "搜索列表尚无内容卡片（可能仍在加载）", {
           on_search_page: true,
           search_card_count: 0,
         });
       }
-      return pass(targetAction, required, { search_card_count: cards.length });
+      return pass(targetAction, required, { search_card_count: cardCount });
     }
 
     case "plugin_lab.swipe_page": {
       return pass(targetAction, required, {
-        on_search_page: isSearchResultsPage(),
+        on_search_page: isPlatformSearchResultsPage(activePlatformId()),
         on_profile_page: detectPageContext(location.href) === "profile",
       });
     }
@@ -240,7 +256,40 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
     case "plugin_lab.reply_comment_input_probe":
     case "plugin_lab.reply_comment_type":
     case "plugin_lab.click_comment_avatar": {
+      const platform = activePlatformId();
+      if (platform === "xiaohongshu" && isXhsNotePage()) {
+        const ready = isXhsCommentReady();
+        if (!ready && targetAction !== "plugin_lab.click_comment_btn") {
+          return fail(targetAction, required, "小红书笔记页评论区未就绪", { is_standalone_video: true });
+        }
+        return pass(targetAction, required, { is_standalone_video: true, sidebar_ready: ready });
+      }
+      if (platform === "kuaishou" && isKsVideoPage()) {
+        const ready = isKsCommentReady();
+        if (!ready && targetAction !== "plugin_lab.click_comment_btn") {
+          return fail(targetAction, required, "快手视频页评论区未就绪", { is_standalone_video: true });
+        }
+        return pass(targetAction, required, { is_standalone_video: true, sidebar_ready: ready });
+      }
       const sidebar = probeCommentSidebar();
+      if (sidebar.is_standalone_video) {
+        const canExecute =
+          targetAction === "plugin_lab.click_comment_btn"
+          || sidebar.sidebar_ready
+          || sidebar.sidebar_active
+          || (sidebar.comment_item_count ?? 0) > 0;
+        if (!canExecute) {
+          return fail(targetAction, required, "独立视频页未就绪", {
+            is_standalone_video: true,
+            icon_targets: sidebar.icon_targets?.length ?? 0,
+          });
+        }
+        return pass(targetAction, required, {
+          is_standalone_video: true,
+          sidebar_ready: sidebar.sidebar_ready,
+          comment_item_count: sidebar.comment_item_count,
+        });
+      }
       const feedOpen = Boolean(sidebar.feed_open || sidebar.sidebar_active || sidebar.has_visible_comments);
       if (!feedOpen) {
         const videoProbe = probeSearchVideoCard({ video_index: 1 });
@@ -264,6 +313,13 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
     case "plugin_lab.dm_send_probe":
     case "plugin_lab.dm_send_verify":
     case "plugin_lab.send_dm": {
+      const platform = activePlatformId();
+      if (platform !== "douyin") {
+        return fail(targetAction, required, platform === "xiaohongshu" ? "小红书不支持插件私信" : "快手不支持插件私信", {
+          dm_supported: false,
+          platform,
+        });
+      }
       if (detectPageContext(location.href) !== "profile") {
         return fail(targetAction, required, "不在用户主页", { on_profile: false });
       }
@@ -283,17 +339,19 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
 }
 
 export function probeLabPageSnapshot() {
+  const platform = activePlatformId();
   const sidebar = probeCommentSidebar();
-  const cards = collectSearchResultCards();
-  const searchInput = findSearchInputMatch("douyin");
+  const searchCardCount = countPlatformSearchCards(platform);
+  const searchInput = findSearchInputMatch(platform);
   return {
     ok: true,
     url: location.href,
+    platform,
     detected_context: detectPageContext(location.href),
-    on_search_page: isSearchResultsPage(),
-    search_card_count: cards.length,
+    on_search_page: isPlatformSearchResultsPage(platform),
+    search_card_count: searchCardCount,
     search_input: Boolean(searchInput),
-    feed_open: sidebar.feed_open,
+    feed_open: platform === "douyin" ? sidebar.feed_open : isXhsNotePage() || isKsVideoPage(),
     comment_item_count: sidebar.comment_item_count,
   };
 }

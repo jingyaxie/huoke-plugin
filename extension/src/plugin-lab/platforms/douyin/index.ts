@@ -1,0 +1,1 @@
+export { douyinPluginLabAdapter } from "./adapter";

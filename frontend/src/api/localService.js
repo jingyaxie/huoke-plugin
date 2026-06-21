@@ -35,6 +35,11 @@ export async function fetchReplyQuota() {
   return data;
 }
 
+export async function fetchCollectCapabilities() {
+  const { data } = await localService.get("/api/collect/capabilities");
+  return data;
+}
+
 export async function listCollectJobs() {
   const { data } = await localService.get("/api/douyin/jobs");
   return data;

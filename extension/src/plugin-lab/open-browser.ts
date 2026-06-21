@@ -1,10 +1,12 @@
 import type { PlatformId } from "../shared/protocol";
 import { ensureContentScript } from "../background/command-router";
-import { isPlatformUrl, pinLabSession, readLabSession } from "./lab-context";
+import { detectPlatformFromUrl, isPlatformUrl } from "./platform-hosts";
+import { pinLabSession, readLabSession } from "./lab-context";
+import { log, warn } from "../shared/logger";
 
 const PLATFORM_URLS: Record<PlatformId, string> = {
   douyin: "https://www.douyin.com",
-  xiaohongshu: "https://www.xiaohongshu.com",
+  xiaohongshu: "https://www.xiaohongshu.com/explore",
   kuaishou: "https://www.kuaishou.com",
   unknown: "https://www.douyin.com",
 };
@@ -49,6 +51,20 @@ export interface WindowBounds {
   height: number;
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function resolvePlatform(raw?: string | null): PlatformId {
   const value = String(raw ?? "douyin").trim().toLowerCase();
   if (value === "xhs" || value === "xiaohongshu" || value === "redbook") return "xiaohongshu";
@@ -59,20 +75,16 @@ function resolvePlatform(raw?: string | null): PlatformId {
 
 function resolveTargetUrl(payload: OpenBrowserPayload, platform: PlatformId): string {
   const custom = String(payload.url ?? "").trim();
-  if (custom) {
-    return custom;
-  }
+  if (custom) return custom;
   return PLATFORM_URLS[platform] ?? PLATFORM_URLS.douyin;
 }
 
 function shouldReuseExisting(payload: OpenBrowserPayload): boolean {
   if (payload.reuse_existing === true) return true;
-  // 兼容旧字段：new_tab=false 表示复用
   if (payload.new_tab === false) return true;
   return false;
 }
 
-/** 关键词采集任务的起始页：抖音首页/精选，而非视频详情、个人页、搜索页或 Feed 浮层 */
 function needsJobStartReset(url: string | undefined, platform: PlatformId): boolean {
   if (!url) return true;
   if (platform === "douyin") {
@@ -88,42 +100,78 @@ function needsJobStartReset(url: string | undefined, platform: PlatformId): bool
       return true;
     }
   }
+  if (platform === "xiaohongshu") {
+    try {
+      if (!url.includes("xiaohongshu.com")) return true;
+      if (/search_result|\/explore\/[0-9a-fA-F]|\/discovery\/item\//i.test(url)) return true;
+      return !url.includes("/explore");
+    } catch {
+      return true;
+    }
+  }
+  if (platform === "kuaishou") {
+    try {
+      if (!url.includes("kuaishou.com")) return true;
+      if (/\/short-video\/|\/search\//i.test(url)) return true;
+      const path = new URL(url).pathname;
+      return path === "/" || path === "";
+    } catch {
+      return true;
+    }
+  }
   return false;
+}
+
+/** 后台预热 content script，不阻塞 open_browser 返回 */
+function scheduleContentScriptWarmup(tabId: number) {
+  void ensureContentScript(tabId).catch((err) => {
+    warn("content script warmup deferred", tabId, err);
+  });
 }
 
 async function focusTab(tab: chrome.tabs.Tab) {
   if (!tab.id || tab.windowId === undefined) return;
-  await chrome.windows.update(tab.windowId, { focused: true });
-  await chrome.tabs.update(tab.id, { active: true });
+  try {
+    await chrome.windows.update(tab.windowId, { focused: true });
+    await chrome.tabs.update(tab.id, { active: true });
+  } catch (err) {
+    warn("focusTab failed", err);
+  }
 }
 
-async function waitForTabLoad(tabId: number, timeoutMs = 8_000): Promise<boolean> {
-  const tab = await chrome.tabs.get(tabId);
-  if (tab.status === "complete") return true;
+async function waitForTabLoad(tabId: number, timeoutMs = 5_000): Promise<void> {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === "complete") return;
+  } catch {
+    return;
+  }
 
-  return new Promise<boolean>((resolve) => {
+  await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
-      resolve(false);
+      resolve();
     }, timeoutMs);
 
     function listener(updatedId: number, info: chrome.tabs.TabChangeInfo) {
       if (updatedId !== tabId || info.status !== "complete") return;
       clearTimeout(timer);
       chrome.tabs.onUpdated.removeListener(listener);
-      resolve(true);
+      resolve();
     }
 
     chrome.tabs.onUpdated.addListener(listener);
   });
 }
 
-async function resolvePinnedSessionTab(): Promise<chrome.tabs.Tab | undefined> {
+async function resolvePinnedSessionTab(platform: PlatformId): Promise<chrome.tabs.Tab | undefined> {
   const session = await readLabSession();
   if (!session?.tabId) return undefined;
+  if (session.platform && session.platform !== platform) return undefined;
   try {
     const tab = await chrome.tabs.get(session.tabId);
     if (!tab.id || !isPlatformUrl(tab.url)) return undefined;
+    if (detectPlatformFromUrl(tab.url) !== platform) return undefined;
     return tab;
   } catch {
     return undefined;
@@ -137,36 +185,93 @@ async function findExistingPlatformTab(platform: PlatformId): Promise<chrome.tab
   return [...existing].sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
 }
 
-/** 主屏工作区左半屏：left=0 相对 workArea，宽=一半，高=满工作区 */
 async function resolveLeftHalfBounds(): Promise<WindowBounds> {
-  if (chrome.system?.display?.getInfo) {
-    const displays = await chrome.system.display.getInfo();
-    const primary = displays.find((item) => item.isPrimary) ?? displays[0];
-    const workArea = primary?.workArea;
-    if (workArea) {
-      return {
-        left: workArea.left,
-        top: workArea.top,
-        width: Math.floor(workArea.width / 2),
-        height: workArea.height,
-      };
+  try {
+    if (chrome.system?.display?.getInfo) {
+      const displays = await withTimeout(chrome.system.display.getInfo(), 3_000, "system.display.getInfo");
+      const primary = displays.find((item) => item.isPrimary) ?? displays[0];
+      const workArea = primary?.workArea;
+      if (workArea) {
+        return {
+          left: workArea.left,
+          top: workArea.top,
+          width: Math.floor(workArea.width / 2),
+          height: workArea.height,
+        };
+      }
     }
+  } catch (err) {
+    warn("resolveLeftHalfBounds failed", err);
   }
-
   return { left: 0, top: 0, width: 960, height: 1080 };
 }
 
-async function applyLeftHalfLayout(windowId: number): Promise<WindowBounds> {
+async function tryApplyLeftHalfLayout(windowId: number): Promise<WindowBounds | undefined> {
   const bounds = await resolveLeftHalfBounds();
-  await chrome.windows.update(windowId, {
-    left: bounds.left,
-    top: bounds.top,
-    width: bounds.width,
-    height: bounds.height,
-    state: "normal",
-    focused: true,
-  });
-  return bounds;
+  try {
+    await chrome.windows.update(windowId, {
+      left: bounds.left,
+      top: bounds.top,
+      width: bounds.width,
+      height: bounds.height,
+      state: "normal",
+      focused: true,
+    });
+    return bounds;
+  } catch (err) {
+    warn("applyLeftHalfLayout failed", windowId, err);
+    try {
+      await chrome.windows.update(windowId, { focused: true, state: "normal" });
+    } catch {
+      // ignore
+    }
+    return bounds;
+  }
+}
+
+async function createPlatformWindow(url: string): Promise<{ tab: chrome.tabs.Tab; bounds?: WindowBounds; newWindow: boolean }> {
+  const bounds = await resolveLeftHalfBounds();
+
+  // 插件实验室：优先新建独立窗口（左侧半屏），避免在用户日常浏览器里开标签
+  try {
+    const created = await withTimeout(
+      chrome.windows.create({
+        url,
+        focused: true,
+        type: "normal",
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        height: bounds.height,
+      }),
+      10_000,
+      "windows.create",
+    );
+    const tab = created.tabs?.[0];
+    if (tab?.id) {
+      log("open_browser windows.create ok", url, tab.id);
+      return { tab, bounds, newWindow: true };
+    }
+  } catch (err) {
+    warn("windows.create failed, fallback tabs.create", err);
+  }
+
+  try {
+    const tab = await withTimeout(chrome.tabs.create({ url, active: true }), 8_000, "tabs.create");
+    if (!tab.id) throw new Error("failed to create platform tab");
+    let applied: WindowBounds | undefined;
+    if (tab.windowId !== undefined) {
+      applied = await tryApplyLeftHalfLayout(tab.windowId);
+    }
+    log("open_browser tabs.create fallback ok", url, tab.id);
+    return { tab, bounds: applied ?? bounds, newWindow: false };
+  } catch (err) {
+    warn("tabs.create failed", err);
+  }
+
+  throw new Error(
+    "failed to open browser window — reload extension in chrome://extensions, then retry",
+  );
 }
 
 function buildResult(
@@ -195,6 +300,12 @@ function buildResult(
 }
 
 export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<OpenBrowserResult> {
+  if (!chrome.tabs?.create || !chrome.windows?.create) {
+    throw new Error(
+      "open_browser 必须在 Service Worker 中运行 — 请在 chrome://extensions 重新加载 extension/dist",
+    );
+  }
+
   const platform = resolvePlatform(payload.platform);
   const url = resolveTargetUrl(payload, platform);
   const reuseExisting = shouldReuseExisting(payload);
@@ -205,9 +316,10 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
 
   async function openInExistingTab(existing: chrome.tabs.Tab): Promise<OpenBrowserResult> {
     if (!existing.id) throw new Error("target tab has no id");
+
     let bounds: WindowBounds | undefined;
     if (existing.windowId !== undefined) {
-      bounds = await applyLeftHalfLayout(existing.windowId);
+      bounds = await tryApplyLeftHalfLayout(existing.windowId);
     }
     await focusTab(existing);
 
@@ -219,14 +331,15 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
     if (navigated) {
       const targetUrl = customUrl || startUrl;
       await chrome.tabs.update(existing.id, { url: targetUrl });
-      await waitForTabLoad(existing.id, shouldReset ? 15_000 : 8_000);
+      if (waitLoad) await waitForTabLoad(existing.id, 8_000);
+      else await waitForTabLoad(existing.id, 2_000);
     } else if (waitLoad) {
-      await waitForTabLoad(existing.id);
+      await waitForTabLoad(existing.id, 8_000);
     }
 
     const refreshed = await chrome.tabs.get(existing.id);
     await pinLabSession(refreshed, platform);
-    await ensureContentScript(refreshed.id!);
+    scheduleContentScriptWarmup(refreshed.id!);
     return buildResult(platform, refreshed, {
       opened: false,
       newWindow: false,
@@ -240,43 +353,24 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
   }
 
   if (reuseExisting) {
-    const pinned = await resolvePinnedSessionTab();
-    if (pinned) {
-      return openInExistingTab(pinned);
-    }
+    const pinned = await resolvePinnedSessionTab(platform);
+    if (pinned) return openInExistingTab(pinned);
     const existing = await findExistingPlatformTab(platform);
-    if (existing?.id) {
-      return openInExistingTab(existing);
-    }
+    if (existing?.id) return openInExistingTab(existing);
   }
 
-  const bounds = await resolveLeftHalfBounds();
-  const created = await chrome.windows.create({
-    url,
-    focused: true,
-    type: "normal",
-    left: bounds.left,
-    top: bounds.top,
-    width: bounds.width,
-    height: bounds.height,
-  });
+  const { tab, bounds, newWindow } = await createPlatformWindow(url);
+  if (waitLoad) await waitForTabLoad(tab.id!, 8_000);
 
-  const tab = created.tabs?.[0];
-  if (!tab?.id) {
-    throw new Error("failed to create browser window");
-  }
-
-  if (waitLoad) {
-    await waitForTabLoad(tab.id);
-  }
-
-  const refreshed = await chrome.tabs.get(tab.id);
+  const refreshed = await chrome.tabs.get(tab.id!);
   await pinLabSession(refreshed, platform);
-  await ensureContentScript(refreshed.id!);
+  scheduleContentScriptWarmup(refreshed.id!);
   return buildResult(platform, refreshed, {
     opened: true,
-    newWindow: true,
+    newWindow,
     bounds,
-    message: `已在屏幕左侧半屏打开 ${platform} 页面`,
+    message: newWindow
+      ? `已在屏幕左侧半屏打开 ${platform} 独立窗口`
+      : `已在现有窗口打开 ${platform} 标签页（独立窗口创建失败，已降级）`,
   });
 }

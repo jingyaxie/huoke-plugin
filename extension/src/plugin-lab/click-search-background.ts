@@ -2,10 +2,10 @@ import { resolveLabTabForAction } from "./resolve-lab-tab";
 import { sendContentPluginLabCommand } from "./tab-command";
 import {
   getSearchApiDebug,
-  pollSearchApiCache,
 } from "./search-api";
 import { buildSearchResultPayload } from "./click-search-btn";
 import { withSearchNetworkCapture } from "./search-network-debugger";
+import { pollPlatformSearchCache } from "./platform-lab-helpers";
 
 export async function clickSearchButtonBackground() {
   const tab = await resolveLabTabForAction("plugin_lab.click_search_btn");
@@ -24,9 +24,9 @@ export async function clickSearchButtonBackground() {
       { skipPreflight: true },
     )) as Record<string, unknown>;
 
-    let cache = await pollSearchApiCache({ timeoutMs: 15_000, minItems: 1 });
-    let items = cache?.items ?? [];
-    let captureMethod: "api" | "dom" | "none" = items.length > 0 ? "api" : "none";
+    const polled = await pollPlatformSearchCache(tab.url, 15_000, 1);
+    let items = polled.items;
+    let captureMethod: "api" | "dom" | "none" = polled.captureMethod;
 
     if (!items.length && clickResult.ok) {
       const domResult = (await sendContentPluginLabCommand(
@@ -42,7 +42,7 @@ export async function clickSearchButtonBackground() {
       }
     }
 
-    const debug = await getSearchApiDebug();
+    const debug = await getSearchApiDebug().catch(() => null);
     const hasResults = items.length > 0;
     const ok = Boolean(clickResult.ok) || hasResults;
 
@@ -50,17 +50,17 @@ export async function clickSearchButtonBackground() {
       ...clickResult,
       ok,
       ...buildSearchResultPayload(items, captureMethod),
-      api_events_seen: debug.eventsSeen ?? cache?.eventsSeen ?? 0,
-      last_api_url: debug.lastApiUrl ?? cache?.lastApiUrl ?? "",
-      last_api_status: debug.lastStatus ?? cache?.lastStatus,
-      last_body_kind: debug.lastBodyKind ?? cache?.lastBodyKind ?? "",
+      api_events_seen: debug?.eventsSeen ?? 0,
+      last_api_url: debug?.lastApiUrl ?? "",
+      last_api_status: debug?.lastStatus,
+      last_body_kind: debug?.lastBodyKind ?? "",
       message: hasResults
         ? captureMethod === "api"
-          ? `已触发搜索，从 search/single 接口获取 ${items.length} 条结果`
+          ? `已触发搜索，从接口获取 ${items.length} 条结果`
           : `已进入搜索页，接口未解析到数据，已用 DOM 兜底 ${items.length} 条`
         : ok
-          ? `已进入搜索页，但接口暂无数据（events=${debug.eventsSeen ?? 0}, body=${debug.lastBodyKind ?? "none"}）`
-          : "已点击搜索，但未进入搜索结果页，也未捕获 search/single 接口",
+          ? `已进入搜索页，但接口暂无数据`
+          : "已点击搜索，但未进入搜索结果页，也未截获搜索接口",
     };
   });
 }

@@ -106,7 +106,6 @@ impl BridgeHub {
         }
 
         let deadline = tokio::time::Instant::now() + timeout;
-        let mut last_error: Option<String> = None;
 
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -122,7 +121,9 @@ impl BridgeHub {
                         return Ok(data);
                     }
                     CommandOutcome::Failure(err) => {
-                        last_error = Some(err);
+                        let mut pending = self.inner.pending.lock().await;
+                        pending.remove(&command_id);
+                        return Err(err);
                     }
                     CommandOutcome::Ignore => {}
                 },
@@ -133,7 +134,7 @@ impl BridgeHub {
         let mut pending = self.inner.pending.lock().await;
         pending.remove(&command_id);
 
-        Err(last_error.unwrap_or_else(|| format!("command timeout: {action}")))
+        Err(format!("command timeout: {action}"))
     }
 
     fn publish(&self, msg: BridgeMessage) {

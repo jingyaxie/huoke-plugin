@@ -4,7 +4,7 @@ use axum::{
     extract::ws::{WebSocket, WebSocketUpgrade},
     extract::State,
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Router,
 };
 use tower_http::cors::{Any, CorsLayer};
@@ -46,6 +46,7 @@ pub fn build_app_state(config: &AppConfig) -> AppState {
     ));
 
     AppState {
+        data_dir: config.data_dir.clone(),
         hub,
         db,
         capture,
@@ -62,7 +63,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/bridge/status", get(api::bridge_status))
         .route("/bridge/ping", post(api::bridge_ping))
         .route("/api/runtime/init", post(api::runtime::init))
+        .route("/api/settings/llm", get(api::settings::get_llm_settings).put(api::settings::put_llm_settings))
         .route("/bridge/command", post(api::bridge_command))
+        .route("/api/collect/capabilities", get(api::collect::capabilities))
         .route(
             "/api/douyin/jobs",
             post(api::douyin::create_job).get(api::douyin::list_jobs),

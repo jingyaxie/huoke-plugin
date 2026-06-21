@@ -1,5 +1,6 @@
 import { humanPace } from "./search-input";
 import { resolveLabTabForAction } from "./resolve-lab-tab";
+import { isNonDouyinDetailPlatform } from "./platform-lab-helpers";
 import {
   attachDebugger,
   clickMouse,
@@ -99,12 +100,33 @@ function searchFeedSuccess(result: ClickResult): boolean {
   return Boolean(result.ok && result.is_search_feed);
 }
 
-/** 步骤 9：优先 modal_id 打开搜索 Feed 浮层，CDP/DOM 兜底，拒绝 /video/ 独立详情页 */
+/** 步骤 9：抖音优先 modal Feed；小红书/快手直接 DOM 打开详情页 */
 export async function clickSearchVideoBackground(payload: Record<string, unknown> = {}) {
   const tab = await resolveLabTabForAction("plugin_lab.click_search_video");
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
   const videoIndex = Math.max(1, Number(payload.video_index ?? payload.index ?? 1));
+
+  if (isNonDouyinDetailPlatform(tab.url)) {
+    await prepareSearchPage(tabId);
+    const domResult = await domOpenFeed(tabId, {
+      ...payload,
+      video_index: videoIndex,
+    });
+    return {
+      ok: Boolean(domResult.ok),
+      feed_open: Boolean(domResult.ok),
+      is_search_feed: false,
+      is_content_detail: Boolean(domResult.ok),
+      mode: "dom_detail",
+      video_index: videoIndex,
+      aweme_id: domResult.aweme_id ?? payload.aweme_id,
+      url: domResult.url ?? tab.url,
+      message:
+        domResult.message
+        ?? (domResult.ok ? `已打开第 ${videoIndex} 条内容详情` : "未能打开内容详情"),
+    };
+  }
 
   let lastMessage = "未打开搜索 Feed 浮层";
   let lastUrl = tab.url ?? "";

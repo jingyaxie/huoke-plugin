@@ -24,10 +24,193 @@ export async function fetchPluginLabSnapshot() {
 }
 
 export async function runPluginLabAction(actionId, payload = {}) {
+  const timeoutMs = actionId === "open_browser" ? 25000 : 120000;
   const { data } = await localService.post(`${BASE}/actions/${actionId}`, payload, {
-    timeout: 120000,
+    timeout: timeoutMs,
   });
   return data;
+}
+
+/** 各平台实验室默认参数（打开页面后可直接单步/串联测试） */
+export const PLATFORM_LAB_DEFAULTS = {
+  douyin: {
+    searchText: "创业",
+    filterOption: "一天内",
+    replyText: "感谢分享，很有启发",
+    dmText: "你好，想进一步了解一下",
+    videoIndex: 1,
+    commentIndex: 1,
+    scrollRounds: 4,
+    maxComments: 20,
+    scrollDistance: 800,
+  },
+  xiaohongshu: {
+    searchText: "护肤",
+    filterOption: "",
+    replyText: "写得很好，收藏了",
+    dmText: "",
+    videoIndex: 1,
+    commentIndex: 1,
+    scrollRounds: 4,
+    maxComments: 20,
+    scrollDistance: 800,
+  },
+  kuaishou: {
+    searchText: "美食",
+    filterOption: "",
+    replyText: "视频拍得不错",
+    dmText: "",
+    videoIndex: 1,
+    commentIndex: 1,
+    scrollRounds: 4,
+    maxComments: 20,
+    scrollDistance: 800,
+  },
+};
+
+export const DM_UNSUPPORTED_PLATFORMS = new Set(["xiaohongshu", "kuaishou"]);
+export const FILTER_UNSUPPORTED_PLATFORMS = new Set(["xiaohongshu", "kuaishou"]);
+
+const DM_ACTION_IDS = new Set(["click_dm_btn", "input_dm_text", "send_dm"]);
+const FILTER_ACTION_IDS = new Set(["click_filter_btn", "click_filter_overlay"]);
+
+export function applyPlatformLabDefaults(platform, target = {}) {
+  const defaults = PLATFORM_LAB_DEFAULTS[platform] || PLATFORM_LAB_DEFAULTS.douyin;
+  return {
+    platform,
+    reuseExisting: target.reuseExisting ?? true,
+    waitPageLoad: target.waitPageLoad ?? false,
+    scrollDirection: target.scrollDirection ?? "down",
+    searchText: target.searchText ?? defaults.searchText,
+    filterOption: target.filterOption ?? defaults.filterOption,
+    replyText: target.replyText ?? defaults.replyText,
+    dmText: target.dmText ?? defaults.dmText,
+    videoIndex: target.videoIndex ?? defaults.videoIndex,
+    commentIndex: target.commentIndex ?? defaults.commentIndex,
+    scrollRounds: target.scrollRounds ?? defaults.scrollRounds,
+    maxComments: target.maxComments ?? defaults.maxComments,
+    scrollDistance: target.scrollDistance ?? defaults.scrollDistance,
+  };
+}
+
+export function getActionSkipReason(actionId, platform) {
+  if (DM_UNSUPPORTED_PLATFORMS.has(platform) && DM_ACTION_IDS.has(actionId)) {
+    return platform === "xiaohongshu" ? "小红书不支持私信" : "快手不支持私信";
+  }
+  if (FILTER_UNSUPPORTED_PLATFORMS.has(platform) && FILTER_ACTION_IDS.has(actionId)) {
+    return platform === "xiaohongshu" ? "小红书暂无筛选" : "快手暂无筛选";
+  }
+  return null;
+}
+
+export function isActionRunnableOnPlatform(action, platform) {
+  return !getActionSkipReason(action.id, platform);
+}
+
+/** 就绪检测：逐步调用 preflight，不执行实际操作 */
+export async function runLabReadinessBatch(platform, actions = PLUGIN_LAB_ACTIONS, onProgress) {
+  const results = [];
+  for (const action of actions) {
+    const skipReason = getActionSkipReason(action.id, platform);
+    if (skipReason) {
+      const row = {
+        actionId: action.id,
+        label: action.label,
+        status: "skipped",
+        message: skipReason,
+      };
+      results.push(row);
+      onProgress?.(row, results);
+      continue;
+    }
+    try {
+      const resp = await checkPluginLabReadiness(action.id);
+      const body = resp?.data ?? resp;
+      const ok = Boolean(resp?.ok ?? body?.can_execute);
+      const row = {
+        actionId: action.id,
+        label: action.label,
+        status: ok ? "ready" : "not_ready",
+        message: resp?.error || resp?.message || body?.message || (ok ? "可执行" : "当前界面不可执行"),
+      };
+      results.push(row);
+      onProgress?.(row, results);
+    } catch (err) {
+      const row = {
+        actionId: action.id,
+        label: action.label,
+        status: "error",
+        message: err?.response?.data?.error || err?.message || "检测失败",
+      };
+      results.push(row);
+      onProgress?.(row, results);
+    }
+  }
+  return results;
+}
+
+/** 串联执行：按步骤顺序实际调用（需已连接插件且步骤 1 已打开对应平台页） */
+export const AUTO_FLOW_ACTION_IDS = [
+  "open_browser",
+  "swipe_page",
+  "find_search_box",
+  "input_search_text",
+  "click_search_btn",
+  "fetch_search_results",
+  "click_search_video",
+  "click_comment_btn",
+  "scroll_and_collect_comments",
+  "close_video_detail",
+];
+
+export async function runLabAutoFlow(platform, buildPayload, actions = PLUGIN_LAB_ACTIONS, onProgress) {
+  const actionMap = new Map(actions.map((item) => [item.id, item]));
+  const results = [];
+
+  for (const actionId of AUTO_FLOW_ACTION_IDS) {
+    const action = actionMap.get(actionId);
+    if (!action) continue;
+
+    const skipReason = getActionSkipReason(actionId, platform);
+    if (skipReason) {
+      const row = { actionId, label: action.label, status: "skipped", message: skipReason };
+      results.push(row);
+      onProgress?.(row, results);
+      continue;
+    }
+
+    try {
+      const payload = buildPayload(action);
+      if (actionId === "open_browser") {
+        payload.reuse_existing = false;
+      }
+      const data = await runPluginLabAction(actionId, payload);
+      const body = data?.data ?? data;
+      const ok = body?.ok !== false && data?.ok !== false;
+      const row = {
+        actionId,
+        label: action.label,
+        status: ok ? "pass" : "fail",
+        message: body?.message || data?.message || data?.error || (ok ? "成功" : "失败"),
+        data: body,
+      };
+      results.push(row);
+      onProgress?.(row, results);
+      if (!ok) break;
+    } catch (err) {
+      const row = {
+        actionId,
+        label: action.label,
+        status: "error",
+        message: err?.response?.data?.error || err?.message || "执行失败",
+      };
+      results.push(row);
+      onProgress?.(row, results);
+      break;
+    }
+  }
+
+  return results;
 }
 
 export const KNOWN_FILTER_OPTIONS = [
@@ -46,7 +229,7 @@ export const KNOWN_FILTER_OPTIONS = [
 ];
 
 export const PLUGIN_LAB_ACTIONS = [
-  { id: "open_browser", label: "1. 打开浏览器", description: "在屏幕左侧半屏打开目标平台窗口" },
+  { id: "open_browser", label: "1. 打开浏览器", description: "在屏幕左侧半屏新建独立 Chrome 窗口（非日常浏览器标签）" },
   { id: "swipe_page", label: "2. 界面滑动", description: "模拟触摸板/滚轮分段滚动页面" },
   { id: "find_search_box", label: "3. 找到搜索框", description: "定位并聚焦顶部搜索输入框" },
   { id: "click_filter_btn", label: "4. 点击筛选按钮", description: "点击「筛选」打开浮层（不抓取浮层内容）" },

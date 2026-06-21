@@ -253,7 +253,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "huoke:run-command" && message.command) {
-    void runCommand(message.command as BridgeMessage).then(sendResponse);
+    const command = message.command as BridgeMessage;
+    const timeoutMs = command.action === "plugin_lab.open_browser" ? 12_000 : 50_000;
+    let responded = false;
+    const timer = setTimeout(() => {
+      if (responded) return;
+      responded = true;
+      sendResponse({ ok: false, error: `background command timeout: ${command.action}` });
+    }, timeoutMs);
+
+    void runCommand(command)
+      .then((result) => {
+        if (responded) return;
+        responded = true;
+        clearTimeout(timer);
+        sendResponse(result);
+      })
+      .catch((err) => {
+        if (responded) return;
+        responded = true;
+        clearTimeout(timer);
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      });
     return true;
   }
 

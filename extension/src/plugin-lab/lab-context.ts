@@ -1,4 +1,7 @@
 /** 插件实验室命令所需的页面上下文 */
+import { isPlatformUrl, PLATFORM_HOSTS } from "./platform-hosts";
+import { getPluginLabAdapter, getPluginLabAdapterForUrl } from "./platforms/registry";
+
 export type LabPageContext = "platform" | "search" | "video" | "profile";
 
 export interface LabSession {
@@ -9,24 +12,6 @@ export interface LabSession {
 }
 
 export const LAB_SESSION_KEY = "huoke:lab-session";
-
-const SEARCH_URL_RE = /\/search\/|\/jingxuan\/search\/|\/root\/search\//i;
-const VIDEO_URL_RE = /\/video\/\d+|modal_id=\d+/i;
-const PROFILE_URL_RE = /\/user\//i;
-const MODAL_ID_RE = /modal_id=\d{8,22}/i;
-
-/** 主页/搜索页上的 modal_id 视频浮层（非 /video/ 独立详情页） */
-export function isFeedOverlayUrl(url?: string | null): boolean {
-  if (!url || !MODAL_ID_RE.test(url)) return false;
-  if (/\/video\/\d{8,22}/i.test(url)) return false;
-  return PROFILE_URL_RE.test(url) || SEARCH_URL_RE.test(url);
-}
-
-const PLATFORM_HOSTS = [
-  "douyin.com",
-  "xiaohongshu.com",
-  "kuaishou.com",
-];
 
 /** 每个 plugin_lab 命令需要的最低页面上下文（strict = 找不到匹配标签则报错） */
 const ACTION_CONTEXT: Record<string, { context: LabPageContext; strict?: boolean }> = {
@@ -91,74 +76,38 @@ export function contextRequirementForAction(action: string): {
   return { context: entry.context, strict: entry.strict ?? false };
 }
 
-export function isPlatformUrl(url?: string | null): boolean {
-  if (!url) return false;
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return PLATFORM_HOSTS.some((item) => host === item || host.endsWith(`.${item}`));
-  } catch {
-    return PLATFORM_HOSTS.some((item) => url.includes(item));
-  }
+export { isPlatformUrl, PLATFORM_HOSTS } from "./platform-hosts";
+
+/** 主页/搜索页上的 modal_id 视频浮层（非 /video/ 独立详情页） */
+export function isFeedOverlayUrl(url?: string | null): boolean {
+  return getPluginLabAdapterForUrl(url).isFeedOverlayUrl(url);
 }
 
-export function detectPageContext(url?: string | null): LabPageContext | null {
+export function detectPageContext(url?: string | null, platform?: string | null): LabPageContext | null {
   if (!url || !isPlatformUrl(url)) return null;
-  if (PROFILE_URL_RE.test(url)) return "profile";
-  if (VIDEO_URL_RE.test(url)) return "video";
-  if (SEARCH_URL_RE.test(url)) return "search";
-  return "platform";
+  const adapter = platform ? getPluginLabAdapter(platform) : getPluginLabAdapterForUrl(url);
+  return adapter.detectPageContext(url);
 }
 
-export function contextMatchesUrl(required: LabPageContext, url?: string | null): boolean {
-  const detected = detectPageContext(url);
-  if (!detected) return false;
-  const feedOverlay = isFeedOverlayUrl(url);
-  if (required === "platform") return true;
-  if (required === "search") return detected === "search" || detected === "video" || feedOverlay;
-  if (required === "video") return detected === "video" || detected === "search" || feedOverlay;
-  if (required === "profile") return detected === "profile" && !feedOverlay;
-  return false;
+export function contextMatchesUrl(
+  required: LabPageContext,
+  url?: string | null,
+  platform?: string | null,
+): boolean {
+  const adapter = platform ? getPluginLabAdapter(platform) : getPluginLabAdapterForUrl(url);
+  return adapter.contextMatchesUrl(required, url);
 }
 
 export function scoreTabForContext(
   tab: chrome.tabs.Tab,
   required: LabPageContext,
   sessionTabId?: number,
+  platform?: string | null,
 ): number {
-  const url = tab.url ?? "";
-  if (!isPlatformUrl(url)) return -1;
-
-  let score = 0;
-  const detected = detectPageContext(url);
-
-  if (tab.id !== undefined && tab.id === sessionTabId) {
-    if (required === "platform" || contextMatchesUrl(required, url)) {
-      score += 10_000;
-    } else {
-      score += 300;
-    }
-  }
-
-  if (required === "platform") {
-    score += 100;
-  } else if (required === "search") {
-    if (detected === "search") score += 5_000;
-    else if (detected === "video") score += 3_000;
-    else if (detected === "platform") score += 200;
-    else score -= 500;
-  } else if (required === "video") {
-    if (detected === "video") score += 5_000;
-    else if (isFeedOverlayUrl(url)) score += 4_500;
-    else if (detected === "search") score += 2_000;
-    else score -= 500;
-  } else if (required === "profile") {
-    if (detected === "profile" && !isFeedOverlayUrl(url)) score += 5_000;
-    else if (detected === "profile") score += 500;
-    else score -= 500;
-  }
-
-  score += (tab.lastAccessed ?? 0) / 1_000_000_000;
-  return score;
+  const adapter = platform
+    ? getPluginLabAdapter(platform)
+    : getPluginLabAdapterForUrl(tab.url);
+  return adapter.scoreTabForContext(tab, required, sessionTabId);
 }
 
 export function contextLabel(context: LabPageContext): string {

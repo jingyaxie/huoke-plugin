@@ -13,7 +13,6 @@ let reconnectAttempt = 0;
 let heartbeatTimer: number | null = null;
 let wsUrl = DEFAULT_WS_URL;
 let bridgePort: chrome.runtime.Port | null = null;
-let requestSeq = 0;
 let lastWsError = "";
 let reconnectTimer: number | null = null;
 let intentionalClose = false;
@@ -116,35 +115,83 @@ function ensureBridgePort(): chrome.runtime.Port {
   return port;
 }
 
-async function runCommandViaPort(command: BridgeMessage): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    try {
-      const port = ensureBridgePort();
-      const requestId = `req-${Date.now()}-${requestSeq += 1}`;
-      const result = await new Promise<{ ok: boolean; data?: unknown; error?: string }>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          port.onMessage.removeListener(onMessage);
-          reject(new Error(`background command timeout: ${command.action}`));
-        }, 55000);
+function resetBridgePort() {
+  try {
+    bridgePort?.disconnect();
+  } catch {
+    /* ignore */
+  }
+  bridgePort = null;
+}
 
-        function onMessage(message: { type?: string; requestId?: string; ok?: boolean; data?: unknown; error?: string }) {
-          if (message?.type !== "run-command-result" || message.requestId !== requestId) return;
-          clearTimeout(timer);
-          port.onMessage.removeListener(onMessage);
-          resolve({ ok: Boolean(message.ok), data: message.data, error: message.error });
+/** 唤醒可能已休眠的 service worker */
+async function wakeServiceWorker(): Promise<void> {
+  for (let i = 0; i < 3; i += 1) {
+    const ok = await new Promise<boolean>((resolve) => {
+      chrome.runtime.sendMessage({ type: "huoke:noop" }, (response) => {
+        if (chrome.runtime.lastError) {
+          resolve(false);
+          return;
         }
-
-        port.onMessage.addListener(onMessage);
-        port.postMessage({ type: "run-command", requestId, command });
+        resolve(Boolean(response?.ok));
       });
-      return result;
+    });
+    if (ok) return;
+    await sleep(120);
+  }
+}
+
+function sendRunCommandOnce(
+  command: BridgeMessage,
+  timeoutMs: number,
+): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`background command timeout: ${command.action}`));
+    }, timeoutMs);
+
+    chrome.runtime.sendMessage({ type: "huoke:run-command", command }, (response) => {
+      clearTimeout(timer);
+      const err = chrome.runtime.lastError;
+      if (err) {
+        reject(new Error(err.message));
+        return;
+      }
+      resolve({
+        ok: Boolean(response?.ok),
+        data: response?.data,
+        error: response?.error,
+      });
+    });
+  });
+}
+
+async function runCommandViaBackground(
+  command: BridgeMessage,
+  timeoutMs = 55_000,
+): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  const actionTimeout =
+    command.action === "plugin_lab.open_browser" ? 12_000 : timeoutMs;
+  const maxAttempts = command.action === "plugin_lab.open_browser" ? 3 : 2;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      await wakeServiceWorker();
+      return await sendRunCommandOnce(command, actionTimeout);
     } catch (err) {
-      bridgePort = null;
-      if (attempt === 3) throw err;
-      await sleep(400 * (attempt + 1));
+      resetBridgePort();
+      if (attempt === maxAttempts - 1) throw err;
+      await sleep(300 * (attempt + 1));
     }
   }
   return { ok: false, error: "command failed" };
+}
+
+/** 所有需 tabs/windows 的命令必须在 Service Worker 执行（offscreen 无 chrome.tabs API） */
+async function executeBridgeCommand(
+  command: BridgeMessage,
+): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  return runCommandViaBackground(command);
 }
 
 function closeSocket(opts?: { intentional?: boolean }) {
@@ -216,7 +263,7 @@ function connect(url = DEFAULT_WS_URL) {
 
       if (message.type === "command") {
         try {
-          const response = await runCommandViaPort(message);
+          const response = await executeBridgeCommand(message);
           if (response.ok) {
             sendWs(
               createMessage({
@@ -273,9 +320,9 @@ function connect(url = DEFAULT_WS_URL) {
       scheduleReconnect();
     });
 
-    socket.addEventListener("error", (event) => {
-      lastWsError = "WebSocket 连接失败，请确认 local-service 已启动（npm run dev，端口 18766）";
-      error("websocket error", event);
+    socket.addEventListener("error", () => {
+      lastWsError = "WebSocket 连接失败 — 请确认 local-service 已启动（端口 18766）";
+      warn("websocket error:", lastWsError, "url=", wsUrl);
       notifyState();
     });
   } catch (err) {
@@ -306,6 +353,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-log("offscreen bridge boot");
+log("offscreen bridge boot", extensionBuildId());
 ensureBridgePort();
 connect();

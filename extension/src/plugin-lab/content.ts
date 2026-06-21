@@ -1,3 +1,6 @@
+import { detectPlatformFromUrl } from "./platform-hosts";
+import { dispatchKuaishouLabCommand } from "./platforms/kuaishou/lab";
+import { dispatchXiaohongshuLabCommand } from "./platforms/xiaohongshu/lab";
 import { probeLabReadiness, probeLabPageSnapshot } from "./lab-readiness";
 import { clickFilterButton } from "./click-filter-btn";
 import { clickFilterOverlay, type ClickFilterOverlayPayload } from "./click-filter-overlay";
@@ -43,6 +46,16 @@ import { sendDm } from "./send-dm";
 import { swipePage, type SwipePagePayload } from "./swipe-page";
 
 export async function dispatchPluginLabCommand(action: string, payload: unknown): Promise<unknown> {
+  const platform = detectPlatformFromUrl(location.href);
+  if (platform === "xiaohongshu") {
+    const routed = await dispatchXiaohongshuLabCommand(action, payload);
+    if (routed !== undefined) return routed;
+  }
+  if (platform === "kuaishou") {
+    const routed = await dispatchKuaishouLabCommand(action, payload);
+    if (routed !== undefined) return routed;
+  }
+
   switch (action) {
     case "plugin_lab.preflight":
       return probeLabReadiness((payload ?? {}) as { target_action?: string });

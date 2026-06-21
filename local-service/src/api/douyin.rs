@@ -158,11 +158,8 @@ pub async fn create_job(
     }
 
     let platform = body.platform.trim();
-    if platform != "douyin" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "only douyin collect is supported currently" })),
-        ));
+    if let Err(message) = crate::platforms::assert_collect_supported(platform) {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": message }))));
     }
 
     let limit_videos = body.limit_videos.clamp(1, 20);

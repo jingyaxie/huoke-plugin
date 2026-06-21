@@ -11,10 +11,16 @@
       <el-form label-width="120px">
         <el-form-item label="选择渠道" required>
           <el-radio-group v-model="form.platform">
-            <el-radio-button value="douyin">抖音</el-radio-button>
-            <el-radio-button value="xiaohongshu" disabled>小红书</el-radio-button>
-            <el-radio-button value="kuaishou" disabled>快手</el-radio-button>
+            <el-radio-button
+              v-for="item in platformOptions"
+              :key="item.id"
+              :value="item.id"
+              :disabled="!item.collect"
+            >
+              {{ item.label }}
+            </el-radio-button>
           </el-radio-group>
+          <p v-if="platformHint" class="field-hint">{{ platformHint }}</p>
         </el-form-item>
 
         <el-form-item label="获客方式" required>
@@ -114,7 +120,8 @@ import { computed, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import TaskInteractionFields from "./TaskInteractionFields.vue";
 import TaskPresetSelect from "./TaskPresetSelect.vue";
-import { createCollectJob } from "../api/localService";
+import { createCollectJob, fetchCollectCapabilities } from "../api/localService";
+import { mergeExtensionCapabilities, isExtensionCollectPlatform } from "../config/extensionPlatformCapabilities";
 import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/presets";
 import {
   FALLBACK_COMMENT_DAYS_OPTIONS,
@@ -146,6 +153,7 @@ const dmPresets = ref([]);
 const selectedCommentPresetIds = ref([]);
 const selectedDmPresetIds = ref([]);
 const settings = ref({ ...DEFAULT_INTERACTION_SETTINGS });
+const platformOptions = ref(mergeExtensionCapabilities());
 
 const form = reactive({
   intent: "account_home",
@@ -172,6 +180,12 @@ const urlPlaceholder = computed(() =>
     ? "粘贴博主账号主页链接（支持 v.douyin.com 短链），系统将从主页获取视频列表并抓取评论"
     : "粘贴单条视频详情页链接",
 );
+const platformHint = computed(() => {
+  const disabled = platformOptions.value.filter((row) => !row.collect).map((row) => row.label);
+  const enabled = platformOptions.value.filter((row) => row.collect).map((row) => row.label);
+  if (disabled.length === 0 || enabled.length === 0) return "";
+  return `${disabled.join(" / ")} 插件采集适配中，当前仅 ${enabled.join(" / ")} 可创建任务。`;
+});
 
 watch(
   () => props.modelValue,
@@ -198,6 +212,12 @@ watch(
 async function loadDialogData() {
   settings.value = { ...DEFAULT_INTERACTION_SETTINGS };
   form.autoStart = loadExtensionAutoStartPref(true);
+  try {
+    const remote = await fetchCollectCapabilities();
+    platformOptions.value = mergeExtensionCapabilities(remote?.platforms);
+  } catch {
+    platformOptions.value = mergeExtensionCapabilities();
+  }
   await reloadPresets();
 }
 
@@ -229,6 +249,10 @@ function resetForm() {
 }
 
 async function submit() {
+  if (!isExtensionCollectPlatform(form.platform)) {
+    ElMessage.warning("该平台插件采集尚未开放");
+    return;
+  }
   if (urlError.value) {
     ElMessage.warning(urlError.value);
     return;

@@ -3,6 +3,7 @@ import {
   activateCommentSidebar,
   isCommentSidebarReadyForCollect,
 } from "./comment-sidebar-dom";
+import { isStandaloneVideoPage } from "./search-feed-open";
 import {
   enableCommentNetworkHook,
   getAllCachedCommentApiItems,
@@ -98,6 +99,11 @@ function scrollCommentSidebar(): boolean {
       }
       node = node.parentElement;
     }
+  }
+
+  if (isStandaloneVideoPage()) {
+    window.scrollBy({ top: 280 + Math.floor(Math.random() * 120), behavior: "instant" });
+    return true;
   }
 
   return false;

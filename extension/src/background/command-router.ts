@@ -3,20 +3,10 @@ import { isPluginLabBackgroundAction } from "../plugin-lab/background-actions";
 import { resolveLabTabForAction, resolveLabTargetTab } from "../plugin-lab/resolve-lab-tab";
 import { ensureLabCommandReady } from "../plugin-lab/lab-preflight";
 import { readLabSession } from "../plugin-lab/lab-context";
+import { detectPlatformFromUrl, isPlatformUrl } from "../plugin-lab/platform-hosts";
+import { getPluginLabAdapter, normalizePlatformId, tabQueryPatternsForPlatform } from "../plugin-lab/platforms/registry";
 import { log, warn } from "../shared/logger";
 import { extensionVersion } from "../shared/runtime";
-
-const DOUYIN_URL_PATTERNS = ["https://www.douyin.com/*", "https://*.douyin.com/*"];
-
-function isDouyinUrl(url?: string | null): boolean {
-  if (!url) return false;
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host === "www.douyin.com" || host.endsWith(".douyin.com");
-  } catch {
-    return /douyin\.com/i.test(url);
-  }
-}
 
 async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,7 +23,7 @@ async function resolveNetworkHookTab(): Promise<chrome.tabs.Tab> {
   if (session?.tabId) {
     try {
       const tab = await chrome.tabs.get(session.tabId);
-      if (tab.id && isDouyinUrl(tab.url)) {
+      if (tab.id && isPlatformUrl(tab.url)) {
         await focusTab(tab);
         return tab;
       }
@@ -44,35 +34,34 @@ async function resolveNetworkHookTab(): Promise<chrome.tabs.Tab> {
   return resolveLabTargetTab();
 }
 
+function resolveCommandPlatform(command: BridgeMessage): string {
+  if (command.platform) return normalizePlatformId(command.platform);
+  const payloadPlatform = (command.payload as { platform?: string } | undefined)?.platform;
+  if (payloadPlatform) return normalizePlatformId(payloadPlatform);
+  return "douyin";
+}
+
 async function resolveTargetTab(command: BridgeMessage): Promise<chrome.tabs.Tab> {
+  const platform = resolveCommandPlatform(command);
+  const adapter = getPluginLabAdapter(platform);
+  const tabPatterns = tabQueryPatternsForPlatform(platform);
+
   const lastFocused = await chrome.windows.getLastFocused({ populate: true });
   const activeInFocused = lastFocused.tabs?.find((tab) => tab.active);
-  if (activeInFocused?.id && isDouyinUrl(activeInFocused.url)) {
+  if (activeInFocused?.id && detectPlatformFromUrl(activeInFocused.url) === platform) {
     return activeInFocused;
   }
 
-  const douyinTabs = await chrome.tabs.query({ url: DOUYIN_URL_PATTERNS });
-  if (douyinTabs.length === 0) {
-    throw new Error("no douyin tab open — open https://www.douyin.com in Chrome first");
+  const platformTabs = await chrome.tabs.query({ url: tabPatterns });
+  if (platformTabs.length === 0) {
+    throw new Error(`no ${adapter.label} tab open — run open_browser with platform=${platform} first`);
   }
 
-  const platform = command.platform;
-  if (platform === "douyin" || command.action.startsWith("douyin.")) {
-    const preferred = [...douyinTabs].sort(
-      (a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0),
-    )[0];
-    await focusTab(preferred);
-    return preferred;
-  }
-
-  const activeAny = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (activeAny[0]?.id) {
-    return activeAny[0];
-  }
-
-  const fallback = douyinTabs[0];
-  await focusTab(fallback);
-  return fallback;
+  const preferred = [...platformTabs].sort(
+    (a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0),
+  )[0];
+  await focusTab(preferred);
+  return preferred;
 }
 
 async function pingContentScript(tabId: number): Promise<{ ok?: boolean; version?: string } | null> {
@@ -173,7 +162,7 @@ export async function ensureContentScript(tabId: number) {
     ? `ping ok but version=${pong.version ?? "unknown"}`
     : "content script not responding";
   throw new Error(
-    `${detail} — open chrome://extensions, click Reload on Huoke, then refresh the douyin tab`,
+    `${detail} — open chrome://extensions, click Reload on Huoke, then refresh the platform tab`,
   );
 }
 

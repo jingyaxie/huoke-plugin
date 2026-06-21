@@ -226,6 +226,7 @@ pub async fn snapshot(
 
 fn action_timeout(action_id: &str) -> Duration {
     match action_id {
+        "open_browser" => Duration::from_secs(25),
         "input_search_text" | "scroll_and_collect_comments" | "click_search_btn" => {
             Duration::from_secs(120)
         }

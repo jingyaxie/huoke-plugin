@@ -5,12 +5,9 @@ use tokio::sync::broadcast;
 use tracing::{info, warn};
 
 use crate::db::Database;
-use crate::douyin::parser::{
-    extract_aweme_id_from_url, is_comment_api, is_profile_post_api, is_search_api, parse_comment_list,
-    parse_search_videos,
-};
 use crate::job_run::JobRunRegistry;
 use crate::orchestration;
+use crate::platforms::get_platform_adapter;
 use crate::protocol::{BridgeMessage, MessageType};
 use crate::ws::BridgeHub;
 
@@ -74,41 +71,59 @@ impl CaptureService {
             return Ok(());
         }
 
-        if is_search_api(url) || is_profile_post_api(url) {
-            let videos = parse_search_videos(&body);
-        if videos.is_empty() {
-            if is_profile_post_api(url) {
-                warn!("profile post api captured but parsed 0 videos: {url}");
-            } else {
-                tracing::debug!("search api captured but parsed 0 videos: {url}");
-            }
-            return Ok(());
-        }
         for job_id in &running_jobs {
-            let inserted = self.db.upsert_videos(job_id, &videos)?;
-            let kind = if is_profile_post_api(url) { "profile" } else { "search" };
-            info!("job {job_id}: stored {inserted} {kind} videos from {url}");
-        }
-            return Ok(());
-        }
+            let job = self.db.get_job(job_id)?;
+            let adapter = get_platform_adapter(&job.platform);
 
-        if is_comment_api(url) {
-            let fallback_aweme_id = extract_aweme_id_from_url(url);
-            let (aweme_id, comments) = parse_comment_list(&body, fallback_aweme_id.as_deref());
-            if comments.is_empty() {
-                return Ok(());
+            if adapter.is_search_api(url) || adapter.is_profile_post_api(url) {
+                let videos = adapter.parse_search_videos(&body);
+                if videos.is_empty() {
+                    if adapter.is_profile_post_api(url) {
+                        warn!(
+                            "job {job_id} platform {} profile api captured but parsed 0 videos: {url}",
+                            adapter.id()
+                        );
+                    } else {
+                        tracing::debug!(
+                            "job {job_id} platform {} search api captured but parsed 0 videos: {url}",
+                            adapter.id()
+                        );
+                    }
+                    continue;
+                }
+                let inserted = self.db.upsert_videos(job_id, &videos)?;
+                let kind = if adapter.is_profile_post_api(url) {
+                    "profile"
+                } else {
+                    "search"
+                };
+                info!(
+                    "job {job_id}: stored {inserted} {kind} videos from {url} ({})",
+                    adapter.id()
+                );
+                continue;
             }
-            let aweme_id = if aweme_id.is_empty() {
-                fallback_aweme_id.unwrap_or_default()
-            } else {
-                aweme_id
-            };
-            if aweme_id.is_empty() {
-                return Ok(());
-            }
-            for job_id in &running_jobs {
-                let inserted = self.db.upsert_comments(job_id, &aweme_id, &comments)?;
-                info!("job {job_id}: stored {inserted} comments for aweme {aweme_id}");
+
+            if adapter.is_comment_api(url) {
+                let fallback_content_id = adapter.extract_content_id_from_url(url);
+                let (content_id, comments) =
+                    adapter.parse_comment_list(&body, fallback_content_id.as_deref());
+                if comments.is_empty() {
+                    continue;
+                }
+                let content_id = if content_id.is_empty() {
+                    fallback_content_id.unwrap_or_default()
+                } else {
+                    content_id
+                };
+                if content_id.is_empty() {
+                    continue;
+                }
+                let inserted = self.db.upsert_comments(job_id, &content_id, &comments)?;
+                info!(
+                    "job {job_id}: stored {inserted} comments for content {content_id} ({})",
+                    adapter.id()
+                );
             }
         }
 

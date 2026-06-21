@@ -151,7 +151,8 @@ impl<'a> InlineOutreachRunner<'a> {
     }
 
     async fn send_reply(&self, job_id: &str, comment: &CapturedComment, text: &str) -> Result<bool, String> {
-        let lab = LabCommands::new(self.hub);
+        let job = self.db.get_job(job_id)?;
+        let lab = LabCommands::new(self.hub, &job.platform);
         let data = lab
             .reply_to_comment(
                 &comment.aweme_id,
@@ -174,7 +175,8 @@ impl<'a> InlineOutreachRunner<'a> {
     }
 
     async fn send_dm(&self, job_id: &str, comment: &CapturedComment, text: &str) -> Result<bool, String> {
-        let lab = LabCommands::new(self.hub);
+        let job = self.db.get_job(job_id)?;
+        let lab = LabCommands::new(self.hub, &job.platform);
 
         let opened = lab
             .open_profile_from_comment(
@@ -203,7 +205,8 @@ impl<'a> InlineOutreachRunner<'a> {
     }
 
     async fn send_follow(&self, job_id: &str, comment: &CapturedComment) -> Result<bool, String> {
-        let lab = LabCommands::new(self.hub);
+        let job = self.db.get_job(job_id)?;
+        let lab = LabCommands::new(self.hub, &job.platform);
         let result = lab
             .follow_from_comment(
                 &comment.aweme_id,

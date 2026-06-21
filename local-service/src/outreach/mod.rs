@@ -71,7 +71,7 @@ impl OutreachService {
 
             self.db.mark_outreach_item_running(&item.id)?;
 
-            let lab = LabCommands::new(&self.hub);
+            let lab = LabCommands::new(&self.hub, "douyin");
             let result = lab
                 .reply_to_comment(
                     &item.aweme_id,

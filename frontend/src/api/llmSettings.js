@@ -1,43 +1,56 @@
-import { getAccountId, getApiKey, getAccessToken, getPlatformId, getTenantId, getApiBaseUrl } from "./http";
+import { getLocalServiceBaseUrl } from "./localService";
 
-const baseURL = getApiBaseUrl();
+function llmSettingsUrl() {
+  return `${getLocalServiceBaseUrl()}/api/settings/llm`;
+}
 
-function settingsHeaders() {
-  const headers = {
-    "Content-Type": "application/json",
-    "X-Tenant-Id": getTenantId(),
-    "X-Platform-Id": getPlatformId(),
-    "X-Account-Id": getAccountId(),
-  };
-  const apiKey = getApiKey();
-  if (apiKey) {
-    headers["X-API-Key"] = apiKey;
+async function readLlmError(resp, fallback) {
+  const text = await resp.text().catch(() => "");
+  if (text) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.detail) return String(parsed.detail);
+      if (parsed.error) return String(parsed.error);
+      if (parsed.message) return String(parsed.message);
+    } catch {
+      return text.trim() || fallback;
+    }
   }
-  const token = getAccessToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+  if (resp.status === 404) {
+    return "local-service 未提供模型配置接口，请重启 local-service（npm run dev 或重新编译 cargo run）";
   }
-  return headers;
+  if (resp.status === 0 || resp.type === "error") {
+    return `无法连接 local-service（${getLocalServiceBaseUrl()}），请确认服务已启动`;
+  }
+  return `${fallback}（HTTP ${resp.status}）`;
 }
 
 export async function fetchLlmSettings() {
-  const resp = await fetch(`${baseURL}/settings/llm`, { headers: settingsHeaders() });
+  let resp;
+  try {
+    resp = await fetch(llmSettingsUrl());
+  } catch {
+    throw new Error(`无法连接 local-service（${getLocalServiceBaseUrl()}），请确认服务已启动`);
+  }
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || "读取模型设置失败");
+    throw new Error(await readLlmError(resp, "读取模型设置失败"));
   }
   return resp.json();
 }
 
 export async function saveLlmSettings(payload) {
-  const resp = await fetch(`${baseURL}/settings/llm`, {
-    method: "PUT",
-    headers: settingsHeaders(),
-    body: JSON.stringify(payload),
-  });
+  let resp;
+  try {
+    resp = await fetch(llmSettingsUrl(), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error(`无法连接 local-service（${getLocalServiceBaseUrl()}），请确认服务已启动`);
+  }
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || "保存模型设置失败");
+    throw new Error(await readLlmError(resp, "保存模型设置失败"));
   }
   return resp.json();
 }

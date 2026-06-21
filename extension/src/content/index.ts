@@ -3,6 +3,7 @@ import { createMessage } from "../shared/protocol";
 import { log } from "../shared/logger";
 import { extensionVersion } from "../shared/runtime";
 import { dispatchCommand, getPageInfo } from "./platforms/registry";
+import { detectPlatformFromUrl } from "../plugin-lab/platform-hosts";
 import { dispatchPluginLabCommand, isPluginLabContentAction } from "../plugin-lab/content";
 import { enableSearchNetworkHook, initSearchApiCaptureBridge, ingestNetworkPayload } from "../plugin-lab/search-api";
 import {
@@ -14,6 +15,24 @@ import {
   initCommentApiCaptureBridge,
   ingestCommentNetworkPayload,
 } from "../plugin-lab/comment-api";
+import {
+  enableXhsCommentNetworkHook,
+  initXhsCommentApiBridge,
+} from "../plugin-lab/platforms/xiaohongshu/comment-api";
+import {
+  enableXhsSearchNetworkHook,
+  initXhsSearchApiBridge,
+  ingestXhsNetworkPayload,
+} from "../plugin-lab/platforms/xiaohongshu/search-api";
+import {
+  enableKsCommentNetworkHook,
+  initKsCommentApiBridge,
+} from "../plugin-lab/platforms/kuaishou/comment-api";
+import {
+  enableKsSearchNetworkHook,
+  initKsSearchApiBridge,
+  ingestKsNetworkPayload,
+} from "../plugin-lab/platforms/kuaishou/search-api";
 
 let injected = false;
 
@@ -31,9 +50,20 @@ async function ensureInjected() {
   initSearchApiCaptureBridge();
   initProfileApiCaptureBridge();
   initCommentApiCaptureBridge();
-  if (/douyin\.com/i.test(location.hostname)) {
+  initXhsSearchApiBridge();
+  initXhsCommentApiBridge();
+  initKsSearchApiBridge();
+  initKsCommentApiBridge();
+  const platform = detectPlatformFromUrl(location.href);
+  if (platform === "douyin") {
     enableSearchNetworkHook();
     enableCommentNetworkHook();
+  } else if (platform === "xiaohongshu") {
+    enableXhsSearchNetworkHook();
+    enableXhsCommentNetworkHook();
+  } else if (platform === "kuaishou") {
+    enableKsSearchNetworkHook();
+    enableKsCommentNetworkHook();
   }
 }
 
@@ -74,9 +104,15 @@ window.addEventListener("message", (event) => {
     return;
   }
   const payload = event.data.payload;
+  const platform = detectPlatformFromUrl(location.href);
   ingestNetworkPayload(payload ?? {});
   ingestProfileNetworkPayload(payload ?? {});
   ingestCommentNetworkPayload(payload ?? {});
+  if (platform === "xiaohongshu") {
+    ingestXhsNetworkPayload(payload ?? {});
+  } else if (platform === "kuaishou") {
+    ingestKsNetworkPayload(payload ?? {});
+  }
   chrome.runtime.sendMessage({
     type: CONTENT_MESSAGE,
     event: createMessage({

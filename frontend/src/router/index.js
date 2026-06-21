@@ -7,6 +7,7 @@ import PlatformLoginView from "../views/acquisition/PlatformLoginView.vue";
 import AntibotView from "../views/AntibotView.vue";
 import SettingsView from "../views/SettingsView.vue";
 import SettingsGeneralSection from "../views/settings/SettingsGeneralSection.vue";
+import SettingsModelSection from "../views/settings/SettingsModelSection.vue";
 import SettingsMaintenanceSection from "../views/settings/SettingsMaintenanceSection.vue";
 import PluginLabView from "../views/plugin-lab/PluginLabView.vue";
 
@@ -18,7 +19,7 @@ const routes = [
       { path: "", redirect: "/extension-bridge" },
       { path: "auto-tasks", redirect: "/extension-bridge" },
       { path: "manual-tasks", name: "manual-tasks", component: ManualAcquisitionView, meta: { title: "手动获客", section: "AI 获客（本机）", fillContent: true } },
-      { path: "llm-settings", redirect: "/presets" },
+      { path: "llm-settings", redirect: "/settings/model" },
       { path: "account-settings", redirect: "/platform-login" },
       { path: "platform-login", name: "platform-login", component: PlatformLoginView, meta: { title: "账号绑定", section: "AI 获客（本机）" } },
       { path: "presets", name: "presets", component: PresetsView, meta: { title: "评论/私信预设", section: "AI 获客（本机）" } },
@@ -42,7 +43,7 @@ const routes = [
         redirect: "/settings/general",
         children: [
           { path: "general", name: "settings-general", component: SettingsGeneralSection },
-          { path: "model", redirect: "/settings/general" },
+          { path: "model", name: "settings-model", component: SettingsModelSection, meta: { title: "大模型", section: "设置" } },
           { path: "diagnosis", redirect: "/settings/general" },
           { path: "account", redirect: "/platform-login" },
           { path: "runtime", redirect: "/settings/general" },

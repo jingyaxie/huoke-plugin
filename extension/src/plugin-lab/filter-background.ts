@@ -1,4 +1,9 @@
 import { resolveLabTabForAction } from "./resolve-lab-tab";
+import {
+  detectPlatformFromUrl,
+  isFilterSupportedPlatform,
+} from "./platform-hosts";
+import { filterSkippedMessage } from "./platform-lab-helpers";
 import type { ClickFilterOverlayPayload } from "./click-filter-overlay";
 import { publishTimeLabelFromDays } from "./filter-overlay";
 import {
@@ -110,6 +115,15 @@ async function openFilterPanel(tabId: number, probe: FilterProbe) {
 /** background：真实鼠标打开筛选浮层 */
 export async function clickFilterButtonBackground() {
   const tab = await resolveLabTabForAction("plugin_lab.click_filter_btn");
+  const platform = detectPlatformFromUrl(tab.url);
+  if (!isFilterSupportedPlatform(platform)) {
+    return {
+      ok: true,
+      skipped: true,
+      platform,
+      message: filterSkippedMessage(platform),
+    };
+  }
   if (!tab.id) throw new Error("target tab has no id");
 
   const tabId = tab.id;
@@ -142,12 +156,22 @@ function parseLabels(payload: ClickFilterOverlayPayload): string[] {
 
 /** background：真实鼠标点击筛选选项 */
 export async function clickFilterOverlayBackground(payload: ClickFilterOverlayPayload = {}) {
+  const tab = await resolveLabTabForAction("plugin_lab.click_filter_overlay");
+  const platform = detectPlatformFromUrl(tab.url);
+  if (!isFilterSupportedPlatform(platform)) {
+    return {
+      ok: true,
+      skipped: true,
+      platform,
+      message: filterSkippedMessage(platform),
+    };
+  }
+
   const labels = parseLabels(payload);
   if (labels.length === 0) {
     throw new Error("click_filter_overlay: missing option_label / option_labels / days");
   }
 
-  const tab = await resolveLabTabForAction("plugin_lab.click_filter_overlay");
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
 
