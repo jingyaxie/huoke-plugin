@@ -10,13 +10,23 @@ import SettingsGeneralSection from "../views/settings/SettingsGeneralSection.vue
 import SettingsModelSection from "../views/settings/SettingsModelSection.vue";
 import SettingsMaintenanceSection from "../views/settings/SettingsMaintenanceSection.vue";
 import PluginLabView from "../views/plugin-lab/PluginLabView.vue";
+import PortalLoginView from "../portal/views/PortalLoginView.vue";
+import { buildCloudRoutes } from "../config/cloudNav";
+import { isPortalAuthenticated, isPortalEnabled, requiresPortalAuth } from "../portal";
 
 const routes = [
+  {
+    path: "/portal-login",
+    name: "portal-login",
+    component: PortalLoginView,
+    meta: { public: true },
+  },
   {
     path: "/",
     component: MainLayout,
     children: [
       { path: "", redirect: "/extension-bridge" },
+      ...buildCloudRoutes(),
       { path: "auto-tasks", redirect: "/extension-bridge" },
       { path: "manual-tasks", name: "manual-tasks", component: ManualAcquisitionView, meta: { title: "手动获客", section: "AI 获客（本机）", fillContent: true } },
       { path: "llm-settings", redirect: "/settings/model" },
@@ -57,8 +67,6 @@ const routes = [
       },
       { path: "login", redirect: "/extension-bridge" },
       { path: "antibot", name: "antibot", component: AntibotView },
-      { path: "cloud/:pathMatch(.*)*", redirect: "/extension-bridge" },
-      { path: "portal-login", redirect: "/extension-bridge" },
     ],
   },
 ];
@@ -66,6 +74,17 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+});
+
+router.beforeEach((to) => {
+  if (!isPortalEnabled()) return true;
+  if (to.meta?.public) return true;
+  if (!requiresPortalAuth(to.path)) return true;
+  if (isPortalAuthenticated()) return true;
+  return {
+    name: "portal-login",
+    query: { redirect: to.fullPath },
+  };
 });
 
 export default router;

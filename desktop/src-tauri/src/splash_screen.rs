@@ -136,9 +136,9 @@ body{
   <div class="logo-wrap">
     <div class="logo-ring"></div>
     <div class="logo-ring-2"></div>
-    <div class="logo-core"><span>AI</span></div>
+    <div class="logo-core"><span>盈</span></div>
   </div>
-  <h1 class="title">AI获客平台</h1>
+  <h1 class="title">盈小蚁</h1>
   <p class="subtitle">正在唤醒本地引擎</p>
   <div class="steps"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
   <div class="progress"><div class="bar"></div></div>

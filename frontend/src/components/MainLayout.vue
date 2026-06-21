@@ -2,7 +2,7 @@
   <div class="merchant-layout">
     <aside class="sidebar">
       <div class="brand-block">
-        <div class="brand-title">AI获客平台</div>
+        <div class="brand-title">盈小蚁</div>
       </div>
 
       <div class="sidebar-divider" />
@@ -50,7 +50,7 @@
         >
           设置
         </router-link>
-        <div class="foot-meta">v{{ appVersion }} · 本地独立运行</div>
+        <div class="foot-meta">v{{ appVersion }} · {{ portalEnabled ? "云端+本机" : "本地独立运行" }}</div>
       </div>
     </aside>
 
@@ -63,10 +63,13 @@
         </div>
         <div class="top-user">
           <span>你好，{{ displayName }}</span>
+          <button v-if="portalEnabled && portalLoggedIn" type="button" class="logout-btn" @click="handlePortalLogout">
+            退出云端
+          </button>
         </div>
       </header>
 
-      <main class="content" :class="{ 'content--fill': fillContent }">
+      <main class="content" :class="{ 'content--fill': fillContent || isCloudRoute }">
         <router-view />
       </main>
     </div>
@@ -74,19 +77,37 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
-import { getRouteMeta, LOCAL_NAV_SECTION } from "../config/cloudNav";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
+import { CLOUD_NAV_SECTIONS, getRouteMeta, LOCAL_NAV_SECTION } from "../config/cloudNav";
 import { getTenantId } from "../api/http";
+import {
+  clearPortalAuth,
+  getPortalDisplayName,
+  isPortalAuthenticated,
+  isPortalEnabled,
+  logoutPortalSession,
+  syncPortalDisplayName,
+} from "../portal";
 
 const route = useRoute();
+const router = useRouter();
 
+const portalEnabled = isPortalEnabled();
+const cloudNavSections = CLOUD_NAV_SECTIONS;
 const localNavItems = LOCAL_NAV_SECTION.items;
 const SECTION_STATE_KEY = "huoke_sidebar_sections";
 
-const navSections = computed(() => [
-  { label: LOCAL_NAV_SECTION.label, items: localNavItems, local: false },
-]);
+const navSections = computed(() => {
+  if (!portalEnabled) {
+    return [{ label: LOCAL_NAV_SECTION.label, items: localNavItems, local: false }];
+  }
+  return [
+    ...cloudNavSections.map((section) => ({ ...section, local: false })),
+    { label: "AI获客管理", items: localNavItems, local: true },
+  ];
+});
 
 const sectionExpanded = ref(loadSectionState());
 
@@ -138,21 +159,46 @@ function syncActiveSection() {
   }
 }
 
-const appVersion = computed(() => import.meta.env.VITE_APP_VERSION || "0.2.0");
+const portalLoggedIn = ref(isPortalAuthenticated());
+const portalDisplayName = ref(getPortalDisplayName());
 
-const displayName = computed(() => getTenantId() || "用户");
+const appVersion = computed(() => import.meta.env.VITE_APP_VERSION || "0.2.0");
+const isCloudRoute = computed(() => Boolean(route.meta?.cloud) || route.path.startsWith("/cloud/"));
+
+const displayName = computed(() => {
+  if (portalEnabled && portalLoggedIn.value) {
+    const portalName = portalDisplayName.value || getPortalDisplayName();
+    if (portalName) return portalName;
+  }
+  const tenantId = getTenantId();
+  if (tenantId && tenantId !== "default") return tenantId;
+  return "用户";
+});
 
 const breadcrumbSection = computed(() => {
   const meta = route.meta?.section || getRouteMeta(route.path)?.section;
-  return meta || "AI 获客";
+  return meta || (isCloudRoute.value ? "客户后台" : "AI 获客");
 });
 
 const breadcrumbTitle = computed(() => {
   const meta = route.meta?.title || getRouteMeta(route.path)?.title;
-  return meta || "AI获客";
+  return meta || (isCloudRoute.value ? "盈小蚁" : "AI获客");
 });
 
 const fillContent = computed(() => route.meta.fillContent === true);
+
+function onPortalAuthChanged() {
+  portalLoggedIn.value = isPortalAuthenticated();
+  portalDisplayName.value = getPortalDisplayName();
+}
+
+function handlePortalLogout() {
+  clearPortalAuth();
+  portalLoggedIn.value = false;
+  logoutPortalSession();
+  ElMessage.success("已退出云端登录");
+  router.push("/extension-bridge").catch(() => {});
+}
 
 function isActive(path) {
   return route.path === path || route.path.startsWith(`${path}/`);
@@ -160,10 +206,21 @@ function isActive(path) {
 
 onMounted(() => {
   syncActiveSection();
+  window.addEventListener("huoke-portal-auth-changed", onPortalAuthChanged);
+  if (portalEnabled && portalLoggedIn.value && !getPortalDisplayName()) {
+    syncPortalDisplayName().then((name) => {
+      portalLoggedIn.value = isPortalAuthenticated();
+      portalDisplayName.value = name || getPortalDisplayName();
+    });
+  }
 });
 
 watch(() => route.path, () => {
   syncActiveSection();
+});
+
+onUnmounted(() => {
+  window.removeEventListener("huoke-portal-auth-changed", onPortalAuthChanged);
 });
 </script>
 
@@ -203,11 +260,7 @@ watch(() => route.path, () => {
 
 .brand-block {
   margin: 22px 16px 18px;
-  padding: 18px 18px;
-  border-radius: 14px;
-  border: 1px solid rgba(31, 155, 255, 0.32);
-  background: linear-gradient(145deg, rgba(12, 22, 42, 0.85) 0%, rgba(8, 14, 28, 0.75) 100%);
-  box-shadow: 0 16px 28px rgba(3, 7, 18, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  padding: 8px 12px;
 }
 
 .brand-title {
@@ -473,6 +526,21 @@ watch(() => route.path, () => {
   gap: 12px;
   font-size: 14px;
   color: var(--text);
+}
+
+.logout-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 6px;
+  font-size: 14px;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.logout-btn:hover {
+  color: var(--primary);
+  background: #f8fafc;
 }
 
 .content {
