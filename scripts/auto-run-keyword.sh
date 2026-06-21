@@ -51,14 +51,30 @@ ensure_service() {
   log "构建 local-service..."
   (cd "$ROOT/local-service" && cargo build --release -q --bin huoke-local-service)
 
+  local need_restart=0
   if curl -fsS -m 2 "${BASE}/health" >/dev/null 2>&1; then
-    log "local-service 已在运行，跳过重启（避免产生僵尸 running 任务）"
-    return 0
+    local pid bin_mtime proc_start
+    pid="$(lsof -tiTCP:"${PORT}" -sTCP:LISTEN 2>/dev/null || true)"
+    bin_mtime="$(stat -f %m "$BIN" 2>/dev/null || stat -c %Y "$BIN" 2>/dev/null || echo 0)"
+    if [[ -n "$pid" ]]; then
+      proc_start="$(ps -p "$pid" -o lstart= 2>/dev/null | xargs -I{} date -j -f "%a %b %d %T %Y" "{}" +%s 2>/dev/null || echo 0)"
+      if [[ "$bin_mtime" -gt "$proc_start" ]]; then
+        log "检测到 local-service 二进制已更新，重启服务"
+        need_restart=1
+      else
+        log "local-service 已在运行且为最新构建，跳过重启"
+        return 0
+      fi
+    fi
+  else
+    need_restart=1
   fi
 
-  local pid
-  pid="$(lsof -tiTCP:"${PORT}" -sTCP:LISTEN 2>/dev/null || true)"
-  [[ -n "$pid" ]] && kill "$pid" 2>/dev/null && sleep 1.5
+  if [[ "$need_restart" == "1" ]]; then
+    local pid
+    pid="$(lsof -tiTCP:"${PORT}" -sTCP:LISTEN 2>/dev/null || true)"
+    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null && sleep 1.5
+  fi
 
   log "启动 local-service DATA=${DATA_DIR}"
   HUOKE_DATA_DIR="$DATA_DIR" HUOKE_LOCAL_PORT="$PORT" \

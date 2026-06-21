@@ -235,7 +235,10 @@ impl JobOrchestrator {
     ) -> Result<Vec<CapturedVideo>, String> {
         let mut videos = self.db.list_videos_for_job(job_id)?;
         let raw_count = videos.len();
-        videos = filters::filter_videos_by_region(videos, cfg.region_name.as_deref());
+        // 关键词任务已将 region 拼入搜索词；DOM 卡片 title 常不含地域，不再二次过滤视频。
+        if cfg.intent != "keyword_auto" {
+            videos = filters::filter_videos_by_region(videos, cfg.region_name.as_deref());
+        }
         if videos.is_empty() {
             if raw_count > 0 {
                 return Err(format!(

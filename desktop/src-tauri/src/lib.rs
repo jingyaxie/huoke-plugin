@@ -197,14 +197,29 @@ fn resolve_frontend_dist(root: &Path, bundle_dir: &Path) -> Result<PathBuf, Stri
 
 fn find_local_service_binary(root: &Path, bundle_dir: &Path) -> Result<PathBuf, String> {
     let name = local_service_binary_name();
-    for candidate in [
-        bundle_dir.join("runtime").join(name),
-        root.join("local-service/target/release").join(name),
-        root.join("local-service/target/debug").join(name),
-    ] {
-        if candidate.is_file() {
-            return Ok(candidate);
+    let candidates = [
+        root.join("local-service/target/release").join(&name),
+        bundle_dir.join("runtime").join(&name),
+        root.join("local-service/target/debug").join(&name),
+    ];
+    let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
+    for candidate in candidates {
+        if !candidate.is_file() {
+            continue;
         }
+        let Ok(modified) = candidate.metadata().and_then(|m| m.modified()) else {
+            continue;
+        };
+        if best
+            .as_ref()
+            .map(|(_, ts)| modified > *ts)
+            .unwrap_or(true)
+        {
+            best = Some((candidate, modified));
+        }
+    }
+    if let Some((path, _)) = best {
+        return Ok(path);
     }
     Err(format!(
         "未找到 local-service 二进制 ({name})，请先运行 npm run bundle"
