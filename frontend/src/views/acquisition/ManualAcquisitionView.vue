@@ -90,50 +90,17 @@
       :initial-view="outreachView"
       :loading="outreachLoading"
     />
-
-    <el-dialog v-model="createOutreachOpen" title="创建评论触达" width="560px">
-      <el-form label-width="120px">
-        <el-form-item label="来源任务">
-          <el-input :model-value="outreachForm.source_name" disabled />
-        </el-form-item>
-        <el-form-item label="回复预设">
-          <el-select
-            v-model="selectedPresetId"
-            clearable
-            placeholder="从预设选择（可选）"
-            style="width: 100%"
-            @change="applyPreset"
-          >
-            <el-option v-for="item in replyPresets" :key="item.id" :label="item.label" :value="item.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="回复文案" required>
-          <el-input v-model="outreachForm.reply_text" type="textarea" :rows="4" />
-        </el-form-item>
-        <el-form-item label="触达条数">
-          <el-input-number v-model="outreachForm.max_items" :min="1" :max="50" />
-        </el-form-item>
-        <el-form-item label="最低点赞">
-          <el-input-number v-model="outreachForm.min_digg_count" :min="0" :max="10000" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="createOutreachOpen = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitOutreach">创建</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import AcquisitionOutreachModal from "../../components/AcquisitionOutreachModal.vue";
 import CollectJobRowActions from "../../components/CollectJobRowActions.vue";
 import CreateExtensionManualTaskDialog from "../../components/CreateExtensionManualTaskDialog.vue";
 import MetricLink from "../../components/MetricLink.vue";
 import {
-  createOutreachTask,
   deleteCollectJob,
   fetchBridgeStatus,
   listCollectJobs,
@@ -146,25 +113,12 @@ import {
   manualIntentLabel,
 } from "../../utils/acquisitionJobs";
 import { loadCollectJobForModal } from "../../utils/extensionCollectJobs";
-import { loadReplyPresetOptions } from "../../utils/localPresets";
 
 const loading = ref(false);
-const submitting = ref(false);
 const allJobs = ref([]);
 const bridgeStatus = ref({ connected_clients: 0 });
 const createOpen = ref(false);
-const createOutreachOpen = ref(false);
-const replyPresets = ref([]);
-const selectedPresetId = ref("");
 let pollTimer = null;
-
-const outreachForm = reactive({
-  source_job_id: "",
-  source_name: "",
-  reply_text: "",
-  max_items: 10,
-  min_digg_count: 0,
-});
 
 const outreachOpen = ref(false);
 const outreachLoading = ref(false);
@@ -214,7 +168,6 @@ function onCollectJobAction(row, action) {
   if (action === "view") openCollectData(row, "all");
   else if (action === "start") onStartCollect(row);
   else if (action === "pause") onPauseCollect(row);
-  else if (action === "outreach") openOutreachDialog(row);
   else if (action === "delete") onDeleteCollect(row);
 }
 
@@ -238,14 +191,6 @@ async function refreshAll() {
   }
 }
 
-async function loadReplyPresets() {
-  try {
-    replyPresets.value = await loadReplyPresetOptions();
-  } catch {
-    replyPresets.value = [];
-  }
-}
-
 async function onStartCollect(row) {
   try {
     await startCollectJob(row.id);
@@ -263,67 +208,6 @@ async function onPauseCollect(row) {
     await refreshAll();
   } catch (err) {
     ElMessage.error(err?.response?.data?.error || err?.message || "暂停失败");
-  }
-}
-
-async function onDeleteCollect(row) {
-  const name = row.name || manualAccountLabel(row);
-  try {
-    await ElMessageBox.confirm(`确定删除任务「${name}」？关联的视频和评论数据将一并删除。`, "删除任务", {
-      type: "warning",
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
-    });
-  } catch {
-    return;
-  }
-  try {
-    await deleteCollectJob(row.id);
-    ElMessage.success("任务已删除");
-    if (outreachJob.value?.job_id === row.id) outreachOpen.value = false;
-    await refreshAll();
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || "删除失败");
-  }
-}
-
-function openOutreachDialog(row) {
-  outreachForm.source_job_id = row.id;
-  outreachForm.source_name = row.name || manualAccountLabel(row);
-  outreachForm.reply_text = "";
-  outreachForm.max_items = 10;
-  outreachForm.min_digg_count = 0;
-  selectedPresetId.value = "";
-  createOutreachOpen.value = true;
-}
-
-function applyPreset(presetId) {
-  const preset = replyPresets.value.find((row) => row.id === presetId);
-  if (preset?.content) outreachForm.reply_text = preset.content;
-}
-
-async function submitOutreach() {
-  const replyText = outreachForm.reply_text.trim();
-  if (!replyText) {
-    ElMessage.warning("请输入回复文案");
-    return;
-  }
-  submitting.value = true;
-  try {
-    const result = await createOutreachTask({
-      source_job_id: outreachForm.source_job_id,
-      reply_text: replyText,
-      max_items: outreachForm.max_items,
-      min_digg_count: outreachForm.min_digg_count,
-      name: `${outreachForm.source_name} 评论触达`,
-    });
-    createOutreachOpen.value = false;
-    ElMessage.success(`触达任务已创建，共 ${result.inserted_items || 0} 条`);
-    await refreshAll();
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || "创建触达失败");
-  } finally {
-    submitting.value = false;
   }
 }
 
@@ -349,8 +233,29 @@ async function openCollectData(row, view = "all") {
   }
 }
 
+async function onDeleteCollect(row) {
+  const name = row.name || manualAccountLabel(row);
+  try {
+    await ElMessageBox.confirm(`确定删除任务「${name}」？关联的视频和评论数据将一并删除。`, "删除任务", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+  } catch {
+    return;
+  }
+  try {
+    await deleteCollectJob(row.id);
+    ElMessage.success("任务已删除");
+    if (outreachJob.value?.job_id === row.id) outreachOpen.value = false;
+    await refreshAll();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.error || err?.message || "删除失败");
+  }
+}
+
 onMounted(async () => {
-  await Promise.all([refreshAll(), loadReplyPresets()]);
+  await refreshAll();
   pollTimer = window.setInterval(refreshAll, 8000);
 });
 

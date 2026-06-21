@@ -10,7 +10,6 @@
           {{ row.status === "paused" ? "继续采集" : "开始采集" }}
         </el-dropdown-item>
         <el-dropdown-item command="pause" :disabled="!canPause">暂停</el-dropdown-item>
-        <el-dropdown-item command="outreach" :disabled="!canOutreach" divided>创建触达</el-dropdown-item>
         <el-dropdown-item v-if="canDelete" command="delete" divided>
           <span class="danger-text">删除</span>
         </el-dropdown-item>
@@ -34,8 +33,6 @@ const canStart = computed(
 );
 
 const canPause = computed(() => props.row.status === "running");
-
-const canOutreach = computed(() => Number(props.row.comment_count || 0) > 0);
 
 const canDelete = computed(() =>
   ["pending", "paused", "failed", "completed"].includes(props.row.status),

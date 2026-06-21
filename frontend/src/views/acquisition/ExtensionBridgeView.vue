@@ -48,17 +48,15 @@
     <AcquisitionStatsCards :data="dashboard" :loading="loading" class="panel-block" />
     </div>
 
-    <el-tabs v-model="activeTab" class="panel-block page-tabs">
-      <el-tab-pane label="采集任务" name="collect">
-        <el-card shadow="never" class="list-card">
-          <template #header>
-            <div class="card-header">
-              <span>关键词采集</span>
-              <el-button type="primary" size="small" @click="createCollectOpen = true">+ 创建任务</el-button>
-            </div>
-          </template>
-          <div class="task-list-scroll">
-          <el-table v-loading="loading" :data="collectJobs" empty-text="暂无采集任务">
+    <el-card shadow="never" class="list-card panel-block">
+      <template #header>
+        <div class="card-header">
+          <span>关键词采集</span>
+          <el-button type="primary" size="small" @click="createCollectOpen = true">+ 创建任务</el-button>
+        </div>
+      </template>
+      <div class="task-list-scroll">
+      <el-table v-loading="loading" :data="collectJobs" empty-text="暂无采集任务">
             <el-table-column label="任务名称" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">{{ jobDisplayName(row) }}</template>
             </el-table-column>
@@ -125,38 +123,7 @@
             </el-table-column>
           </el-table>
           </div>
-        </el-card>
-      </el-tab-pane>
-
-      <el-tab-pane label="评论触达" name="outreach">
-        <el-card shadow="never" class="list-card">
-          <template #header>
-            <div class="card-header">
-              <span>评论触达任务</span>
-              <div class="quota-hint">今日剩余 {{ quota.remaining ?? "—" }} / {{ quota.daily_limit ?? "—" }}</div>
-            </div>
-          </template>
-          <div class="task-list-scroll">
-          <el-table v-loading="loading" :data="outreachTasks" empty-text="暂无触达任务">
-            <el-table-column prop="name" label="名称" min-width="140" />
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">
-                <el-tag size="small" :type="statusTagType(row.status)">{{ statusLabel(row.status) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="completed_count" label="成功" width="72" align="right" />
-            <el-table-column prop="failed_count" label="失败" width="72" align="right" />
-            <el-table-column prop="pending_count" label="待执行" width="80" align="right" />
-            <el-table-column label="" width="56" align="center" fixed="right">
-              <template #default="{ row }">
-                <OutreachTaskRowActions :row="row" @action="onOutreachTaskAction(row, $event)" />
-              </template>
-            </el-table-column>
-          </el-table>
-          </div>
-        </el-card>
-      </el-tab-pane>
-    </el-tabs>
+    </el-card>
 
     <CreateExtensionAutoTaskDialog v-model="createCollectOpen" @created="refreshAll" />
 
@@ -166,69 +133,25 @@
       :initial-view="outreachView"
       :loading="outreachLoading"
     />
-
-    <el-dialog v-model="createOutreachOpen" title="创建评论触达" width="560px">
-      <el-form label-width="120px">
-        <el-form-item label="来源采集">
-          <el-input :model-value="outreachForm.source_keyword" disabled />
-        </el-form-item>
-        <el-form-item label="回复预设">
-          <el-select
-            v-model="selectedPresetId"
-            clearable
-            placeholder="从预设选择（可选）"
-            style="width: 100%"
-            @change="applyPreset"
-          >
-            <el-option v-for="item in replyPresets" :key="item.id" :label="item.label" :value="item.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="回复文案" required>
-          <el-input
-            v-model="outreachForm.reply_text"
-            type="textarea"
-            :rows="4"
-            placeholder="将回复到采集到的评论"
-          />
-        </el-form-item>
-        <el-form-item label="触达条数">
-          <el-input-number v-model="outreachForm.max_items" :min="1" :max="50" />
-        </el-form-item>
-        <el-form-item label="最低点赞">
-          <el-input-number v-model="outreachForm.min_digg_count" :min="0" :max="10000" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="createOutreachOpen = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitOutreach">创建</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import AcquisitionOutreachModal from "../../components/AcquisitionOutreachModal.vue";
 import AcquisitionStatsCards from "../../components/AcquisitionStatsCards.vue";
 import CollectJobRowActions from "../../components/CollectJobRowActions.vue";
 import CreateExtensionAutoTaskDialog from "../../components/CreateExtensionAutoTaskDialog.vue";
 import MetricLink from "../../components/MetricLink.vue";
-import OutreachTaskRowActions from "../../components/OutreachTaskRowActions.vue";
 import {
-  createOutreachTask,
   deleteCollectJob,
   fetchBridgeStatus,
-  fetchReplyQuota,
   listCollectJobs,
-  listOutreachTasks,
   pauseCollectJob,
-  pauseOutreachTask,
   startCollectJob,
-  startOutreachTask,
 } from "../../api/localService";
 import { extensionJobTargetCount, loadCollectJobForModal } from "../../utils/extensionCollectJobs";
-import { loadReplyPresetOptions } from "../../utils/localPresets";
 import {
   getExtensionSetupStatus,
   isDesktopMode,
@@ -238,28 +161,13 @@ import {
 } from "../../utils/desktopApp";
 
 const loading = ref(false);
-const submitting = ref(false);
 const launchingExtension = ref(false);
 const desktopMode = ref(false);
 const extensionSetup = ref({ message: "" });
 const collectJobs = ref([]);
-const outreachTasks = ref([]);
 const bridgeStatus = ref({ connected_clients: 0 });
-const quota = ref({ remaining: 0, daily_limit: 50 });
 const createCollectOpen = ref(false);
-const createOutreachOpen = ref(false);
-const activeTab = ref("collect");
-const replyPresets = ref([]);
-const selectedPresetId = ref("");
 let pollTimer = null;
-
-const outreachForm = reactive({
-  source_job_id: "",
-  source_keyword: "",
-  reply_text: "",
-  max_items: 10,
-  min_digg_count: 0,
-});
 
 const outreachOpen = ref(false);
 const outreachLoading = ref(false);
@@ -277,16 +185,14 @@ const bridgeTagType = computed(() =>
 
 const dashboard = computed(() => {
   const jobs = collectJobs.value || [];
-  const tasks = outreachTasks.value || [];
   const runningJobs = jobs.filter((row) => row.status === "running").length;
-  const runningTasks = tasks.filter((row) => row.status === "running").length;
   const queued = jobs.filter((row) => row.status === "pending").length;
   const totalComments = jobs.reduce((sum, row) => sum + Number(row.comment_count || 0), 0);
   const totalReplies = jobs.reduce((sum, row) => sum + Number(row.reply_count || 0), 0);
   const totalDm = jobs.reduce((sum, row) => sum + Number(row.dm_count || 0), 0);
   const totalFollow = jobs.reduce((sum, row) => sum + Number(row.follow_count || 0), 0);
   return {
-    running_tasks: runningJobs + runningTasks,
+    running_tasks: runningJobs,
     queued_tasks: queued,
     precise_customers: 0,
     total_leads: totalComments,
@@ -352,13 +258,7 @@ function onCollectJobAction(row, action) {
   if (action === "view") openCollectData(row, "all");
   else if (action === "start") onStartCollect(row);
   else if (action === "pause") onPauseCollect(row);
-  else if (action === "outreach") openOutreachDialog(row);
   else if (action === "delete") onDeleteCollect(row);
-}
-
-function onOutreachTaskAction(row, action) {
-  if (action === "start") onStartOutreach(row);
-  else if (action === "pause") onPauseOutreach(row);
 }
 
 function formatTime(ts) {
@@ -405,30 +305,15 @@ async function onOpenExtensionFolder() {
 async function refreshAll() {
   loading.value = true;
   try {
-    const [status, quotaData, jobs, tasks] = await Promise.all([
-      fetchBridgeStatus(),
-      fetchReplyQuota().catch(() => ({ remaining: 0, daily_limit: 50 })),
-      listCollectJobs(),
-      listOutreachTasks(),
-    ]);
+    const [status, jobs] = await Promise.all([fetchBridgeStatus(), listCollectJobs()]);
     bridgeStatus.value = status;
-    quota.value = quotaData;
     collectJobs.value = (Array.isArray(jobs) ? jobs : []).filter(
       (row) => row.job_type !== "manual",
     );
-    outreachTasks.value = Array.isArray(tasks) ? tasks : [];
   } catch (err) {
     ElMessage.error(err?.response?.data?.error || err?.message || "连接 local-service 失败");
   } finally {
     loading.value = false;
-  }
-}
-
-async function loadReplyPresets() {
-  try {
-    replyPresets.value = await loadReplyPresetOptions();
-  } catch {
-    replyPresets.value = [];
   }
 }
 
@@ -473,70 +358,9 @@ async function onDeleteCollect(row) {
   }
 }
 
-function openOutreachDialog(row) {
-  outreachForm.source_job_id = row.id;
-  outreachForm.source_keyword = row.keyword;
-  outreachForm.reply_text = "";
-  outreachForm.max_items = 10;
-  outreachForm.min_digg_count = 0;
-  selectedPresetId.value = "";
-  createOutreachOpen.value = true;
-  activeTab.value = "outreach";
-}
-
-function applyPreset(presetId) {
-  const preset = replyPresets.value.find((row) => row.id === presetId);
-  if (preset?.content) outreachForm.reply_text = preset.content;
-}
-
-async function submitOutreach() {
-  const replyText = outreachForm.reply_text.trim();
-  if (!replyText) {
-    ElMessage.warning("请输入回复文案");
-    return;
-  }
-  submitting.value = true;
-  try {
-    const result = await createOutreachTask({
-      source_job_id: outreachForm.source_job_id,
-      reply_text: replyText,
-      max_items: outreachForm.max_items,
-      min_digg_count: outreachForm.min_digg_count,
-      name: `${outreachForm.source_keyword} 评论触达`,
-    });
-    createOutreachOpen.value = false;
-    ElMessage.success(`触达任务已创建，共 ${result.inserted_items || 0} 条`);
-    await refreshAll();
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || "创建触达失败");
-  } finally {
-    submitting.value = false;
-  }
-}
-
-async function onStartOutreach(row) {
-  try {
-    await startOutreachTask(row.id);
-    ElMessage.success("触达任务已开始");
-    await refreshAll();
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || "启动失败");
-  }
-}
-
-async function onPauseOutreach(row) {
-  try {
-    await pauseOutreachTask(row.id);
-    ElMessage.success("触达任务已暂停");
-    await refreshAll();
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || "暂停失败");
-  }
-}
-
 onMounted(async () => {
   desktopMode.value = await isDesktopMode();
-  await Promise.all([refreshAll(), loadReplyPresets(), refreshExtensionSetup()]);
+  await Promise.all([refreshAll(), refreshExtensionSetup()]);
   pollTimer = window.setInterval(() => {
     refreshAll();
     refreshExtensionSetup();
@@ -563,28 +387,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.page-tabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.page-tabs :deep(.el-tabs__header) {
-  flex-shrink: 0;
-  margin-bottom: 12px;
-}
-
-.page-tabs :deep(.el-tabs__content) {
-  flex: 1;
-  min-height: 0;
-}
-
-.page-tabs :deep(.el-tab-pane) {
-  height: 100%;
 }
 
 .list-card {

@@ -191,8 +191,8 @@ const viewOptions = computed(() => {
   return [
     { value: OUTREACH_METRIC_VIEWS.ALL, label: "全部采集", count: counts[OUTREACH_METRIC_VIEWS.ALL] || 0 },
     { value: OUTREACH_METRIC_VIEWS.PRECISE, label: "精准线索", count: counts[OUTREACH_METRIC_VIEWS.PRECISE] || 0 },
-    { value: OUTREACH_METRIC_VIEWS.REPLY, label: "评论触达", count: counts[OUTREACH_METRIC_VIEWS.REPLY] || 0 },
-    { value: OUTREACH_METRIC_VIEWS.DM, label: "私信触达", count: counts[OUTREACH_METRIC_VIEWS.DM] || 0 },
+    { value: OUTREACH_METRIC_VIEWS.REPLY, label: "已回复", count: counts[OUTREACH_METRIC_VIEWS.REPLY] || 0 },
+    { value: OUTREACH_METRIC_VIEWS.DM, label: "已私信", count: counts[OUTREACH_METRIC_VIEWS.DM] || 0 },
     { value: OUTREACH_METRIC_VIEWS.FOLLOW, label: "关注记录", count: counts[OUTREACH_METRIC_VIEWS.FOLLOW] || 0 },
   ];
 });

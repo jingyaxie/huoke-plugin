@@ -35,27 +35,9 @@
 
 <script setup>
 import { ElMessage } from "element-plus";
+import { EXTENSION_PLATFORM_LOGIN_CARDS } from "../config/extensionPlatformCapabilities";
 
-const platforms = [
-  {
-    id: "douyin",
-    label: "抖音",
-    url: "https://www.douyin.com",
-    desc: "支持关键词采集与评论触达",
-  },
-  {
-    id: "xiaohongshu",
-    label: "小红书",
-    url: "https://www.xiaohongshu.com",
-    desc: "adapter 已接入，能力逐步开放",
-  },
-  {
-    id: "kuaishou",
-    label: "快手",
-    url: "https://www.kuaishou.com",
-    desc: "adapter 已接入，能力逐步开放",
-  },
-];
+const platforms = EXTENSION_PLATFORM_LOGIN_CARDS;
 
 function openPlatform(item) {
   const opened = window.open(item.url, "_blank", "noopener,noreferrer");
