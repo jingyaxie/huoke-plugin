@@ -3,13 +3,9 @@
     <template #header>
       <div class="panel-head">
         <span>平台登录</span>
-        <span class="panel-hint">登录态由 Chrome 自行管理，App 不绑定、不检测账号状态</span>
+        <span class="panel-hint">在 Chrome 打开平台页完成登录，插件复用浏览器 Cookie</span>
       </div>
     </template>
-
-    <p class="intro">
-      在 Chrome 中打开对应平台并完成登录即可。插件会复用当前浏览器 Cookie，无需在 App 内授权或注入浏览器。
-    </p>
 
     <div class="platform-grid">
       <article v-for="item in platforms" :key="item.id" class="platform-card">
@@ -19,25 +15,54 @@
       </article>
     </div>
 
-    <el-collapse class="setup-collapse">
-      <el-collapse-item title="首次使用：安装 Chrome 插件" name="ext">
-        <ol class="setup-steps">
-          <li>打开 <code>chrome://extensions</code>，开启「开发者模式」</li>
-          <li>「加载已解压的扩展程序」→ 选择项目内 <code>extension/dist</code>（不是 <code>extension/</code> 源码目录）</li>
-          <li>修改插件后执行 <code>cd extension && npm run build</code>，再在扩展页点「重新加载」</li>
-          <li>若显示 <strong>Service Worker（无效）</strong>：点击该蓝色链接唤醒后台；或点击插件图标查看连接状态</li>
-          <li>确认本地服务已启动（<code>npm run dev</code>，端口 18766），再打开上方平台页面登录</li>
-        </ol>
-      </el-collapse-item>
-    </el-collapse>
+    <ExtensionSetupGuide
+      :can-launch="canLaunch"
+      :runtime-path="runtimePath"
+      :bundle-path="bundlePath"
+      :launching="launching"
+      :checking="checking"
+      @launch="$emit('launch')"
+      @open-folder="$emit('open-folder')"
+      @refresh="$emit('refresh')"
+    />
   </el-card>
 </template>
 
 <script setup>
+import { computed } from "vue";
 import { ElMessage } from "element-plus";
+import ExtensionSetupGuide from "./ExtensionSetupGuide.vue";
 import { EXTENSION_PLATFORM_LOGIN_CARDS } from "../config/extensionPlatformCapabilities";
+import { isTauriApp } from "../utils/desktopApp";
+
+const props = defineProps({
+  extensionSetup: { type: Object, default: () => ({}) },
+  launching: { type: Boolean, default: false },
+  checking: { type: Boolean, default: false },
+});
+
+defineEmits(["launch", "open-folder", "refresh"]);
 
 const platforms = EXTENSION_PLATFORM_LOGIN_CARDS;
+const canLaunch = computed(() => isTauriApp());
+
+const runtimePath = computed(() => {
+  const path = props.extensionSetup?.extensionPath || "";
+  if (path) return path;
+  if (/Win/i.test(navigator.userAgent)) {
+    return "%APPDATA%\\com.huoke.desktop\\extension";
+  }
+  return "~/Library/Application Support/com.huoke.desktop/extension";
+});
+
+const bundlePath = computed(() => {
+  const path = props.extensionSetup?.bundleExtensionPath || "";
+  if (path) return path;
+  if (/Win/i.test(navigator.userAgent)) {
+    return "%LOCALAPPDATA%\\Programs\\盈小蚁\\resources\\desktop\\bundle\\extension";
+  }
+  return "盈小蚁.app/Contents/Resources/desktop/bundle/extension";
+});
 
 function openPlatform(item) {
   const opened = window.open(item.url, "_blank", "noopener,noreferrer");
@@ -67,12 +92,6 @@ function openPlatform(item) {
   font-weight: 400;
 }
 
-.intro {
-  margin: 0 0 16px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.6;
-}
-
 .platform-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -99,17 +118,6 @@ function openPlatform(item) {
   font-size: 13px;
   color: var(--el-text-color-secondary);
   line-height: 1.5;
-}
-
-.setup-collapse {
-  margin-top: 16px;
-}
-
-.setup-steps {
-  margin: 0;
-  padding-left: 20px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.7;
 }
 
 @media (max-width: 900px) {

@@ -12,6 +12,7 @@ const BRIDGE_STATUS: &str = "http://127.0.0.1:18766/bridge/status";
 pub struct ExtensionSetupStatus {
     pub extension_installed: bool,
     pub extension_path: String,
+    pub bundle_extension_path: String,
     pub chrome_found: bool,
     pub chrome_path: Option<String>,
     pub bridge_connected: bool,
@@ -171,11 +172,12 @@ pub fn open_path_in_explorer(path: &Path) -> Result<(), String> {
 }
 
 pub fn build_setup_status(
-    _bundle_dir: &Path,
+    bundle_dir: &Path,
     data_dir: &Path,
     bootstrap_error: Option<&str>,
 ) -> ExtensionSetupStatus {
     let extension_path = extension_install_dir(data_dir);
+    let bundle_extension_path = bundle_dir.join("extension");
     let extension_installed = extension_path.join("manifest.json").is_file();
     let chrome_path = find_chrome_executable();
     let connected_clients = bridge_client_count();
@@ -196,6 +198,7 @@ pub fn build_setup_status(
     ExtensionSetupStatus {
         extension_installed,
         extension_path: extension_path.to_string_lossy().replace('\\', "/"),
+        bundle_extension_path: bundle_extension_path.to_string_lossy().replace('\\', "/"),
         chrome_found: chrome_path.is_some(),
         chrome_path: chrome_path.map(|p| p.to_string_lossy().replace('\\', "/")),
         bridge_connected,
