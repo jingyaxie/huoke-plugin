@@ -13,6 +13,31 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForTabLoad(tabId: number, timeoutMs = 8_000): Promise<void> {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === "complete") return;
+  } catch {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, timeoutMs);
+
+    function listener(updatedId: number, info: chrome.tabs.TabChangeInfo) {
+      if (updatedId !== tabId || info.status !== "complete") return;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }
+
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
 interface VideoProbe {
   ok?: boolean;
   center?: { x: number; y: number };
@@ -109,16 +134,40 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
 
   if (isNonDouyinDetailPlatform(tab.url)) {
     await prepareSearchPage(tabId);
-    const domResult = await domOpenFeed(tabId, {
+    let domResult = await domOpenFeed(tabId, {
       ...payload,
       video_index: videoIndex,
     });
+
+    if (!domResult.ok) {
+      const apiResult = (await sendContentPluginLabCommand(
+        tabId,
+        "plugin_lab.fetch_search_results",
+        { limit: 20 },
+        { skipPreflight: true },
+      )) as { items?: Array<{ url?: string; aweme_id?: string }> };
+      const item = apiResult.items?.[videoIndex - 1];
+      const targetUrl = String(item?.url ?? "").trim();
+      if (targetUrl) {
+        await chrome.tabs.update(tabId, { url: targetUrl });
+        await waitForTabLoad(tabId, 12_000);
+        await sleep(900);
+        const probe = await probeVideo(tabId, { video_index: videoIndex });
+        domResult = {
+          ok: Boolean(probe.ok) || /\/short-video\/|\/fw\/photo\//i.test(targetUrl),
+          aweme_id: item?.aweme_id ?? probe.aweme_id,
+          url: targetUrl,
+          message: `已通过 URL 打开第 ${videoIndex} 条视频`,
+        };
+      }
+    }
+
     return {
       ok: Boolean(domResult.ok),
       feed_open: Boolean(domResult.ok),
       is_search_feed: false,
       is_content_detail: Boolean(domResult.ok),
-      mode: "dom_detail",
+      mode: domResult.ok && domResult.url ? "url_navigate" : "dom_detail",
       video_index: videoIndex,
       aweme_id: domResult.aweme_id ?? payload.aweme_id,
       url: domResult.url ?? tab.url,

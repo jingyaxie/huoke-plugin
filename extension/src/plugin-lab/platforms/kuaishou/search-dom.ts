@@ -3,7 +3,7 @@ import { PHOTO_ID_RE, VIDEO_DETAIL_MARKERS, VIDEO_LINK_SELECTORS } from "./const
 import type { PlatformSearchItem } from "../shared/content-item";
 
 export function isKsSearchResultsPage(url = location.href): boolean {
-  return /\/search\//i.test(url) || /searchKey=/i.test(url);
+  return /\/search\//i.test(url) || /searchKey=/i.test(url) || /searchResult/i.test(url);
 }
 
 export function isKsVideoPage(url = location.href): boolean {
@@ -19,18 +19,40 @@ export function extractPhotoIdFromHref(href: string): string {
 export function collectKsVideoCards(): HTMLElement[] {
   const out: HTMLElement[] = [];
   const seen = new Set<string>();
+
+  const pushPhotoId = (photoId: string, el: HTMLElement) => {
+    if (!PHOTO_ID_RE.test(photoId) || !isVisible(el) || seen.has(photoId)) return;
+    seen.add(photoId);
+    out.push(el);
+  };
+
   for (const selector of VIDEO_LINK_SELECTORS) {
     const nodes = document.querySelectorAll(selector);
     for (let i = 0; i < nodes.length; i += 1) {
       const el = nodes[i] as HTMLElement;
       const href = el.getAttribute("href") ?? "";
-      const photoId = extractPhotoIdFromHref(href);
-      if (!PHOTO_ID_RE.test(photoId) || !isVisible(el)) continue;
-      if (seen.has(photoId)) continue;
-      seen.add(photoId);
-      out.push(el);
+      pushPhotoId(extractPhotoIdFromHref(href), el);
     }
   }
+
+  const attrNodes = document.querySelectorAll("[data-photo-id], [data-photoid], [data-id]");
+  for (let i = 0; i < attrNodes.length; i += 1) {
+    const el = attrNodes[i] as HTMLElement;
+    const photoId = String(
+      el.getAttribute("data-photo-id")
+      ?? el.getAttribute("data-photoid")
+      ?? el.getAttribute("data-id")
+      ?? "",
+    ).trim();
+    pushPhotoId(photoId, el);
+  }
+
+  const links = document.querySelectorAll('a[href*="/short-video/"], a[href*="/fw/photo/"], a[href*="/video/"]');
+  for (let i = 0; i < links.length; i += 1) {
+    const el = links[i] as HTMLElement;
+    pushPhotoId(extractPhotoIdFromHref(el.getAttribute("href") ?? ""), el);
+  }
+
   out.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
   return out;
 }

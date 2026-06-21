@@ -1,6 +1,6 @@
 import { INJECTED_MESSAGE } from "../../../shared/constants";
 import type { PlatformCommentRow } from "../shared/content-item";
-import { KS_COMMENT_GRAPHQL } from "./constants";
+import { KS_COMMENT_GRAPHQL, KS_COMMENT_LIST_QUERY } from "./constants";
 
 const CONFIG_CHANNEL = "huoke:injected:config";
 const STORAGE_PREFIX = "huoke:ks-comment-api:";
@@ -72,7 +72,7 @@ export function parseKsCommentApiBody(body: unknown): PlatformCommentRow[] {
     }
     const roots = record.data as Record<string, unknown> | undefined;
     const vision = roots?.visionCommentList as Record<string, unknown> | undefined;
-    const list = vision?.rootComments ?? record.rootComments ?? record.comments;
+    const list = vision?.rootCommentsV2 ?? vision?.rootComments ?? record.rootCommentsV2 ?? record.rootComments ?? record.comments;
     if (Array.isArray(list)) {
       for (const row of list) {
         if (!row || typeof row !== "object") continue;
@@ -159,6 +159,50 @@ export async function getKsCommentApiItems(photoId: string, maxAgeMs = 120_000):
     // ignore
   }
   return [];
+}
+
+/** 对齐 Python graphql_via_page：主动拉取评论列表 */
+export async function fireKsCommentListRequest(
+  photoId: string,
+  pcursor = "",
+): Promise<{ items: PlatformCommentRow[]; pcursor: string }> {
+  const trimmed = photoId.trim();
+  if (!trimmed) return { items: [], pcursor: "" };
+  try {
+    const response = await fetch("https://www.kuaishou.com/graphql", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        operationName: KS_COMMENT_GRAPHQL,
+        query: KS_COMMENT_LIST_QUERY,
+        variables: { photoId: trimmed, pcursor },
+      }),
+    });
+    if (!response.ok) return { items: [], pcursor: "" };
+    const body = (await response.json()) as unknown;
+    const parsed = parseKsCommentApiBody(body);
+    if (parsed.length > 0) await mergeKsCommentCapture(trimmed, parsed);
+    const vision = (body as { data?: { visionCommentList?: { pcursor?: string } } })?.data?.visionCommentList;
+    return { items: parsed, pcursor: String(vision?.pcursor ?? "") };
+  } catch {
+    return { items: [], pcursor: "" };
+  }
+}
+
+export async function fetchKsCommentsViaApi(
+  photoId: string,
+  maxComments: number,
+): Promise<PlatformCommentRow[]> {
+  const merged = new Map<string, PlatformCommentRow>();
+  let pcursor = "";
+  for (let page = 0; page < 6 && merged.size < maxComments; page += 1) {
+    const batch = await fireKsCommentListRequest(photoId, pcursor);
+    for (const row of batch.items) merged.set(row.comment_id, row);
+    pcursor = batch.pcursor;
+    if (!pcursor || batch.items.length === 0) break;
+  }
+  return Array.from(merged.values()).slice(0, maxComments);
 }
 
 let bridgeReady = false;

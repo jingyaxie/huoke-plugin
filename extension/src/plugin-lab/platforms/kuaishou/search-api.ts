@@ -145,6 +145,49 @@ export async function waitForKsSearchApiResults(timeoutMs = 15_000, minItems = 1
   return getKsSearchApiResults();
 }
 
+export function extractKsSearchKeyword(): string {
+  try {
+    const url = new URL(location.href);
+    const fromQuery = url.searchParams.get("searchKey")?.trim();
+    if (fromQuery) return fromQuery;
+  } catch {
+    // ignore
+  }
+  const inputs = document.querySelectorAll("input, textarea");
+  for (let i = 0; i < inputs.length; i += 1) {
+    const input = inputs[i] as HTMLInputElement | HTMLTextAreaElement;
+    const value = (input.value ?? "").trim();
+    if (value.length >= 1) return value;
+  }
+  return "";
+}
+
+/** 对齐 Python KuaishouJsApiTool.search_feed：主动 POST 搜索 feed 接口 */
+export async function fireKsSearchFeedRequest(keyword: string): Promise<PlatformSearchItem[]> {
+  const trimmed = keyword.trim();
+  if (!trimmed) return [];
+  try {
+    const response = await fetch("https://www.kuaishou.com/rest/v/search/feed", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        keyword: trimmed,
+        page: "search",
+        webPageArea: "",
+        pcursor: "",
+      }),
+    });
+    if (!response.ok) return [];
+    const body = (await response.json()) as unknown;
+    const parsed = parseKsSearchApiBody(body);
+    if (parsed.length > 0) await mergeCapture(parsed);
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
 let bridgeReady = false;
 
 export function initKsSearchApiBridge(): void {

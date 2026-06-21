@@ -191,6 +191,13 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
       }
       const cardCount = countPlatformSearchCards(platform);
       if (cardCount === 0) {
+        if (platform === "kuaishou" && isPlatformSearchResultsPage(platform)) {
+          return pass(targetAction, required, {
+            on_search_page: true,
+            search_card_count: 0,
+            capture_method: "pending",
+          });
+        }
         return fail(targetAction, required, "搜索列表尚无内容卡片（可能仍在加载）", {
           on_search_page: true,
           search_card_count: 0,

@@ -1,8 +1,10 @@
-import { findSearchInputMatch, humanClick, randDelay, sleep } from "../../search-input";
+import { findSearchInputMatch, humanClick, isVisible, randDelay, sleep } from "../../search-input";
 import { buildSearchResultPayload } from "../shared/content-item";
 import {
   clearKsSearchApiCache,
   enableKsSearchNetworkHook,
+  extractKsSearchKeyword,
+  fireKsSearchFeedRequest,
   getKsSearchApiResults,
   waitForKsSearchApiResults,
 } from "./search-api";
@@ -20,10 +22,25 @@ import {
 } from "./search-dom";
 import {
   enableKsCommentNetworkHook,
+  fetchKsCommentsViaApi,
   getKsCommentApiItems,
 } from "./comment-api";
 
 function findKsSearchButton(): HTMLElement | null {
+  const selectors = [
+    'button[class*="search"]',
+    '[class*="search"] button',
+    '[class*="Search"] button',
+    'svg[class*="search"]',
+  ];
+  for (const selector of selectors) {
+    const node = document.querySelector(selector) as HTMLElement | null;
+    if (!node || !isVisible(node)) continue;
+    const rect = node.getBoundingClientRect();
+    if (rect.width < 12 || rect.height < 12 || rect.top > 220) continue;
+    return node;
+  }
+
   const nodes = document.querySelectorAll("button, span, div, svg");
   for (let i = 0; i < nodes.length && i < 120; i += 1) {
     const node = nodes[i] as HTMLElement;
@@ -36,6 +53,26 @@ function findKsSearchButton(): HTMLElement | null {
   return null;
 }
 
+function submitKsSearchViaInput(input: HTMLInputElement | HTMLTextAreaElement) {
+  input.focus();
+  input.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }),
+  );
+  input.dispatchEvent(
+    new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }),
+  );
+}
+
+async function waitForKsSearchReady(timeoutMs = 8000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (isKsSearchResultsPage(location.href)) return true;
+    if (isKsSearchResultsPage() && collectKsVideoCards().length > 0) return true;
+    await sleep(250);
+  }
+  return isKsSearchResultsPage(location.href) || collectKsVideoCards().length > 0;
+}
+
 export async function ksPrepareSearchCapture() {
   await clearKsSearchApiCache();
   enableKsSearchNetworkHook();
@@ -44,18 +81,18 @@ export async function ksPrepareSearchCapture() {
 }
 
 export async function ksSubmitSearchClick() {
-  const beforeUrl = location.href;
   const inputMatch = findSearchInputMatch("kuaishou");
+  const keyword = (inputMatch?.input?.value ?? "").trim();
   const button = findKsSearchButton();
+  let method: "click_button" | "enter_key" | "navigate" | "none" = "none";
 
   if (button) {
     humanClick(button);
+    method = "click_button";
     await sleep(randDelay(600, 1000));
   } else if (inputMatch?.input) {
-    inputMatch.input.focus();
-    inputMatch.input.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }),
-    );
+    submitKsSearchViaInput(inputMatch.input);
+    method = "enter_key";
     await sleep(randDelay(700, 1100));
   } else {
     return {
@@ -67,19 +104,32 @@ export async function ksSubmitSearchClick() {
     };
   }
 
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline) {
-    if (isKsSearchResultsPage(location.href)) break;
-    if (location.href !== beforeUrl && /search/i.test(location.href)) break;
-    await sleep(250);
+  if (inputMatch?.input && method === "click_button") {
+    submitKsSearchViaInput(inputMatch.input);
+    await sleep(randDelay(500, 800));
   }
 
+  let ready = await waitForKsSearchReady(8000);
+
+  const onSearchPage = isKsSearchResultsPage(location.href);
+  const cardCount = collectKsVideoCards().length;
   return {
-    ok: isKsSearchResultsPage(location.href) || collectKsVideoCards().length > 0,
-    method: button ? "click_button" : "enter_key",
+    ok: ready || onSearchPage || cardCount > 0,
+    method,
+    keyword,
     url: location.href,
-    on_search_page: isKsSearchResultsPage(location.href),
-    message: isKsSearchResultsPage(location.href) ? "已进入快手搜索结果页" : "已触发搜索，等待结果加载",
+    on_search_page: onSearchPage,
+    card_count: cardCount,
+    needs_navigate: !ready && !onSearchPage && cardCount === 0 && keyword.length > 0,
+    message: onSearchPage
+      ? "已进入快手搜索结果页"
+      : cardCount > 0
+        ? `已加载 ${cardCount} 条搜索结果`
+        : ready
+          ? "已触发搜索，等待结果加载"
+          : keyword
+            ? "已点击搜索，等待跳转搜索结果页"
+            : "未找到搜索关键词",
   };
 }
 
@@ -91,6 +141,12 @@ export async function ksFetchSearchResults(payload: { limit?: number; api_timeou
   let items = await getKsSearchApiResults();
   if (!items.length) {
     items = await waitForKsSearchApiResults(timeoutMs, 1);
+  }
+  if (!items.length) {
+    const keyword = extractKsSearchKeyword();
+    if (keyword) {
+      items = await fireKsSearchFeedRequest(keyword);
+    }
   }
   items = items.slice(0, limit);
 
@@ -128,10 +184,11 @@ export function ksProbeSearchVideo(payload: { video_index?: number; index?: numb
   const cards = collectKsVideoCards();
   const index = Math.max(1, Number(payload.video_index ?? payload.index ?? 1));
   return {
-    ok: cards.length >= index,
+    ok: cards.length >= index || isKsVideoPage(),
     available: cards.length,
     video_index: index,
     on_search_page: isKsSearchResultsPage(),
+    is_standalone_video: isKsVideoPage(),
   };
 }
 
@@ -167,7 +224,10 @@ export async function ksScrollCollectComments(payload: {
 
   const mergeApi = async () => {
     if (!photoId) return;
-    const rows = await getKsCommentApiItems(photoId);
+    let rows = await getKsCommentApiItems(photoId);
+    if (!rows.length) {
+      rows = await fetchKsCommentsViaApi(photoId, maxComments);
+    }
     for (const row of rows) {
       merged.set(row.comment_id, {
         comment_id: row.comment_id,
@@ -232,15 +292,42 @@ export function ksProbeCommentSidebar() {
 }
 
 export async function ksCloseVideoDetail() {
-  const closeBtn = document.querySelector('[class*="close"], .close-btn, .back-btn') as HTMLElement | null;
-  if (closeBtn) {
-    humanClick(closeBtn);
-    await sleep(400);
-  } else if (window.history.length > 1) {
-    window.history.back();
-    await sleep(500);
+  if (!videoDetailReady() && !isKsVideoPage()) {
+    return { ok: true, already_closed: true, message: "视频详情未打开" };
   }
-  return { ok: !isKsVideoPage() || isKsSearchResultsPage(), message: "已尝试关闭视频详情" };
+
+  for (let i = 0; i < 2; i += 1) {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }),
+    );
+    await sleep(randDelay(250, 400));
+  }
+  if (!videoDetailReady() && !isKsVideoPage()) {
+    return { ok: true, method: "escape", message: "已通过 Escape 关闭视频详情" };
+  }
+
+  const closeSelectors = [
+    '[class*="close"]',
+    ".close-btn",
+    ".back-btn",
+    '[aria-label*="关闭"]',
+    '[aria-label*="返回"]',
+  ];
+  for (const selector of closeSelectors) {
+    const closeBtn = document.querySelector(selector) as HTMLElement | null;
+    if (!closeBtn) continue;
+    humanClick(closeBtn);
+    await sleep(randDelay(400, 650));
+    if (!videoDetailReady() && !isKsVideoPage()) break;
+  }
+
+  return {
+    ok: !isKsVideoPage() || isKsSearchResultsPage() || !videoDetailReady(),
+    message:
+      !isKsVideoPage() || isKsSearchResultsPage()
+        ? "已关闭视频详情"
+        : "已尝试关闭视频详情",
+  };
 }
 
 const HANDLED = new Set([

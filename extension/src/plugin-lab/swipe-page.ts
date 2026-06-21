@@ -36,8 +36,51 @@ const PROFILE_ANCHOR_SELECTORS = [
   'a[href*="/video/"]',
 ] as const;
 
+const KS_FEED_ANCHOR_SELECTORS = [
+  'a[href*="/short-video/"]',
+  'a[href*="/fw/photo/"]',
+  '[class*="video-card"]',
+  '[class*="VideoCard"]',
+  '[class*="feed-list"]',
+  '[class*="FeedList"]',
+] as const;
+
 function isProfileListPage(url = location.href): boolean {
   return /\/user\//i.test(url) && !/\/video\/\d{8,22}/i.test(url);
+}
+
+function isKuaishouFeedPage(url = location.href): boolean {
+  return (
+    /kuaishou\.com/i.test(url) &&
+    !/\/search\//i.test(url) &&
+    !/searchKey=/i.test(url) &&
+    !/\/short-video\//i.test(url) &&
+    !/\/fw\/photo\//i.test(url)
+  );
+}
+
+function hasKuaishouFeedCards(): boolean {
+  return document.querySelector('a[href*="/short-video/"], a[href*="/fw/photo/"]') !== null;
+}
+
+function findLargestScrollable(root: HTMLElement): HTMLElement | null {
+  let best: HTMLElement | null = null;
+  let bestDelta = 0;
+  const stack: HTMLElement[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (isScrollable(node)) {
+      const delta = node.scrollHeight - node.clientHeight;
+      if (delta > bestDelta) {
+        best = node;
+        bestDelta = delta;
+      }
+    }
+    for (let i = 0; i < node.children.length; i += 1) {
+      stack.push(node.children[i] as HTMLElement);
+    }
+  }
+  return best;
 }
 
 function sleep(ms: number) {
@@ -119,6 +162,20 @@ function resolveScrollTarget(selector?: string): { el: HTMLElement; selector: st
     }
     const doc = (document.scrollingElement ?? document.documentElement) as HTMLElement;
     return { el: doc, selector: "document-profile" };
+  }
+
+  if (isKuaishouFeedPage()) {
+    for (const sel of KS_FEED_ANCHOR_SELECTORS) {
+      const anchor = document.querySelector(sel);
+      if (!anchor) continue;
+      const parent = pickScrollParent(anchor);
+      if (parent) return { el: parent, selector: `ks-feed:${sel}` };
+    }
+    const app = document.getElementById("app");
+    if (app) {
+      const scrollable = findLargestScrollable(app);
+      if (scrollable) return { el: scrollable, selector: "ks-app-scroll" };
+    }
   }
 
   const main = document.querySelector('main, [role="main"]') as HTMLElement | null;
@@ -226,7 +283,8 @@ export async function swipePage(payload: SwipePagePayload = {}): Promise<SwipePa
   const ok =
     Math.abs(scrollDelta) >= 8 ||
     scrolledAny ||
-    (isProfileListPage() && direction === "down" && totalDistance >= 180);
+    (isProfileListPage() && direction === "down" && totalDistance >= 180) ||
+    (isKuaishouFeedPage() && direction === "down" && totalDistance >= 180 && hasKuaishouFeedCards());
 
   return {
     ok,
@@ -243,6 +301,8 @@ export async function swipePage(payload: SwipePagePayload = {}): Promise<SwipePa
       ? `已${direction === "down" ? "向下" : "向上"}滚动 ${Math.abs(scrollDelta)}px（容器: ${targetSelector}）`
       : isProfileListPage()
         ? "未能滚动主页作品列表，请确认在博主主页且视频网格可见"
-        : `未能滚动页面，请确认在搜索结果/Feed 列表页，或 Feed 浮层已关闭（modal_id）`,
+        : isKuaishouFeedPage()
+          ? "未能滚动快手首页 Feed，请确认已登录且推荐流可见"
+          : `未能滚动页面，请确认在搜索结果/Feed 列表页，或 Feed 浮层已关闭（modal_id）`,
   };
 }

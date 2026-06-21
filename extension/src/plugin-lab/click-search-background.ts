@@ -1,3 +1,4 @@
+import { buildSearchUrl } from "../content/platforms/kuaishou/search";
 import { resolveLabTabForAction } from "./resolve-lab-tab";
 import { sendContentPluginLabCommand } from "./tab-command";
 import {
@@ -6,6 +7,42 @@ import {
 import { buildSearchResultPayload } from "./click-search-btn";
 import { withSearchNetworkCapture } from "./search-network-debugger";
 import { pollPlatformSearchCache } from "./platform-lab-helpers";
+import { detectPlatformFromUrl } from "./platform-hosts";
+
+async function waitForTabLoad(tabId: number, timeoutMs = 8_000): Promise<void> {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === "complete") return;
+  } catch {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, timeoutMs);
+
+    function listener(updatedId: number, info: chrome.tabs.TabChangeInfo) {
+      if (updatedId !== tabId || info.status !== "complete") return;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }
+
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function navigateKuaishouSearch(tabId: number, keyword: string): Promise<boolean> {
+  const trimmed = keyword.trim();
+  if (!trimmed) return false;
+  await chrome.tabs.update(tabId, { url: buildSearchUrl(trimmed) });
+  await waitForTabLoad(tabId, 12_000);
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  await sendContentPluginLabCommand(tabId, "plugin_lab.search_prepare", {}, { skipPreflight: true });
+  return true;
+}
 
 export async function clickSearchButtonBackground() {
   const tab = await resolveLabTabForAction("plugin_lab.click_search_btn");
@@ -24,11 +61,18 @@ export async function clickSearchButtonBackground() {
       { skipPreflight: true },
     )) as Record<string, unknown>;
 
-    const polled = await pollPlatformSearchCache(tab.url, 15_000, 1);
+    const platform = detectPlatformFromUrl(tab.url);
+    const keyword = String(clickResult.keyword ?? "").trim();
+    if (platform === "kuaishou" && keyword && !clickResult.ok) {
+      await navigateKuaishouSearch(tabId, keyword);
+    }
+
+    const activeTab = await chrome.tabs.get(tabId);
+    const polled = await pollPlatformSearchCache(activeTab.url, 15_000, 1);
     let items = polled.items;
     let captureMethod: "api" | "dom" | "none" = polled.captureMethod;
 
-    if (!items.length && clickResult.ok) {
+    if (!items.length) {
       const domResult = (await sendContentPluginLabCommand(
         tabId,
         "plugin_lab.fetch_search_results",
@@ -38,13 +82,14 @@ export async function clickSearchButtonBackground() {
       const domItems = domResult.items ?? domResult.results;
       if (Array.isArray(domItems) && domItems.length > 0) {
         items = domItems as typeof items;
-        captureMethod = "dom";
+        captureMethod = (domResult.capture_method as typeof captureMethod) ?? "dom";
       }
     }
 
     const debug = await getSearchApiDebug().catch(() => null);
     const hasResults = items.length > 0;
-    const ok = Boolean(clickResult.ok) || hasResults;
+    const onSearchPage = /\/search\/|searchKey=/i.test(activeTab.url ?? "");
+    const ok = Boolean(clickResult.ok) || hasResults || onSearchPage;
 
     return {
       ...clickResult,
