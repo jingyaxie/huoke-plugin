@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+pub const DOM_POSTER_AWEME_PREFIX: &str = "poster_";
+
 #[derive(Debug, Clone)]
 pub struct ParsedVideo {
     pub aweme_id: String,
@@ -81,7 +83,126 @@ pub fn parse_search_videos(body: &Value) -> Vec<ParsedVideo> {
     items
 }
 
-/// 从 `plugin_lab.fetch_search_results` 的 DOM 结果解析视频列表（API hook 未命中时的兜底）。
+pub fn is_valid_aweme_id(value: &str) -> bool {
+    value.len() >= 8 && value.len() <= 22 && value.chars().all(|c| c.is_ascii_digit())
+}
+
+pub fn is_dom_poster_aweme_id(aweme_id: &str) -> bool {
+    aweme_id.starts_with(DOM_POSTER_AWEME_PREFIX)
+}
+
+pub fn dom_poster_index(aweme_id: &str) -> Option<i64> {
+    if !is_dom_poster_aweme_id(aweme_id) {
+        return None;
+    }
+    aweme_id[DOM_POSTER_AWEME_PREFIX.len()..]
+        .parse()
+        .ok()
+}
+
+pub fn dom_poster_click_payload(raw_json: Option<&str>) -> Value {
+    let mut payload = serde_json::json!({});
+    let Some(raw) = raw_json else {
+        return payload;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(raw) else {
+        return payload;
+    };
+    if let Some(index) = value.get("index").and_then(|v| v.as_i64()) {
+        payload["video_index"] = json_i64(index);
+    }
+    if let Some(rect) = value.get("rect") {
+        payload["rect"] = rect.clone();
+    }
+    payload
+}
+
+fn json_i64(n: i64) -> Value {
+    Value::from(n)
+}
+
+fn synthetic_dom_poster_id(index: i64) -> String {
+    format!("{DOM_POSTER_AWEME_PREFIX}{index:08}")
+}
+
+fn parse_dom_search_item(item: &Value) -> Option<ParsedVideo> {
+    if item.is_string() {
+        let aweme_id = item.as_str()?.trim().to_string();
+        if !is_valid_aweme_id(&aweme_id) {
+            return None;
+        }
+        return Some(ParsedVideo {
+            aweme_id: aweme_id.clone(),
+            video_url: format!("https://www.douyin.com/video/{aweme_id}"),
+            title: String::new(),
+            author: String::new(),
+            raw_json: None,
+        });
+    }
+
+    let obj = item.as_object()?;
+    let aweme_id = obj
+        .get("aweme_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            obj.get("url")
+                .and_then(|v| v.as_str())
+                .and_then(parse_aweme_id_from_page_url)
+        })
+        .unwrap_or_default();
+
+    if is_valid_aweme_id(&aweme_id) {
+        return Some(ParsedVideo {
+            aweme_id: aweme_id.clone(),
+            video_url: obj
+                .get("url")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("https://www.douyin.com/video/{aweme_id}")),
+            title: obj
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            author: obj
+                .get("author")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            raw_json: serde_json::to_string(obj).ok(),
+        });
+    }
+
+    let index = obj.get("index").and_then(|v| v.as_i64()).unwrap_or(0);
+    if index <= 0 {
+        return None;
+    }
+    Some(ParsedVideo {
+        aweme_id: synthetic_dom_poster_id(index),
+        video_url: String::new(),
+        title: obj
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        author: obj
+            .get("author")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        raw_json: serde_json::to_string(obj).ok(),
+    })
+}
+
+/// 从 `plugin_lab.fetch_search_results` / `click_search_btn` 的结果解析视频列表。
 pub fn parse_dom_search_results(resp: &Value) -> Vec<ParsedVideo> {
     let root = resp.get("data").unwrap_or(resp);
     let items = root
@@ -95,56 +216,8 @@ pub fn parse_dom_search_results(resp: &Value) -> Vec<ParsedVideo> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for item in items {
-        let video = if item.is_string() {
-            let aweme_id = item.as_str().unwrap_or("").trim().to_string();
-            if !is_valid_aweme_id(&aweme_id) {
-                continue;
-            }
-            ParsedVideo {
-                aweme_id: aweme_id.clone(),
-                video_url: format!("https://www.douyin.com/video/{aweme_id}"),
-                title: String::new(),
-                author: String::new(),
-                raw_json: None,
-            }
-        } else {
-            let aweme_id = item
-                .get("aweme_id")
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .or_else(|| {
-                    item.get("url")
-                        .and_then(|v| v.as_str())
-                        .and_then(parse_aweme_id_from_page_url)
-                })
-                .unwrap_or_default();
-            if !is_valid_aweme_id(&aweme_id) {
-                continue;
-            }
-            ParsedVideo {
-                aweme_id: aweme_id.clone(),
-                video_url: item
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| format!("https://www.douyin.com/video/{aweme_id}")),
-                title: item
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
-                author: item
-                    .get("author")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
-                raw_json: None,
-            }
+        let Some(video) = parse_dom_search_item(item) else {
+            continue;
         };
         if seen.insert(video.aweme_id.clone()) {
             out.push(video);
@@ -211,10 +284,6 @@ fn normalize_search_aweme(node: &serde_json::Map<String, Value>) -> Option<Parse
         author: author_name,
         raw_json: serde_json::to_string(aweme).ok(),
     })
-}
-
-fn is_valid_aweme_id(value: &str) -> bool {
-    value.len() >= 8 && value.len() <= 22 && value.chars().all(|c| c.is_ascii_digit())
 }
 
 pub fn parse_comment_list(body: &Value, fallback_aweme_id: Option<&str>) -> (String, Vec<ParsedComment>) {
@@ -369,5 +438,28 @@ mod tests {
         assert_eq!(videos.len(), 2);
         assert_eq!(videos[0].aweme_id, "7123456789012345678");
         assert_eq!(videos[1].aweme_id, "7123456789012345679");
+    }
+
+    #[test]
+    fn parses_dom_poster_search_results() {
+        let resp = json!({
+            "items": [
+                {
+                    "index": 1,
+                    "title": "健身教程",
+                    "author": "教练A",
+                    "aweme_id": null,
+                    "click_by": "dom_rect",
+                    "rect": { "top": 100, "left": 200, "width": 180, "height": 240 }
+                }
+            ]
+        });
+        let videos = parse_dom_search_results(&resp);
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].aweme_id, "poster_00000001");
+        assert!(videos[0].video_url.is_empty());
+        let payload = dom_poster_click_payload(videos[0].raw_json.as_deref());
+        assert_eq!(payload["video_index"], 1);
+        assert_eq!(payload["rect"]["top"], 100);
     }
 }

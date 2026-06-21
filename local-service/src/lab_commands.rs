@@ -70,7 +70,23 @@ impl<'a> LabCommands<'a> {
             simulate::pause(Duration::from_secs(2)).await;
         }
 
-        Ok(json!({ "ok": true, "keyword": keyword, "days": publish_days }))
+        Ok(submit)
+    }
+
+    pub async fn close_video_detail(&self) -> Result<Value, String> {
+        self.action("close_video_detail", json!({})).await
+    }
+
+    pub async fn click_search_video(
+        &self,
+        video_index: i64,
+        rect: Option<Value>,
+    ) -> Result<Value, String> {
+        let mut payload = json!({ "video_index": video_index.max(1) });
+        if let Some(rect) = rect {
+            payload["rect"] = rect;
+        }
+        self.action("click_search_video", payload).await
     }
 
     pub async fn fetch_search_results(&self, limit: i64) -> Result<Value, String> {
@@ -278,7 +294,10 @@ impl<'a> LabCommands<'a> {
 
 fn action_timeout(action_id: &str) -> Duration {
     match action_id {
-        "input_search_text" | "scroll_and_collect_comments" => Duration::from_secs(120),
+        "input_search_text" | "scroll_and_collect_comments" | "click_search_btn" => {
+            Duration::from_secs(120)
+        }
+        "click_search_video" => Duration::from_secs(60),
         "reply_comment" | "input_dm_text" => Duration::from_secs(60),
         "open_browser" => Duration::from_secs(45),
         _ => Duration::from_secs(45),
