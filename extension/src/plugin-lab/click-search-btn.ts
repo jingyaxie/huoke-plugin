@@ -35,13 +35,18 @@ function isSearchResultsPage(url = location.href): boolean {
   return /\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(url);
 }
 
-export function buildSearchResultPayload(items: SearchApiItem[], captureMethod: "api" | "none") {
+export function buildSearchResultPayload(
+  items: Array<{ aweme_id?: string | null; index?: number } & Record<string, unknown>>,
+  captureMethod: "api" | "dom" | "none",
+) {
   return {
     count: items.length,
     items,
     results: items,
     capture_method: captureMethod,
-    search_aweme_ids: items.map((item) => item.aweme_id),
+    search_aweme_ids: items
+      .map((item) => item.aweme_id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
   };
 }
 

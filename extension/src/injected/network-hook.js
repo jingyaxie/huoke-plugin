@@ -48,9 +48,12 @@
 
   function captureOnce(meta) {
     const url = absoluteUrl(meta.url);
+    if (!shouldCapture(url)) return;
+    const isSearchApi =
+      /general\/search\/single|general\/search\/stream|search\/item|search\/single/i.test(url);
     const key = `${meta.method || "GET"}:${url}`;
-    if (!shouldCapture(url) || seen.has(key)) return;
-    seen.add(key);
+    if (!isSearchApi && seen.has(key)) return;
+    if (!isSearchApi) seen.add(key);
     emit({ ...meta, url });
   }
 

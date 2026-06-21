@@ -3,7 +3,13 @@ const CONFIG_CHANNEL = "huoke:injected:config";
 
 export const SEARCH_API_STORAGE_KEY = "huoke:search-api-cache";
 
-const SEARCH_API_MARKERS = ["general/search/single", "search/item", "search/single"] as const;
+const SEARCH_API_MARKERS = [
+  "general/search/single",
+  "general/search/stream",
+  "search/item",
+  "search/single",
+  "aweme/v1/web/general/search",
+] as const;
 const SEARCH_API_EXCLUDES = ["search/sug", "suggest_words"] as const;
 
 export interface SearchApiItem {
@@ -21,6 +27,8 @@ export interface SearchCaptureCache {
   eventsSeen: number;
   lastApiUrl?: string;
   lastParseCount?: number;
+  lastStatus?: number;
+  lastBodyKind?: string;
 }
 
 let lastSearchCapture: SearchCaptureCache | null = null;
@@ -69,7 +77,7 @@ function normalizeSearchAweme(node: Record<string, unknown>): SearchApiItem | nu
       ? (awemeRaw as Record<string, unknown>)
       : node;
 
-  const awemeId = String(aweme.aweme_id ?? "").trim();
+  const awemeId = String(aweme.aweme_id ?? aweme.awemeId ?? "").trim();
   if (!isValidAwemeId(awemeId)) return null;
 
   const author =
@@ -79,7 +87,7 @@ function normalizeSearchAweme(node: Record<string, unknown>): SearchApiItem | nu
 
   return {
     index: 0,
-    title: String(aweme.desc ?? "").trim(),
+    title: String(aweme.desc ?? aweme.title ?? "").trim(),
     author: String(author?.nickname ?? "").trim() || "—",
     url: `https://www.douyin.com/video/${awemeId}`,
     aweme_id: awemeId,
@@ -100,7 +108,9 @@ export function parseSearchApiBody(body: unknown): SearchApiItem[] {
 
     const record = node as Record<string, unknown>;
     const hasAwemeInfo = "aweme_info" in record;
-    const hasAwemeShape = "aweme_id" in record && ("desc" in record || "author" in record);
+    const hasAwemeShape =
+      ("aweme_id" in record || "awemeId" in record) &&
+      ("desc" in record || "author" in record || "title" in record);
     if (hasAwemeInfo || hasAwemeShape) {
       const normalized = normalizeSearchAweme(record);
       if (normalized && !seen.has(normalized.aweme_id)) {
@@ -146,14 +156,15 @@ export async function clearSearchApiCache(): Promise<void> {
   }
 }
 
-export async function cacheSearchApiResults(
-  items: SearchApiItem[],
-  meta: Partial<SearchCaptureCache> = {},
+async function mergeSearchApiCapture(
+  url: string,
+  parsed: SearchApiItem[],
+  meta: Partial<SearchCaptureCache>,
 ): Promise<void> {
   const previous = lastSearchCapture ?? (await readCacheFromStorage());
   const merged = new Map<string, SearchApiItem>();
   for (const item of previous?.items ?? []) merged.set(item.aweme_id, item);
-  for (const item of items) merged.set(item.aweme_id, item);
+  for (const item of parsed) merged.set(item.aweme_id, item);
 
   const nextItems = Array.from(merged.values()).map((item, index) => ({
     ...item,
@@ -163,11 +174,39 @@ export async function cacheSearchApiResults(
   await writeCacheToStorage({
     at: Date.now(),
     items: nextItems,
-    sourceUrl: meta.sourceUrl ?? (typeof location !== "undefined" ? location.href : previous?.sourceUrl ?? ""),
-    eventsSeen: (previous?.eventsSeen ?? 0) + (meta.eventsSeen ?? (items.length > 0 ? 1 : 0)),
-    lastApiUrl: meta.lastApiUrl ?? previous?.lastApiUrl,
-    lastParseCount: meta.lastParseCount ?? items.length,
+    sourceUrl: meta.sourceUrl ?? previous?.sourceUrl ?? "",
+    eventsSeen: (previous?.eventsSeen ?? 0) + 1,
+    lastApiUrl: url,
+    lastParseCount: parsed.length,
+    lastStatus: meta.lastStatus,
+    lastBodyKind: meta.lastBodyKind,
   });
+}
+
+export async function ingestSearchApiResponse(
+  url: string,
+  body: unknown | null,
+  status = 200,
+): Promise<boolean> {
+  if (!isSearchResultApi(url)) return false;
+  if (status >= 400) return false;
+
+  const parsed = body ? parseSearchApiBody(body) : [];
+  await mergeSearchApiCapture(url, parsed, {
+    lastStatus: status,
+    lastBodyKind: body ? (parsed.length > 0 ? "json" : "json_empty_parse") : "no_body",
+  });
+  return parsed.length > 0;
+}
+
+export function ingestNetworkPayload(payload: {
+  url?: string;
+  status?: number;
+  body?: unknown;
+}): boolean {
+  const url = resolveCaptureUrl(payload?.url);
+  void ingestSearchApiResponse(url, payload?.body ?? null, payload?.status ?? 200);
+  return Boolean(payload?.body && parseSearchApiBody(payload.body).length > 0);
 }
 
 export async function getLastSearchApiResults(maxAgeMs = 120_000): Promise<SearchApiItem[] | null> {
@@ -199,26 +238,9 @@ export async function getSearchApiDebug(): Promise<Partial<SearchCaptureCache>> 
     eventsSeen: cache.eventsSeen,
     lastApiUrl: cache.lastApiUrl,
     lastParseCount: cache.lastParseCount,
+    lastStatus: cache.lastStatus,
+    lastBodyKind: cache.lastBodyKind,
   };
-}
-
-export function ingestNetworkPayload(payload: {
-  url?: string;
-  status?: number;
-  body?: unknown;
-}): boolean {
-  const url = resolveCaptureUrl(payload?.url);
-  if (!isSearchResultApi(url)) return false;
-  if ((payload?.status ?? 0) >= 400) return false;
-
-  const parsed = payload?.body ? parseSearchApiBody(payload.body) : [];
-  void cacheSearchApiResults(parsed, {
-    sourceUrl: typeof location !== "undefined" ? location.href : undefined,
-    eventsSeen: 1,
-    lastApiUrl: url,
-    lastParseCount: parsed.length,
-  });
-  return parsed.length > 0;
 }
 
 export function initSearchApiCaptureBridge(): void {
