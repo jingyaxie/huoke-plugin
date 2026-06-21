@@ -1,4 +1,5 @@
 const INJECTED_CHANNEL = "huoke:injected";
+const CONFIG_CHANNEL = "huoke:injected:config";
 
 export const COMMENT_API_STORAGE_KEY = "huoke:comment-api-cache";
 
@@ -33,6 +34,19 @@ function sleep(ms: number): Promise<void> {
 export function isCommentListApi(url: string): boolean {
   const lower = String(url || "").toLowerCase();
   return COMMENT_API_MARKERS.some((marker) => lower.includes(marker));
+}
+
+/** 确保 injected network hook 截获评论 list API */
+export function enableCommentNetworkHook(): void {
+  if (typeof window === "undefined") return;
+  window.postMessage(
+    {
+      channel: CONFIG_CHANNEL,
+      enabled: true,
+      patterns: [/\/comment\/list/i, /aweme\/v1\/web\/comment/i],
+    },
+    "*",
+  );
 }
 
 function pickString(record: Record<string, unknown>, keys: string[]): string {

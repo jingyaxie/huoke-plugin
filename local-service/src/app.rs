@@ -13,6 +13,7 @@ use crate::api;
 use crate::capture::CaptureService;
 use crate::config::AppConfig;
 use crate::db::Database;
+use crate::job_run::JobRunRegistry;
 use crate::outreach::OutreachService;
 use crate::state::AppState;
 use crate::ws::BridgeHub;
@@ -30,10 +31,12 @@ pub fn build_app_state(config: &AppConfig) -> AppState {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
+    let job_runs = JobRunRegistry::default();
     let capture = Arc::new(CaptureService::new(
         db.clone(),
         hub.clone(),
         default_daily_quota,
+        job_runs.clone(),
     ));
     capture.spawn_event_listener();
     let outreach = Arc::new(OutreachService::new(
@@ -48,6 +51,7 @@ pub fn build_app_state(config: &AppConfig) -> AppState {
         capture,
         outreach,
         default_daily_quota,
+        job_runs,
     }
 }
 

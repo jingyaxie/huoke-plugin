@@ -27,7 +27,7 @@ impl<'a> LabCommands<'a> {
                 .request_command(
                     "network.hook.enable",
                     json!({ "patterns": ["/aweme/", "/comment/", "/search/"] }),
-                    Duration::from_secs(15),
+                    Duration::from_secs(45),
                 )
                 .await
             {
@@ -36,7 +36,7 @@ impl<'a> LabCommands<'a> {
                     last_err = err;
                     if attempt < MAX_ATTEMPTS {
                         warn!("network.hook.enable attempt {attempt} failed: {last_err}, retrying…");
-                        simulate::pause(Duration::from_millis(1500)).await;
+                        simulate::pause(Duration::from_millis(2500)).await;
                     }
                 }
             }
@@ -143,10 +143,59 @@ impl<'a> LabCommands<'a> {
         Ok(())
     }
 
+    pub async fn click_profile_video(
+        &self,
+        video_index: i64,
+        aweme_id: Option<&str>,
+    ) -> Result<Value, String> {
+        let mut payload = json!({ "video_index": video_index.max(1) });
+        if let Some(id) = aweme_id.filter(|s| !s.trim().is_empty()) {
+            payload["aweme_id"] = json!(id);
+        }
+        self.action("click_profile_video", payload).await
+    }
+
+    pub async fn fetch_profile_videos(&self, limit: i64) -> Result<Value, String> {
+        self.action(
+            "fetch_profile_videos",
+            json!({
+                "limit": limit.clamp(1, 50),
+                "api_timeout_ms": 15_000,
+            }),
+        )
+        .await
+    }
+
+    pub async fn prepare_profile_for_video(&self) -> Result<Value, String> {
+        self.action("prepare_profile_for_video", json!({})).await
+    }
+
+    pub async fn back_to_profile(&self, profile_url: Option<&str>) -> Result<Value, String> {
+        let mut payload = json!({});
+        if let Some(url) = profile_url.filter(|s| !s.trim().is_empty()) {
+            payload["profile_url"] = json!(url);
+        }
+        self.action("back_to_profile", payload).await
+    }
+
     pub async fn open_url(&self, url: &str) -> Result<Value, String> {
+        self.open_browser_url(url, true).await
+    }
+
+    /// 手动获客：在屏幕左侧半屏新建独立 Chrome 窗口，不复用日常浏览标签
+    pub async fn open_url_in_new_window(&self, url: &str) -> Result<Value, String> {
+        self.open_browser_url(url, false).await
+    }
+
+    async fn open_browser_url(&self, url: &str, reuse_existing: bool) -> Result<Value, String> {
         self.action(
             "open_browser",
-            json!({ "platform": "douyin", "url": url, "reuse_existing": true }),
+            json!({
+                "platform": "douyin",
+                "url": url,
+                "reuse_existing": reuse_existing,
+                "wait_load": true,
+            }),
         )
         .await
     }
@@ -337,8 +386,10 @@ fn action_timeout(action_id: &str) -> Duration {
             Duration::from_secs(120)
         }
         "click_search_video" => Duration::from_secs(90),
+        "click_profile_video" => Duration::from_secs(90),
         "reply_comment" | "input_dm_text" => Duration::from_secs(60),
         "open_browser" => Duration::from_secs(45),
+        "swipe_page" => Duration::from_secs(20),
         _ => Duration::from_secs(45),
     }
 }

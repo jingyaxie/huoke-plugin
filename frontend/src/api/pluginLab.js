@@ -52,8 +52,8 @@ export const PLUGIN_LAB_ACTIONS = [
   { id: "click_filter_btn", label: "4. 点击筛选按钮", description: "点击「筛选」打开浮层（不抓取浮层内容）" },
   { id: "click_filter_overlay", label: "5. 点击筛选浮层按钮", description: "在 dialog 内按文案精确点击选项", needsFilterOption: true },
   { id: "input_search_text", label: "6. 输入搜索文本", description: "逐字模拟键盘输入搜索关键词", needsSearchText: true },
-  { id: "click_search_btn", label: "7. 点击搜索", description: "触发搜索并捕获 search/single（失败自动 DOM 兜底）", returnsData: true },
-  { id: "fetch_search_results", label: "8. 获取搜索结果", description: "接口缓存兜底；无缓存时从 DOM 抓取", returnsData: true },
+  { id: "click_search_btn", label: "7. 点击搜索", description: "触发搜索并优先截获 search 接口（失败再 DOM 兜底）", returnsData: true },
+  { id: "fetch_search_results", label: "8. 获取搜索结果", description: "优先截获 JS 接口完整 aweme 数据，失败再从 DOM 抓取", returnsData: true },
   { id: "click_search_video", label: "9. 点击搜索结果视频", description: "按序号 CDP 点击卡片坐标（无需 aweme_id）", needsVideoIndex: true },
   { id: "click_comment_btn", label: "10. 点击评论按钮", description: "打开视频评论区" },
   {

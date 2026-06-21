@@ -2,6 +2,7 @@ import {
   contextLabel,
   contextRequirementForAction,
   detectPageContext,
+  isFeedOverlayUrl,
   type LabPageContext,
 } from "./lab-context";
 import { probeFilterDom } from "./filter-dom";
@@ -11,6 +12,7 @@ import { getCachedSearchApiResultsSync } from "./search-api";
 import { probeCommentSidebar } from "./comment-sidebar-dom";
 import { probeDmButton } from "./dm-dom";
 import { probeSearchVideoCard } from "./search-video-dom";
+import { collectProfileVideoCards, profileFeedOpen } from "./profile-video-dom";
 
 export interface LabReadinessResult {
   ok: boolean;
@@ -85,10 +87,11 @@ function pass(targetAction: string, required: LabPageContext, signals?: Record<s
 function urlContextOk(required: LabPageContext): boolean {
   const detected = detectPageContext(location.href);
   if (!detected) return false;
+  const feedOverlay = isFeedOverlayUrl(location.href);
   if (required === "platform") return true;
-  if (required === "search") return detected === "search" || detected === "video";
-  if (required === "video") return detected === "video" || detected === "search";
-  if (required === "profile") return detected === "profile";
+  if (required === "search") return detected === "search" || detected === "video" || feedOverlay;
+  if (required === "video") return detected === "video" || detected === "search" || feedOverlay;
+  if (required === "profile") return detected === "profile" && !feedOverlay;
   return false;
 }
 
@@ -181,7 +184,50 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
     }
 
     case "plugin_lab.swipe_page": {
-      return pass(targetAction, required, { on_search_page: isSearchResultsPage() });
+      return pass(targetAction, required, {
+        on_search_page: isSearchResultsPage(),
+        on_profile_page: detectPageContext(location.href) === "profile",
+      });
+    }
+
+    case "plugin_lab.close_video_detail": {
+      const sidebar = probeCommentSidebar();
+      const feedOpen = Boolean(sidebar.feed_open || sidebar.sidebar_active || sidebar.has_visible_comments);
+      if (!feedOpen) {
+        return pass(targetAction, required, { feed_open: false, already_closed: true });
+      }
+      return pass(targetAction, required, {
+        feed_open: sidebar.feed_open,
+        comment_item_count: sidebar.comment_item_count,
+      });
+    }
+
+    case "plugin_lab.fetch_profile_videos":
+    case "plugin_lab.prepare_profile_video":
+    case "plugin_lab.click_profile_video":
+    case "plugin_lab.profile_video_probe":
+    case "plugin_lab.profile_video_dom_click":
+    case "plugin_lab.back_to_profile": {
+      if (detectPageContext(location.href) !== "profile") {
+        return fail(targetAction, required, "不在用户主页", { on_profile: false });
+      }
+      const cards = collectProfileVideoCards(3);
+      if (
+        (targetAction === "plugin_lab.prepare_profile_video"
+          || targetAction === "plugin_lab.click_profile_video")
+        && cards.length === 0
+        && !profileFeedOpen()
+      ) {
+        return fail(targetAction, required, "主页作品列表尚无视频卡片", {
+          on_profile: true,
+          profile_card_count: 0,
+        });
+      }
+      return pass(targetAction, required, {
+        on_profile: true,
+        profile_card_count: cards.length,
+        profile_feed_open: profileFeedOpen(),
+      });
     }
 
     case "plugin_lab.click_comment_btn":
@@ -193,7 +239,6 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
     case "plugin_lab.reply_comment_hover":
     case "plugin_lab.reply_comment_input_probe":
     case "plugin_lab.reply_comment_type":
-    case "plugin_lab.close_video_detail":
     case "plugin_lab.click_comment_avatar": {
       const sidebar = probeCommentSidebar();
       const feedOpen = Boolean(sidebar.feed_open || sidebar.sidebar_active || sidebar.has_visible_comments);

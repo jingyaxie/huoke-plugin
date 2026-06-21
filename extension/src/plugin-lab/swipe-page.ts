@@ -27,6 +27,19 @@ const SEARCH_ANCHOR_SELECTORS = [
   '[class*="search-result"]',
 ] as const;
 
+const PROFILE_ANCHOR_SELECTORS = [
+  '[data-e2e="user-post-item"]',
+  'ul[data-e2e="user-post-item-list"] > li',
+  'div[data-e2e="user-post-item-list"] li',
+  '[class*="UserPost"] li',
+  '[class*="user-post"] li',
+  'a[href*="/video/"]',
+] as const;
+
+function isProfileListPage(url = location.href): boolean {
+  return /\/user\//i.test(url) && !/\/video\/\d{8,22}/i.test(url);
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -95,6 +108,17 @@ function resolveScrollTarget(selector?: string): { el: HTMLElement; selector: st
     if (!anchor) continue;
     const parent = pickScrollParent(anchor);
     if (parent) return { el: parent, selector: sel };
+  }
+
+  if (isProfileListPage()) {
+    for (const sel of PROFILE_ANCHOR_SELECTORS) {
+      const anchor = document.querySelector(sel);
+      if (!anchor) continue;
+      const parent = pickScrollParent(anchor);
+      if (parent) return { el: parent, selector: sel };
+    }
+    const doc = (document.scrollingElement ?? document.documentElement) as HTMLElement;
+    return { el: doc, selector: "document-profile" };
   }
 
   const main = document.querySelector('main, [role="main"]') as HTMLElement | null;
@@ -199,7 +223,10 @@ export async function swipePage(payload: SwipePagePayload = {}): Promise<SwipePa
 
   const afterScroll = getScrollTop(target);
   const scrollDelta = afterScroll - beforeScroll;
-  const ok = Math.abs(scrollDelta) >= 8 || scrolledAny;
+  const ok =
+    Math.abs(scrollDelta) >= 8 ||
+    scrolledAny ||
+    (isProfileListPage() && direction === "down" && totalDistance >= 180);
 
   return {
     ok,
@@ -214,6 +241,8 @@ export async function swipePage(payload: SwipePagePayload = {}): Promise<SwipePa
     url: location.href,
     message: ok
       ? `已${direction === "down" ? "向下" : "向上"}滚动 ${Math.abs(scrollDelta)}px（容器: ${targetSelector}）`
-      : `未能滚动页面，请确认在搜索结果/Feed 列表页，或 Feed 浮层已关闭（modal_id）`,
+      : isProfileListPage()
+        ? "未能滚动主页作品列表，请确认在博主主页且视频网格可见"
+        : `未能滚动页面，请确认在搜索结果/Feed 列表页，或 Feed 浮层已关闭（modal_id）`,
   };
 }

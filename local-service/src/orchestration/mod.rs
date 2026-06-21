@@ -9,23 +9,32 @@ use tracing::{info, warn};
 use crate::db::{CapturedVideo, Database, JobStatus};
 use crate::douyin::parser::{
     dom_poster_index, is_dom_poster_aweme_id, parse_aweme_id_from_page_url,
-    parse_dom_scroll_comments, parse_dom_search_results, resolve_aweme_id_for_video,
+    parse_dom_scroll_comments, parse_fetch_search_results, resolve_aweme_id_for_video,
     ParsedVideo,
 };
 use crate::filters;
 use crate::job_config::JobConfig;
+use crate::job_run::JobRunRegistry;
 use crate::lab_commands::LabCommands;
 use crate::orchestration::outreach::InlineOutreachRunner;
 use crate::ws::BridgeHub;
+
+const JOB_PAUSED: &str = "__job_paused__";
 
 pub struct JobOrchestrator {
     pub db: Database,
     pub hub: BridgeHub,
     pub default_daily_quota: i64,
+    pub job_runs: JobRunRegistry,
+    pub generation: u64,
 }
 
 impl JobOrchestrator {
     pub async fn run_job(&self, job_id: &str) -> Result<(), String> {
+        if !self.job_runs.is_current(job_id, self.generation) {
+            info!("job {job_id}: superseded before start (gen={})", self.generation);
+            return Ok(());
+        }
         if self.hub.client_count() == 0 {
             return Err("no extension connected".into());
         }
@@ -41,13 +50,17 @@ impl JobOrchestrator {
             self.run_keyword_job(job_id, &job, &cfg).await
         };
 
-        if self.is_job_paused(job_id)? {
+        if self.is_job_paused(job_id)? || !self.job_runs.is_current(job_id, self.generation) {
             info!("job {job_id} paused");
             return Ok(());
         }
 
         match result {
             Ok(()) => {
+                if !self.job_runs.is_current(job_id, self.generation) {
+                    info!("job {job_id}: superseded after run");
+                    return Ok(());
+                }
                 if self.is_job_paused(job_id)? {
                     info!("job {job_id} paused");
                     return Ok(());
@@ -78,6 +91,10 @@ impl JobOrchestrator {
                 self.db
                     .update_job_status(job_id, JobStatus::Completed, None)?;
                 info!("job {job_id} completed");
+                Ok(())
+            }
+            Err(err) if err == JOB_PAUSED => {
+                info!("job {job_id} paused");
                 Ok(())
             }
             Err(err) => {
@@ -144,18 +161,24 @@ impl JobOrchestrator {
         );
 
         let lab = LabCommands::new(&self.hub);
-        lab.open_url(&input_url).await?;
-        simulate::pause(Duration::from_secs(5)).await;
+        let open_url = normalize_manual_open_url(&input_url, &cfg.intent);
+        // 与自动获客一致：左侧半屏独立窗口，避免 hijack 用户日常抖音标签
+        lab.open_url_in_new_window(&open_url).await?;
+        self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
         lab.enable_network_hook().await?;
+        lab.open_url(&open_url).await?;
+        self.wait_if_not_paused(job_id, Duration::from_secs(4)).await?;
 
         if cfg.intent == "account_home" {
-            let _ = lab.swipe_page_down(4).await;
-            simulate::pause(Duration::from_secs(6)).await;
+            let _ = lab.close_video_detail().await;
+            self.wait_if_not_paused(job_id, Duration::from_millis(800)).await?;
+            self.ensure_profile_videos_captured(job_id, &lab, &open_url, job.limit_videos)
+                .await?;
         } else {
-            simulate::pause(Duration::from_secs(4)).await;
+            self.wait_if_not_paused(job_id, Duration::from_secs(4)).await?;
             let _ = lab.open_comment_sidebar().await;
             let _ = lab.scroll_comments(6, 80, cfg.comment_days).await;
-            simulate::pause(Duration::from_secs(3)).await;
+            self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
             if let Some(aweme_id) = parse_aweme_id_from_page_url(&input_url) {
                 let video = ParsedVideo {
                     aweme_id,
@@ -169,6 +192,55 @@ impl JobOrchestrator {
         }
 
         self.collect_until_target(job_id, job, cfg).await
+    }
+
+    async fn ensure_profile_videos_captured(
+        &self,
+        job_id: &str,
+        lab: &LabCommands<'_>,
+        profile_url: &str,
+        limit_videos: i64,
+    ) -> Result<(), String> {
+        // 短暂等待 local-service 侧 network.captured 入库（与 extension 内 API 缓存并行）
+        for _ in 0..4 {
+            self.bail_if_paused(job_id)?;
+            if !self.db.list_videos_for_job(job_id)?.is_empty() {
+                info!("job {job_id}: profile videos captured via network hook (server)");
+                return Ok(());
+            }
+            self.wait_if_not_paused(job_id, Duration::from_millis(800)).await?;
+        }
+
+        info!("job {job_id}: fetching profile videos — API first, DOM fallback (no scroll)");
+        let resp = lab
+            .fetch_profile_videos(limit_videos.clamp(1, 50))
+            .await?;
+        let msg = resp
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let capture_method = resp
+            .get("capture_method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let videos = parse_fetch_search_results(&resp);
+        if videos.is_empty() {
+            if !self.db.list_videos_for_job(job_id)?.is_empty() {
+                return Ok(());
+            }
+            return Err(if msg.is_empty() {
+                "profile produced no videos — ensure Douyin profile tab is active".into()
+            } else {
+                format!("profile produced no videos — {msg}")
+            });
+        }
+
+        let inserted = self.db.replace_videos_for_job(job_id, &videos)?;
+        info!(
+            "job {job_id}: stored {inserted} profile videos via {capture_method} (url={})",
+            &profile_url[..profile_url.len().min(64)]
+        );
+        Ok(())
     }
 
     async fn collect_until_target(
@@ -190,18 +262,21 @@ impl JobOrchestrator {
         let mut opened_videos = 0_u32;
 
         let lab = LabCommands::new(&self.hub);
-        let _ = lab.prepare_search_for_video().await;
+        if cfg.intent == "account_home" {
+            let _ = lab.prepare_profile_for_video().await;
+        } else {
+            let _ = lab.prepare_search_for_video().await;
+        }
         simulate::pause(Duration::from_millis(500)).await;
 
         while self.db.count_comments_for_job(job_id)? < cfg.target_count && pass < 3 {
+            self.bail_if_paused(job_id)?;
             if self.is_job_paused(job_id)? {
                 return Ok(());
             }
             pass += 1;
             for (index, video) in videos.iter().enumerate() {
-                if self.is_job_paused(job_id)? {
-                    return Ok(());
-                }
+                self.bail_if_paused(job_id)?;
                 if self.db.count_comments_for_job(job_id)? >= cfg.target_count {
                     break;
                 }
@@ -212,12 +287,13 @@ impl JobOrchestrator {
                     video.aweme_id
                 );
                 match self
-                    .open_and_scroll_video(job_id, video, scroll_rounds, cfg, job)
+                    .open_and_scroll_video(job_id, video, scroll_rounds, cfg, job, index as i64 + 1)
                     .await
                 {
                     Ok(()) => {
                         opened_videos += 1;
                     }
+                    Err(err) if err == JOB_PAUSED => return Ok(()),
                     Err(err) => {
                         warn!(
                             "job {job_id}: skip video {} ({}) — {}",
@@ -225,7 +301,15 @@ impl JobOrchestrator {
                             video.aweme_id,
                             err
                         );
-                        let _ = lab.prepare_search_for_video().await;
+                        if cfg.intent == "account_home" {
+                            let profile_url = cfg
+                                .input_url
+                                .clone()
+                                .or_else(|| job.input_url.clone());
+                            let _ = lab.back_to_profile(profile_url.as_deref()).await;
+                        } else {
+                            let _ = lab.prepare_search_for_video().await;
+                        }
                         simulate::pause(Duration::from_millis(600)).await;
                     }
                 }
@@ -243,10 +327,13 @@ impl JobOrchestrator {
         let count = self.db.count_comments_for_job(job_id)?;
         if count == 0 {
             if opened_videos == 0 {
-                return Err(
+                return Err(if cfg.intent == "account_home" {
+                    "failed to open any profile video — keep Douyin tab focused on profile page"
+                        .into()
+                } else {
                     "failed to open any search result video — keep Douyin tab focused on search results"
-                        .into(),
-                );
+                        .into()
+                });
             }
             return Err("no comments captured — check login state and filters".into());
         }
@@ -261,12 +348,12 @@ impl JobOrchestrator {
         search_resp: Option<&serde_json::Value>,
     ) -> Result<(), String> {
         let mut videos = search_resp
-            .map(parse_dom_search_results)
+            .map(parse_fetch_search_results)
             .unwrap_or_default();
         let source = if videos.is_empty() {
             info!("job {job_id}: step 7 had no items, falling back to fetch_search_results (lab step 8)");
             let resp = lab.fetch_search_results(30).await?;
-            videos = parse_dom_search_results(&resp);
+            videos = parse_fetch_search_results(&resp);
             "step8"
         } else {
             "step7"
@@ -300,20 +387,25 @@ impl JobOrchestrator {
     ) -> Result<Vec<CapturedVideo>, String> {
         let mut videos = self.db.list_videos_for_job(job_id)?;
         let raw_count = videos.len();
-        // 关键词任务已将 region 拼入搜索词；DOM 卡片 title 常不含地域，不再二次过滤视频。
-        if cfg.intent != "keyword_auto" {
+        // 关键词任务已将 region 拼入搜索词；主页/单视频手动任务不按地域过滤视频标题。
+        if cfg.intent != "keyword_auto" && cfg.intent != "account_home" && cfg.intent != "single_video" {
             videos = filters::filter_videos_by_region(videos, cfg.region_name.as_deref());
         }
         if videos.is_empty() {
             if raw_count > 0 {
                 return Err(format!(
-                    "search captured {raw_count} videos but none matched region {:?} — try clearing region or broadening keyword",
+                    "captured {raw_count} videos but none matched region {:?} — try clearing region",
                     cfg.region_name
                 ));
             }
-            return Err(
-                "search produced no videos — ensure Douyin is logged in, search results visible, and keep the tab active".into(),
-            );
+            let hint = if cfg.intent == "account_home" {
+                "profile produced no videos — ensure profile page is open and video grid is visible"
+            } else if cfg.intent == "single_video" {
+                "single video job has no video record — check input_url"
+            } else {
+                "search produced no videos — ensure Douyin is logged in and search results are visible"
+            };
+            return Err(hint.into());
         }
         if videos.len() > cfg.target_count as usize {
             // still respect video batch limit from form
@@ -332,9 +424,41 @@ impl JobOrchestrator {
         scroll_rounds: i64,
         cfg: &JobConfig,
         job: &crate::db::CollectJob,
+        video_index: i64,
     ) -> Result<(), String> {
+        self.bail_if_paused(job_id)?;
         let lab = LabCommands::new(&self.hub);
-        if is_dom_poster_aweme_id(&video.aweme_id) {
+        if cfg.intent == "account_home" {
+            let aweme_hint = if is_dom_poster_aweme_id(&video.aweme_id) {
+                parse_aweme_id_from_page_url(&video.video_url)
+            } else {
+                Some(video.aweme_id.clone())
+            };
+            let clicked = lab
+                .click_profile_video(
+                    video_index,
+                    aweme_hint
+                        .as_deref()
+                        .filter(|id| !is_dom_poster_aweme_id(id)),
+                )
+                .await?;
+            let ok = clicked.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            let feed_open = clicked
+                .get("feed_open")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !ok || !feed_open {
+                let msg = clicked
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("profile video feed did not open after click");
+                return Err(msg.to_string());
+            }
+            info!(
+                "job {job_id}: opened profile video #{video_index} mode={:?}",
+                clicked.get("mode").and_then(|v| v.as_str())
+            );
+        } else if is_dom_poster_aweme_id(&video.aweme_id) {
             let index = dom_poster_index(&video.aweme_id).unwrap_or(1);
             let aweme_hint = parse_aweme_id_from_page_url(&video.video_url);
             let clicked = lab.click_search_video(index, None, aweme_hint.as_deref()).await?;
@@ -363,10 +487,11 @@ impl JobOrchestrator {
             )
             .await?;
         }
-        simulate::human_pause_ms(5500, 8500).await;
+        self.wait_human_if_not_paused(job_id, 5500, 8500).await?;
 
         let mut sidebar_ok = false;
         for attempt in 1..=3 {
+            self.bail_if_paused(job_id)?;
             let sidebar = lab.open_comment_sidebar().await?;
             sidebar_ok = sidebar.get("ok").and_then(|v| v.as_bool()).unwrap_or(false)
                 || (sidebar
@@ -382,12 +507,12 @@ impl JobOrchestrator {
                 .and_then(|v| v.as_str())
                 .unwrap_or("failed to open comment sidebar");
             warn!("job {job_id}: comment sidebar attempt {attempt}/3 — {msg}");
-            simulate::human_pause_ms(1200, 2200).await;
+            self.wait_human_if_not_paused(job_id, 1200, 2200).await?;
         }
         if !sidebar_ok {
             return Err("failed to open comment sidebar after 3 attempts".into());
         }
-        simulate::human_pause_ms(1500, 2800).await;
+        self.wait_human_if_not_paused(job_id, 1500, 2800).await?;
 
         let scroll_resp = lab
             .scroll_comments(
@@ -404,25 +529,29 @@ impl JobOrchestrator {
             &video.video_url,
             page_url,
         );
-        let dom_comments = parse_dom_scroll_comments(&scroll_resp);
+        let scroll_comments = parse_dom_scroll_comments(&scroll_resp);
+        let capture_method = scroll_resp
+            .get("capture_method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let api_cached = scroll_resp
             .get("api_count")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
         let existing_for_aweme = self.db.count_comments_for_aweme(job_id, &aweme_id).unwrap_or(0);
-        let persistable: Vec<_> = dom_comments
+        let persistable: Vec<_> = scroll_comments
             .into_iter()
-            .filter(|c| !c.comment_id.starts_with("dom_"))
+            .filter(|c| capture_method == "dom" || !c.comment_id.starts_with("dom_"))
             .collect();
 
         if existing_for_aweme > 0 && persistable.is_empty() {
             info!(
-                "job {job_id}: skip DOM upsert for aweme {aweme_id} — {existing_for_aweme} API comments already stored (scroll api_count={api_cached})"
+                "job {job_id}: skip upsert for aweme {aweme_id} — {existing_for_aweme} comments already stored (capture={capture_method}, api_count={api_cached})"
             );
         } else if !persistable.is_empty() {
             let inserted = self.db.upsert_comments(job_id, &aweme_id, &persistable)?;
             info!(
-                "job {job_id}: stored {inserted} scroll comments for aweme {aweme_id} (stopped={:?})",
+                "job {job_id}: stored {inserted} comments for aweme {aweme_id} via {capture_method} (stopped={:?})",
                 scroll_resp.get("stopped_reason").and_then(|v| v.as_str())
             );
         } else if existing_for_aweme == 0 && api_cached == 0 {
@@ -433,8 +562,22 @@ impl JobOrchestrator {
             );
         }
 
-        simulate::human_pause_ms(2500, 4500).await;
-        if is_dom_poster_aweme_id(&video.aweme_id) {
+        self.wait_human_if_not_paused(job_id, 2500, 4500).await?;
+        if cfg.intent == "account_home" {
+            let closed = lab.close_video_detail().await?;
+            if !closed.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
+                warn!(
+                    "job {job_id}: close_video_detail may have failed — {:?}",
+                    closed.get("message").and_then(|v| v.as_str())
+                );
+            }
+            let profile_url = cfg
+                .input_url
+                .clone()
+                .or_else(|| job.input_url.clone());
+            let _ = lab.back_to_profile(profile_url.as_deref()).await;
+            self.wait_human_if_not_paused(job_id, 1200, 2200).await?;
+        } else if is_dom_poster_aweme_id(&video.aweme_id) {
             let closed = lab.close_video_detail().await?;
             if !closed.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
                 warn!(
@@ -443,9 +586,44 @@ impl JobOrchestrator {
                 );
             }
             let _ = lab.prepare_search_for_video().await;
-            simulate::human_pause_ms(1200, 2200).await;
+            self.wait_human_if_not_paused(job_id, 1200, 2200).await?;
         }
         Ok(())
+    }
+
+    fn bail_if_paused(&self, job_id: &str) -> Result<(), String> {
+        if !self.job_runs.is_current(job_id, self.generation) {
+            return Err(JOB_PAUSED.into());
+        }
+        if self.is_job_paused(job_id)? {
+            return Err(JOB_PAUSED.into());
+        }
+        Ok(())
+    }
+
+    async fn wait_if_not_paused(&self, job_id: &str, duration: Duration) -> Result<(), String> {
+        let step = Duration::from_millis(400);
+        let mut remaining = duration;
+        while remaining > Duration::ZERO {
+            if !self.job_runs.is_current(job_id, self.generation) || self.is_job_paused(job_id)? {
+                return Err(JOB_PAUSED.into());
+            }
+            let chunk = remaining.min(step);
+            simulate::pause(chunk).await;
+            remaining = remaining.saturating_sub(chunk);
+        }
+        Ok(())
+    }
+
+    async fn wait_human_if_not_paused(
+        &self,
+        job_id: &str,
+        min_ms: u64,
+        max_ms: u64,
+    ) -> Result<(), String> {
+        use rand::Rng;
+        let ms = rand::thread_rng().gen_range(min_ms..=max_ms);
+        self.wait_if_not_paused(job_id, Duration::from_millis(ms)).await
     }
 
     fn is_job_paused(&self, job_id: &str) -> Result<bool, String> {
@@ -464,15 +642,36 @@ fn scroll_rounds_for_video(max_per_video: i64, comment_days: i64) -> i64 {
     load_rounds.max(days_rounds).clamp(4, 60)
 }
 
-pub fn spawn_job(db: Database, hub: BridgeHub, default_daily_quota: i64, job_id: String) {
+/// 主页链接上的 `vid=` 会在进入时自动打开视频浮层，手动获客需先落到作品列表。
+fn normalize_manual_open_url(input_url: &str, intent: &str) -> String {
+    if intent != "account_home" {
+        return input_url.to_string();
+    }
+    let base = input_url.split('#').next().unwrap_or(input_url);
+    let (path, _query) = base.split_once('?').unwrap_or((base, ""));
+    format!("{path}?from_tab_name=main")
+}
+
+pub fn spawn_job(
+    db: Database,
+    hub: BridgeHub,
+    default_daily_quota: i64,
+    job_runs: JobRunRegistry,
+    job_id: String,
+    generation: u64,
+) {
     let orchestrator = Arc::new(JobOrchestrator {
         db,
         hub,
         default_daily_quota,
+        job_runs,
+        generation,
     });
     tokio::spawn(async move {
         if let Err(err) = orchestrator.run_job(&job_id).await {
-            tracing::error!("job {job_id} failed: {err}");
+            if err != JOB_PAUSED {
+                tracing::error!("job {job_id} failed: {err}");
+            }
         }
     });
 }

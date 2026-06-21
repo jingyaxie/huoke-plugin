@@ -11,6 +11,11 @@ const SKIP_PREFLIGHT = new Set([
   "network.hook.enable",
   "network.hook.disable",
   "network.hook.status",
+  "plugin_lab.fetch_profile_videos",
+  "plugin_lab.prepare_profile_video",
+  "plugin_lab.profile_video_probe",
+  "plugin_lab.profile_video_dom_click",
+  "plugin_lab.back_to_profile",
 ]);
 
 export class LabPreflightError extends Error {

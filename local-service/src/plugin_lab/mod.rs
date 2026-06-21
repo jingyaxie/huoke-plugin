@@ -12,7 +12,11 @@ pub fn bridge_action_for(action_id: &str) -> Option<&'static str> {
         "click_search_btn" => Some("plugin_lab.click_search_btn"),
         "fetch_search_results" => Some("plugin_lab.fetch_search_results"),
         "click_search_video" => Some("plugin_lab.click_search_video"),
+        "click_profile_video" => Some("plugin_lab.click_profile_video"),
         "prepare_search_for_video" => Some("plugin_lab.prepare_search_video"),
+        "prepare_profile_for_video" => Some("plugin_lab.prepare_profile_video"),
+        "fetch_profile_videos" => Some("plugin_lab.fetch_profile_videos"),
+        "back_to_profile" => Some("plugin_lab.back_to_profile"),
         "click_comment_btn" => Some("plugin_lab.click_comment_btn"),
         "scroll_and_collect_comments" => Some("plugin_lab.scroll_and_collect_comments"),
         "reply_comment" => Some("plugin_lab.reply_comment"),
@@ -36,6 +40,8 @@ pub fn normalize_payload(action_id: &str, payload: Value) -> Value {
         "click_filter_overlay" => normalize_click_filter_overlay_payload(payload),
         "fetch_search_results" => normalize_fetch_search_results_payload(payload),
         "click_search_video" => normalize_click_search_video_payload(payload),
+        "click_profile_video" => normalize_click_search_video_payload(payload),
+        "fetch_profile_videos" => normalize_fetch_search_results_payload(payload),
         "scroll_and_collect_comments" => normalize_scroll_collect_comments_payload(payload),
         "reply_comment" => normalize_reply_comment_payload(payload),
         "click_comment_avatar" => normalize_click_comment_avatar_payload(payload),
@@ -86,7 +92,11 @@ pub fn supported_actions() -> &'static [&'static str] {
         "click_search_btn",
         "fetch_search_results",
         "click_search_video",
+        "click_profile_video",
         "prepare_search_for_video",
+        "prepare_profile_for_video",
+        "fetch_profile_videos",
+        "back_to_profile",
         "click_comment_btn",
         "scroll_and_collect_comments",
         "reply_comment",
@@ -190,9 +200,13 @@ fn normalize_click_filter_overlay_payload(payload: Value) -> Value {
 }
 
 fn normalize_fetch_search_results_payload(payload: Value) -> Value {
-    json!({
+    let mut out = json!({
         "limit": payload.get("limit").and_then(|v| v.as_i64()).unwrap_or(20),
-    })
+    });
+    if let Some(ms) = payload.get("api_timeout_ms").and_then(|v| v.as_i64()) {
+        out["api_timeout_ms"] = json!(ms);
+    }
+    out
 }
 
 fn normalize_click_search_video_payload(payload: Value) -> Value {

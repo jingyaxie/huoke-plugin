@@ -6,6 +6,7 @@ pub mod db;
 pub mod douyin;
 pub mod filters;
 pub mod job_config;
+pub mod job_run;
 pub mod lab_commands;
 pub mod orchestration;
 pub mod outreach;

@@ -43,7 +43,11 @@
       </nav>
 
       <div class="sidebar-foot">
-        <router-link to="/settings/maintenance" class="settings-link" active-class="active">
+        <router-link
+          to="/settings/general"
+          class="settings-link"
+          :class="{ active: route.path.startsWith('/settings') }"
+        >
           设置
         </router-link>
         <div class="foot-meta">v{{ appVersion }} · 本地独立运行</div>

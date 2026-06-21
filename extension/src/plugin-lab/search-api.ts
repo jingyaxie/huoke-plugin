@@ -18,6 +18,10 @@ export interface SearchApiItem {
   author: string;
   url: string;
   aweme_id: string;
+  /** API 截获项：含完整 aweme 节点，供下游解析 */
+  source: "api";
+  click_by: "aweme_id";
+  raw_aweme: Record<string, unknown>;
 }
 
 export interface SearchCaptureCache {
@@ -91,6 +95,9 @@ function normalizeSearchAweme(node: Record<string, unknown>): SearchApiItem | nu
     author: String(author?.nickname ?? "").trim() || "—",
     url: `https://www.douyin.com/video/${awemeId}`,
     aweme_id: awemeId,
+    source: "api",
+    click_by: "aweme_id",
+    raw_aweme: aweme,
   };
 }
 

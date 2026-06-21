@@ -39,7 +39,7 @@ echo ">>> 启动 local-service (端口 ${PORT})"
 cd "$ROOT/local-service"
 HUOKE_DATA_DIR="${HUOKE_DATA_DIR:-$ROOT/storage/local-service}" \
   HUOKE_LOCAL_PORT="$PORT" \
-  cargo run --release &
+  cargo run --release --bin huoke-local-service &
 LS_PID=$!
 echo "$LS_PID" > "$ROOT/storage/extension-dev/local-service.pid"
 wait_url "http://127.0.0.1:${PORT}/health" "local-service" 60 || exit 1

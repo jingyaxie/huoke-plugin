@@ -165,11 +165,11 @@ check_json "bridge broadcast ping (wait=false)" "$BCAST" \
 
 # ── 3. 插件实验室 API 深度验证 ──────────────────────────────────
 echo ""
-echo "[3/8] 插件实验室 API（19 步骤 + 响应结构）"
+echo "[3/8] 插件实验室 API（20 步骤 + 响应结构）"
 
 LAB_ST="$(curl -fsS "${BASE}/api/plugin-lab/status")"
-check_json "GET /api/plugin-lab/status 19 actions" "$LAB_ST" \
-  "import sys,json; d=json.load(sys.stdin); assert d.get('ok') and len(d.get('supported_actions',[]))==19 and d.get('connected_clients',0)>=1"
+check_json "GET /api/plugin-lab/status 20 actions" "$LAB_ST" \
+  "import sys,json; d=json.load(sys.stdin); assert d.get('ok') and len(d.get('supported_actions',[]))==20 and d.get('connected_clients',0)>=1"
 
 INVALID="$(curl -sS -o /tmp/sim-invalid.json -w '%{http_code}' -X POST "${BASE}/api/plugin-lab/actions/not_exist" -H 'Content-Type: application/json' -d '{}')"
 if [[ "$INVALID" == "404" ]]; then

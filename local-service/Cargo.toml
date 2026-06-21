@@ -3,6 +3,7 @@ name = "huoke-local-service"
 version = "0.1.0"
 edition = "2021"
 description = "Huoke local bridge service for Chrome extension"
+default-run = "huoke-local-service"
 
 [dependencies]
 axum = { version = "0.7", features = ["ws", "json"] }

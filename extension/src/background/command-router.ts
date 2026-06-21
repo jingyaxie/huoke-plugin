@@ -108,29 +108,29 @@ async function injectContentScripts(tabId: number): Promise<string | null> {
   const manifest = typeof chrome.runtime.getManifest === "function"
     ? chrome.runtime.getManifest()
     : null;
-  const files = manifest?.content_scripts?.flatMap((entry) => entry.js ?? []) ?? [];
-  const loader = files.find((file) => file.includes("loader"));
-  const bootstrap = files.find((file) => file.includes("bootstrap"));
-  let lastError: string | null = null;
-
-  for (const file of [loader, bootstrap]) {
-    if (!file) continue;
-    warn("injecting content script into tab", tabId, file);
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        files: [file],
-      });
-      await sleep(900);
-      const ready = await waitForContentScript(tabId, 5);
-      if (ready.ok) return null;
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
-      warn("content script inject failed", file, lastError);
-    }
+  const files =
+    manifest?.content_scripts
+      ?.flatMap((entry) => entry.js ?? [])
+      .filter((file) => file.includes("bootstrap") || file.includes("loader")) ?? [];
+  if (files.length === 0) {
+    return "no isolated-world content scripts in manifest";
   }
 
-  return lastError;
+  warn("injecting content script into tab", tabId, files.join(", "));
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files,
+    });
+    await sleep(1200);
+    const ready = await waitForContentScript(tabId, 8);
+    if (ready.ok) return null;
+    return "content script injected but ping failed";
+  } catch (err) {
+    const lastError = err instanceof Error ? err.message : String(err);
+    warn("content script inject failed", lastError);
+    return lastError;
+  }
 }
 
 export async function ensureContentScript(tabId: number) {

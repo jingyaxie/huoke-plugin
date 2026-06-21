@@ -87,14 +87,19 @@ export async function clickCommentButtonBackground() {
   }
 
   if (!status.is_search_feed && !status.feed_open) {
-    return {
-      ok: false,
-      mode: "cdp_real_mouse",
-      feed_open: false,
-      is_search_feed: false,
-      url: status.url ?? tab.url,
-      message: "搜索 Feed 浮层未打开，请先执行步骤 9 打开搜索结果视频",
-    };
+    const onProfileFeed = Boolean(
+      status.url && /\/user\//.test(status.url) && /modal_id=\d{8,22}/i.test(status.url),
+    );
+    if (!onProfileFeed) {
+      return {
+        ok: false,
+        mode: "cdp_real_mouse",
+        feed_open: false,
+        is_search_feed: false,
+        url: status.url ?? tab.url,
+        message: "视频 Feed 浮层未打开，请先打开搜索结果或主页作品视频",
+      };
+    }
   }
 
   const targets = status.icon_targets ?? [];
@@ -103,28 +108,18 @@ export async function clickCommentButtonBackground() {
   if (targets.length > 0) {
     await attachDebugger(tabId);
     try {
-      if (!status.is_search_feed && status.video_player_center) {
-        await clickMouse(tabId, status.video_player_center.x, status.video_player_center.y);
-        await sleep(humanPace.afterCommentClick());
-        status = await probe(tabId);
-        if (sidebarReady(status)) {
-          method = "video_pause";
-        }
-      }
-
+      // 搜索/主页 Feed 浮层：勿点视频区域（易误触点赞/收藏），只点评论图标
       for (let attempt = 0; attempt < 6 && !sidebarReady(status); attempt += 1) {
-        const roundTargets = status.icon_targets ?? targets;
-        for (const target of roundTargets) {
-          await moveMouse(tabId, target.center.x, target.center.y);
-          await sleep(humanPace.mouseHover());
-          await clickMouse(tabId, target.center.x, target.center.y);
-          method = target.selector;
-          await sleep(humanPace.afterCommentClick());
+        const primary = (status.icon_targets ?? targets)[0];
+        if (!primary) break;
 
-          status = await probe(tabId);
-          if (sidebarReady(status)) break;
-        }
+        await moveMouse(tabId, primary.center.x, primary.center.y);
+        await sleep(humanPace.mouseHover());
+        await clickMouse(tabId, primary.center.x, primary.center.y);
+        method = primary.selector;
+        await sleep(humanPace.afterCommentClick());
 
+        status = await probe(tabId);
         if (sidebarReady(status)) break;
         await sleep(humanPace.beforeCommentAction());
       }

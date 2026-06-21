@@ -137,6 +137,7 @@ import {
   deleteCollectJob,
   fetchBridgeStatus,
   listCollectJobs,
+  pauseCollectJob,
   startCollectJob,
 } from "../../api/localService";
 import {
@@ -212,6 +213,7 @@ function statusTagType(status) {
 function onCollectJobAction(row, action) {
   if (action === "view") openCollectData(row, "all");
   else if (action === "start") onStartCollect(row);
+  else if (action === "pause") onPauseCollect(row);
   else if (action === "outreach") openOutreachDialog(row);
   else if (action === "delete") onDeleteCollect(row);
 }
@@ -251,6 +253,16 @@ async function onStartCollect(row) {
     await refreshAll();
   } catch (err) {
     ElMessage.error(err?.response?.data?.error || err?.message || "启动失败");
+  }
+}
+
+async function onPauseCollect(row) {
+  try {
+    await pauseCollectJob(row.id);
+    ElMessage.success("采集任务已暂停");
+    await refreshAll();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.error || err?.message || "暂停失败");
   }
 }
 

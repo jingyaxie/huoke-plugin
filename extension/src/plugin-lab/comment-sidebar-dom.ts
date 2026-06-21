@@ -5,16 +5,32 @@ const FEED_SCOPED_ICON_SELECTORS = [
   '[data-e2e="feed-active-video"] [data-e2e="feed-comment-icon"]',
   '[data-e2e="feed-active-video"] [data-e2e="comment-icon"]',
   '[data-e2e="feed-active-video"] [data-e2e="detail-tab-comment"]',
-  '[data-e2e="feed-active-video"] [data-e2e="browse-comment-icon"]',
-  '[class*="comment"] [data-e2e="feed-comment-icon"]',
 ] as const;
 
 const COMMENT_ICON_SELECTORS = [
   '[data-e2e="feed-comment-icon"]',
   '[data-e2e="comment-icon"]',
   '[data-e2e="detail-tab-comment"]',
-  '[data-e2e="browse-comment-icon"]',
 ] as const;
+
+/** 禁止误点的互动按钮（收藏/点赞/分享等） */
+const EXCLUDED_ACTION_E2E =
+  /collect|favorite|favourite|digg|like|share|star|forward|转发|收藏/i;
+
+function elementE2e(el: Element): string {
+  const self = el.getAttribute("data-e2e") ?? "";
+  if (self) return self;
+  const closest = el.closest("[data-e2e]") as HTMLElement | null;
+  return closest?.getAttribute("data-e2e") ?? "";
+}
+
+/** 仅允许评论入口，排除收藏/点赞等相邻图标 */
+function isCommentActionElement(el: Element): boolean {
+  const e2e = elementE2e(el);
+  if (!e2e) return false;
+  if (EXCLUDED_ACTION_E2E.test(e2e)) return false;
+  return /comment/i.test(e2e);
+}
 
 export interface DomPoint {
   x: number;
@@ -147,6 +163,7 @@ function pushIconTarget(
   selector: string,
   priority: number,
 ) {
+  if (!isCommentActionElement(el)) return;
   if (!isVisible(el)) return;
   const clickEl = resolveClickTarget(el);
   const rect = clickEl.getBoundingClientRect();
@@ -199,6 +216,33 @@ export function collectCommentIconTargets(): IconTarget[] {
   return out;
 }
 
+/** 每轮只点一个最可信的评论入口，避免连点误触收藏/点赞 */
+export function pickPrimaryCommentTarget(): IconTarget | null {
+  const targets = collectCommentIconTargets();
+  return targets[0] ?? null;
+}
+
+function isCollectOverlayOpen(): boolean {
+  const markers = ["加入收藏", "收藏夹", "已收藏", "取消收藏"];
+  const nodes = document.querySelectorAll("div, span, p, button");
+  for (let i = 0; i < nodes.length && i < 200; i += 1) {
+    const el = nodes[i] as HTMLElement;
+    if (!isVisible(el)) continue;
+    const text = (el.textContent ?? "").replace(/\s+/g, "");
+    if (!markers.some((m) => text.includes(m.replace(/\s+/g, "")))) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 40 || rect.height < 20) continue;
+    return true;
+  }
+  return false;
+}
+
+export function dismissTransientOverlay(): void {
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }),
+  );
+}
+
 function findVideoPlayerCenter(): DomPoint | null {
   const feed = document.querySelector('[data-e2e="feed-active-video"]');
   const scope = feed ?? document;
@@ -217,7 +261,7 @@ export function clickCommentIconViaDom(): string {
     const nodes = document.querySelectorAll(selector);
     for (let i = 0; i < nodes.length; i += 1) {
       const el = nodes[i] as HTMLElement;
-      if (!isVisible(el)) continue;
+      if (!isVisible(el) || !isCommentActionElement(el)) continue;
       humanClick(resolveClickTarget(el));
       return selector;
     }
@@ -255,7 +299,7 @@ export async function activateCommentSidebar(maxAttempts = 5): Promise<{
   const searchFeed = isSearchFeedOverlay();
   let lastMethod = "";
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (isCommentSidebarReadyForCollect()) {
       return {
         ok: true,
@@ -265,19 +309,25 @@ export async function activateCommentSidebar(maxAttempts = 5): Promise<{
       };
     }
 
-    for (const target of collectCommentIconTargets()) {
-      const el = document.elementFromPoint(target.center.x, target.center.y) as HTMLElement | null;
-      if (!el || !isVisible(el)) continue;
-      humanClick(resolveClickTarget(el));
-      lastMethod = target.selector;
-      await sleep(humanPace.afterCommentClick());
-      if (isCommentSidebarReadyForCollect()) {
-        return {
-          ok: true,
-          method: lastMethod,
-          comment_item_count: countVisibleCommentItems(),
-          message: `已通过 ${lastMethod} 打开评论区`,
-        };
+    const primary = pickPrimaryCommentTarget();
+    if (primary) {
+      const el = document.elementFromPoint(primary.center.x, primary.center.y) as HTMLElement | null;
+      if (el && isVisible(el) && isCommentActionElement(el)) {
+        humanClick(resolveClickTarget(el));
+        lastMethod = primary.selector;
+        await sleep(humanPace.afterCommentClick());
+        if (isCommentSidebarReadyForCollect()) {
+          return {
+            ok: true,
+            method: lastMethod,
+            comment_item_count: countVisibleCommentItems(),
+            message: `已通过 ${lastMethod} 打开评论区`,
+          };
+        }
+        if (isCollectOverlayOpen()) {
+          dismissTransientOverlay();
+          await sleep(300);
+        }
       }
     }
 
@@ -292,6 +342,10 @@ export async function activateCommentSidebar(maxAttempts = 5): Promise<{
           comment_item_count: countVisibleCommentItems(),
           message: `已通过 DOM 点击 ${domHit} 打开评论区`,
         };
+      }
+      if (isCollectOverlayOpen()) {
+        dismissTransientOverlay();
+        await sleep(300);
       }
     }
 

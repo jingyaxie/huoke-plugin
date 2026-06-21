@@ -13,6 +13,14 @@ export const LAB_SESSION_KEY = "huoke:lab-session";
 const SEARCH_URL_RE = /\/search\/|\/jingxuan\/search\/|\/root\/search\//i;
 const VIDEO_URL_RE = /\/video\/\d+|modal_id=\d+/i;
 const PROFILE_URL_RE = /\/user\//i;
+const MODAL_ID_RE = /modal_id=\d{8,22}/i;
+
+/** 主页/搜索页上的 modal_id 视频浮层（非 /video/ 独立详情页） */
+export function isFeedOverlayUrl(url?: string | null): boolean {
+  if (!url || !MODAL_ID_RE.test(url)) return false;
+  if (/\/video\/\d{8,22}/i.test(url)) return false;
+  return PROFILE_URL_RE.test(url) || SEARCH_URL_RE.test(url);
+}
 
 const PLATFORM_HOSTS = [
   "douyin.com",
@@ -33,9 +41,15 @@ const ACTION_CONTEXT: Record<string, { context: LabPageContext; strict?: boolean
   "plugin_lab.fetch_search_results": { context: "search", strict: true },
   "plugin_lab.prepare_search_video": { context: "search", strict: true },
   "plugin_lab.search_video_dom_click": { context: "search", strict: true },
-  "plugin_lab.swipe_page": { context: "search" },
+  "plugin_lab.swipe_page": { context: "platform" },
   "plugin_lab.click_search_video": { context: "search", strict: true },
   "plugin_lab.search_video_probe": { context: "search", strict: true },
+  "plugin_lab.fetch_profile_videos": { context: "profile", strict: true },
+  "plugin_lab.prepare_profile_video": { context: "profile", strict: true },
+  "plugin_lab.click_profile_video": { context: "profile", strict: true },
+  "plugin_lab.profile_video_probe": { context: "profile" },
+  "plugin_lab.profile_video_dom_click": { context: "profile" },
+  "plugin_lab.back_to_profile": { context: "platform" },
   "plugin_lab.click_comment_btn": { context: "video", strict: true },
   "plugin_lab.comment_sidebar_probe": { context: "video" },
   "plugin_lab.scroll_and_collect_comments": { context: "video", strict: true },
@@ -98,10 +112,11 @@ export function detectPageContext(url?: string | null): LabPageContext | null {
 export function contextMatchesUrl(required: LabPageContext, url?: string | null): boolean {
   const detected = detectPageContext(url);
   if (!detected) return false;
+  const feedOverlay = isFeedOverlayUrl(url);
   if (required === "platform") return true;
-  if (required === "search") return detected === "search" || detected === "video";
-  if (required === "video") return detected === "video" || detected === "search";
-  if (required === "profile") return detected === "profile";
+  if (required === "search") return detected === "search" || detected === "video" || feedOverlay;
+  if (required === "video") return detected === "video" || detected === "search" || feedOverlay;
+  if (required === "profile") return detected === "profile" && !feedOverlay;
   return false;
 }
 
@@ -133,10 +148,12 @@ export function scoreTabForContext(
     else score -= 500;
   } else if (required === "video") {
     if (detected === "video") score += 5_000;
+    else if (isFeedOverlayUrl(url)) score += 4_500;
     else if (detected === "search") score += 2_000;
     else score -= 500;
   } else if (required === "profile") {
-    if (detected === "profile") score += 5_000;
+    if (detected === "profile" && !isFeedOverlayUrl(url)) score += 5_000;
+    else if (detected === "profile") score += 500;
     else score -= 500;
   }
 

@@ -9,6 +9,7 @@ use crate::douyin::parser::{
     extract_aweme_id_from_url, is_comment_api, is_profile_post_api, is_search_api, parse_comment_list,
     parse_search_videos,
 };
+use crate::job_run::JobRunRegistry;
 use crate::orchestration;
 use crate::protocol::{BridgeMessage, MessageType};
 use crate::ws::BridgeHub;
@@ -18,14 +19,21 @@ pub struct CaptureService {
     db: Database,
     hub: BridgeHub,
     default_daily_quota: i64,
+    job_runs: JobRunRegistry,
 }
 
 impl CaptureService {
-    pub fn new(db: Database, hub: BridgeHub, default_daily_quota: i64) -> Self {
+    pub fn new(
+        db: Database,
+        hub: BridgeHub,
+        default_daily_quota: i64,
+        job_runs: JobRunRegistry,
+    ) -> Self {
         Self {
             db,
             hub,
             default_daily_quota,
+            job_runs,
         }
     }
 
@@ -68,14 +76,19 @@ impl CaptureService {
 
         if is_search_api(url) || is_profile_post_api(url) {
             let videos = parse_search_videos(&body);
-            if videos.is_empty() {
+        if videos.is_empty() {
+            if is_profile_post_api(url) {
+                warn!("profile post api captured but parsed 0 videos: {url}");
+            } else {
                 tracing::debug!("search api captured but parsed 0 videos: {url}");
-                return Ok(());
             }
-            for job_id in &running_jobs {
-                let inserted = self.db.upsert_videos(job_id, &videos)?;
-                info!("job {job_id}: stored {inserted} search videos from {url}");
-            }
+            return Ok(());
+        }
+        for job_id in &running_jobs {
+            let inserted = self.db.upsert_videos(job_id, &videos)?;
+            let kind = if is_profile_post_api(url) { "profile" } else { "search" };
+            info!("job {job_id}: stored {inserted} {kind} videos from {url}");
+        }
             return Ok(());
         }
 
@@ -102,12 +115,14 @@ impl CaptureService {
         Ok(())
     }
 
-    pub fn spawn_job(self: Arc<Self>, job_id: String) {
+    pub fn spawn_job(self: Arc<Self>, job_id: String, generation: u64) {
         orchestration::spawn_job(
             self.db.clone(),
             self.hub.clone(),
             self.default_daily_quota,
+            self.job_runs.clone(),
             job_id,
+            generation,
         );
     }
 }

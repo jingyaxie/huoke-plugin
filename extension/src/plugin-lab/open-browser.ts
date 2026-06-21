@@ -1,5 +1,6 @@
 import type { PlatformId } from "../shared/protocol";
-import { pinLabSession } from "./resolve-lab-tab";
+import { ensureContentScript } from "../background/command-router";
+import { isPlatformUrl, pinLabSession, readLabSession } from "./lab-context";
 
 const PLATFORM_URLS: Record<PlatformId, string> = {
   douyin: "https://www.douyin.com",
@@ -117,6 +118,18 @@ async function waitForTabLoad(tabId: number, timeoutMs = 8_000): Promise<boolean
   });
 }
 
+async function resolvePinnedSessionTab(): Promise<chrome.tabs.Tab | undefined> {
+  const session = await readLabSession();
+  if (!session?.tabId) return undefined;
+  try {
+    const tab = await chrome.tabs.get(session.tabId);
+    if (!tab.id || !isPlatformUrl(tab.url)) return undefined;
+    return tab;
+  } catch {
+    return undefined;
+  }
+}
+
 async function findExistingPlatformTab(platform: PlatformId): Promise<chrome.tabs.Tab | undefined> {
   const patterns = PLATFORM_TAB_PATTERNS[platform];
   const existing = await chrome.tabs.query({ url: patterns });
@@ -190,40 +203,50 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
   const customUrl = String(payload.url ?? "").trim();
   const startUrl = PLATFORM_URLS[platform] ?? PLATFORM_URLS.douyin;
 
+  async function openInExistingTab(existing: chrome.tabs.Tab): Promise<OpenBrowserResult> {
+    if (!existing.id) throw new Error("target tab has no id");
+    let bounds: WindowBounds | undefined;
+    if (existing.windowId !== undefined) {
+      bounds = await applyLeftHalfLayout(existing.windowId);
+    }
+    await focusTab(existing);
+
+    const shouldReset =
+      resetToStart && !customUrl && needsJobStartReset(existing.url, platform);
+    const navigatedToCustom = Boolean(customUrl && existing.url !== customUrl);
+    const navigated = navigatedToCustom || shouldReset;
+
+    if (navigated) {
+      const targetUrl = customUrl || startUrl;
+      await chrome.tabs.update(existing.id, { url: targetUrl });
+      await waitForTabLoad(existing.id, shouldReset ? 15_000 : 8_000);
+    } else if (waitLoad) {
+      await waitForTabLoad(existing.id);
+    }
+
+    const refreshed = await chrome.tabs.get(existing.id);
+    await pinLabSession(refreshed, platform);
+    await ensureContentScript(refreshed.id!);
+    return buildResult(platform, refreshed, {
+      opened: false,
+      newWindow: false,
+      bounds,
+      message: shouldReset
+        ? `已重置到 ${platform} 任务起始页`
+        : navigatedToCustom
+          ? `已聚焦 ${platform} 并打开 ${customUrl}`
+          : `已聚焦已有 ${platform} 窗口（左侧半屏）`,
+    });
+  }
+
   if (reuseExisting) {
+    const pinned = await resolvePinnedSessionTab();
+    if (pinned) {
+      return openInExistingTab(pinned);
+    }
     const existing = await findExistingPlatformTab(platform);
     if (existing?.id) {
-      let bounds: WindowBounds | undefined;
-      if (existing.windowId !== undefined) {
-        bounds = await applyLeftHalfLayout(existing.windowId);
-      }
-      await focusTab(existing);
-
-      const shouldReset =
-        resetToStart && !customUrl && needsJobStartReset(existing.url, platform);
-      const navigatedToCustom = Boolean(customUrl && existing.url !== customUrl);
-      const navigated = navigatedToCustom || shouldReset;
-
-      if (navigated) {
-        const targetUrl = customUrl || startUrl;
-        await chrome.tabs.update(existing.id, { url: targetUrl });
-        await waitForTabLoad(existing.id, shouldReset ? 15_000 : 8_000);
-      } else if (waitLoad) {
-        await waitForTabLoad(existing.id);
-      }
-
-      const refreshed = await chrome.tabs.get(existing.id);
-      await pinLabSession(refreshed, platform);
-      return buildResult(platform, refreshed, {
-        opened: false,
-        newWindow: false,
-        bounds,
-        message: shouldReset
-          ? `已重置到 ${platform} 任务起始页`
-          : navigatedToCustom
-            ? `已聚焦 ${platform} 并打开 ${customUrl}`
-            : `已聚焦已有 ${platform} 窗口（左侧半屏）`,
-      });
+      return openInExistingTab(existing);
     }
   }
 
@@ -249,6 +272,7 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
 
   const refreshed = await chrome.tabs.get(tab.id);
   await pinLabSession(refreshed, platform);
+  await ensureContentScript(refreshed.id!);
   return buildResult(platform, refreshed, {
     opened: true,
     newWindow: true,

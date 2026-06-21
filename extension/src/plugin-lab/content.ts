@@ -18,6 +18,13 @@ import {
   prepareSearchForVideoClick,
   probeSearchVideoCard,
 } from "./search-video-dom";
+import {
+  backToProfileList,
+  clickProfileVideoAtIndex,
+  prepareProfileForVideoClick,
+  probeProfileVideoCard,
+} from "./profile-video-dom";
+import { fetchProfileVideos } from "./fetch-profile-videos";
 import { closeVideoDetail } from "./close-video-detail";
 import { findFilterOptionPoint, probeFilterDom } from "./filter-dom";
 import { fetchSearchResults, type FetchSearchResultsPayload } from "./fetch-search-results";
@@ -99,6 +106,28 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
       return probeDmSendVerify((payload ?? {}) as { dm_text?: string; text?: string });
     case "plugin_lab.send_dm":
       return sendDm();
+    case "plugin_lab.fetch_profile_videos":
+      return fetchProfileVideos((payload ?? {}) as { limit?: number });
+    case "plugin_lab.prepare_profile_video":
+      return prepareProfileForVideoClick();
+    case "plugin_lab.profile_video_dom_click":
+      return clickProfileVideoAtIndex((payload ?? {}) as {
+        video_index?: number;
+        index?: number;
+        aweme_id?: string;
+        aweme_hint?: string;
+      });
+    case "plugin_lab.click_profile_video":
+      return clickProfileVideoAtIndex((payload ?? {}) as { video_index?: number; index?: number });
+    case "plugin_lab.profile_video_probe":
+      return probeProfileVideoCard((payload ?? {}) as {
+        video_index?: number;
+        index?: number;
+        status_only?: boolean;
+        aweme_id?: string;
+      });
+    case "plugin_lab.back_to_profile":
+      return backToProfileList(String((payload as { profile_url?: string })?.profile_url ?? ""));
     case "plugin_lab.close_video_detail":
       return closeVideoDetail();
     case "plugin_lab.filter_probe":

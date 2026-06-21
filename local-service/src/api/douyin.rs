@@ -211,7 +211,12 @@ pub async fn create_job(
     let mut started = None;
     if body.auto_start.unwrap_or(false) {
         let _ = state.db.supersede_other_running_jobs(&job.id);
-        state.capture.clone().spawn_job(job.id.clone());
+        let generation = state.job_runs.begin(&job.id);
+        state
+            .db
+            .update_job_status(&job.id, JobStatus::Running, None)
+            .map_err(internal_error)?;
+        state.capture.clone().spawn_job(job.id.clone(), generation);
         started = Some(true);
     }
 
@@ -274,9 +279,6 @@ pub async fn start_job(
     Path(job_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let job = state.db.get_job(&job_id).map_err(|_| not_found())?;
-    if job.status == JobStatus::Running {
-        return Ok(Json(json!({ "job_id": job_id, "status": "running", "message": "already running" })));
-    }
     if job.status == JobStatus::Completed {
         return Ok(Json(json!({ "job_id": job_id, "status": "completed", "message": "already completed" })));
     }
@@ -286,7 +288,13 @@ pub async fn start_job(
         .supersede_other_running_jobs(&job_id)
         .map_err(internal_error)?;
 
-    state.capture.clone().spawn_job(job_id.clone());
+    let generation = state.job_runs.begin(&job_id);
+    state
+        .db
+        .update_job_status(&job_id, JobStatus::Running, None)
+        .map_err(internal_error)?;
+
+    state.capture.clone().spawn_job(job_id.clone(), generation);
     Ok(Json(json!({
         "job_id": job_id,
         "status": "running",
@@ -305,6 +313,7 @@ pub async fn pause_job(
             Json(json!({ "error": format!("任务当前为 {}，仅运行中或待执行的任务可暂停", job.status.as_str()) })),
         ));
     }
+    state.job_runs.invalidate(&job_id);
     state
         .db
         .update_job_status(&job_id, JobStatus::Paused, None)

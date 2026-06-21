@@ -32,11 +32,14 @@ pub fn is_profile_post_api(url: &str) -> bool {
 
 pub fn is_search_api(url: &str) -> bool {
     let lower = url.to_lowercase();
-    (lower.contains("general/search/single")
+    if lower.contains("search/sug") || lower.contains("suggest_words") {
+        return false;
+    }
+    lower.contains("general/search/single")
+        || lower.contains("general/search/stream")
         || lower.contains("search/item")
-        || lower.contains("search/single"))
-        && !lower.contains("search/sug")
-        && !lower.contains("suggest_words")
+        || lower.contains("search/single")
+        || lower.contains("aweme/v1/web/general/search")
 }
 
 pub fn is_comment_api(url: &str) -> bool {
@@ -142,6 +145,11 @@ fn parse_dom_search_item(item: &Value) -> Option<ParsedVideo> {
     }
 
     let obj = item.as_object()?;
+
+    if let Some(raw_aweme) = obj.get("raw_aweme").and_then(|v| v.as_object()) {
+        return normalize_search_aweme(raw_aweme);
+    }
+
     let aweme_id = obj
         .get("aweme_id")
         .and_then(|v| v.as_str())
@@ -205,6 +213,11 @@ fn parse_dom_search_item(item: &Value) -> Option<ParsedVideo> {
 
 /// 从 `plugin_lab.fetch_search_results` / `click_search_btn` 的结果解析视频列表。
 pub fn parse_dom_search_results(resp: &Value) -> Vec<ParsedVideo> {
+    parse_fetch_search_results(resp)
+}
+
+/// 解析插件返回的搜索结果：API 项含 `raw_aweme`，DOM 项含 `rect`/`poster_*` 等。
+pub fn parse_fetch_search_results(resp: &Value) -> Vec<ParsedVideo> {
     let root = resp.get("data").unwrap_or(resp);
     let items = root
         .get("items")
@@ -378,7 +391,7 @@ fn normalize_comment(item: &Value, parent_comment_id: Option<String>) -> Option<
     })
 }
 
-/// 从 `scroll_and_collect_comments` DOM 结果解析评论（任务入库兜底）。
+/// 从 `scroll_and_collect_comments` 结果解析评论（优先 API 截获，DOM 兜底）。
 pub fn parse_dom_scroll_comments(resp: &Value) -> Vec<ParsedComment> {
     let items = resp
         .get("comments")
@@ -584,6 +597,31 @@ mod tests {
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].comment_id, "123");
         assert_eq!(comments[0].content, "好棒");
+    }
+
+    #[test]
+    fn parses_api_search_results_with_raw_aweme() {
+        let resp = json!({
+            "capture_method": "api",
+            "items": [{
+                "source": "api",
+                "click_by": "aweme_id",
+                "aweme_id": "7123456789012345678",
+                "title": "健身",
+                "author": "教练",
+                "url": "https://www.douyin.com/video/7123456789012345678",
+                "raw_aweme": {
+                    "aweme_id": "7123456789012345678",
+                    "desc": "完整标题",
+                    "author": { "nickname": "教练", "uid": "123" }
+                }
+            }]
+        });
+        let videos = parse_fetch_search_results(&resp);
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].aweme_id, "7123456789012345678");
+        assert_eq!(videos[0].title, "完整标题");
+        assert!(videos[0].raw_json.as_ref().is_some_and(|s| s.contains("uid")));
     }
 
     #[test]

@@ -4,6 +4,7 @@ import {
   isCommentSidebarReadyForCollect,
 } from "./comment-sidebar-dom";
 import {
+  enableCommentNetworkHook,
   getAllCachedCommentApiItems,
   getCommentApiItemsForAweme,
   pollCommentApiCache,
@@ -306,89 +307,107 @@ function mapApiComment(item: {
   };
 }
 
-async function mergeApiComments(
-  domComments: ReturnType<typeof parseCommentItem>[],
+type CollectedComment = ReturnType<typeof mapApiComment>;
+
+async function absorbApiComments(
   awemeHint: string,
+  merged: Map<string, CollectedComment>,
+  maxComments: number,
+  commentDays: number,
 ) {
-  const polled = await pollCommentApiCache({
-    timeoutMs: 6000,
+  const items = awemeHint
+    ? await getCommentApiItemsForAweme(awemeHint)
+    : await getAllCachedCommentApiItems();
+  const cutoff = cutoffTs(commentDays);
+
+  for (const item of items) {
+    if (merged.size >= maxComments) break;
+    if (merged.has(item.comment_id)) continue;
+    if (cutoff !== null && item.create_time && item.create_time < cutoff) continue;
+    merged.set(item.comment_id, mapApiComment(item));
+  }
+}
+
+/** 优先截获 comment/list API，滚动触发分页并轮询缓存 */
+async function collectViaApi(
+  awemeHint: string,
+  maxRounds: number,
+  maxComments: number,
+  commentDays: number,
+) {
+  enableCommentNetworkHook();
+
+  const merged = new Map<string, CollectedComment>();
+  await pollCommentApiCache({
+    timeoutMs: 8000,
     minItems: 1,
     awemeId: awemeHint || undefined,
   });
-  const apiItems =
-    polled.length > 0
-      ? polled
-      : awemeHint
-        ? await getCommentApiItemsForAweme(awemeHint)
-        : await getAllCachedCommentApiItems();
+  await absorbApiComments(awemeHint, merged, maxComments, commentDays);
 
-  if (!apiItems.length) return domComments;
+  let scrolledRounds = 0;
+  let stoppedReason = merged.size > 0 ? "api_initial" : "api_empty";
 
-  const merged = new Map<string, ReturnType<typeof mapApiComment>>();
-  for (const item of apiItems) {
-    merged.set(item.comment_id, mapApiComment(item));
+  for (let r = 0; r < maxRounds && merged.size < maxComments; r += 1) {
+    if (hasCommentEndMarker()) {
+      stoppedReason = "end_marker";
+      break;
+    }
+    const apiComments = Array.from(merged.values());
+    if (shouldStopForTimeWindow(apiComments, commentDays, r)) {
+      stoppedReason = "comment_days";
+      break;
+    }
+
+    const sizeBefore = merged.size;
+    if (scrollCommentSidebar()) scrolledRounds += 1;
+    await sleep(humanPace.commentScrollRound());
+
+    await pollCommentApiCache({
+      timeoutMs: 3500,
+      minItems: sizeBefore + 1,
+      awemeId: awemeHint || undefined,
+    });
+    await absorbApiComments(awemeHint, merged, maxComments, commentDays);
+
+    if (merged.size >= maxComments) {
+      stoppedReason = "max_comments";
+      break;
+    }
+    if (hasCommentEndMarker()) {
+      stoppedReason = "end_marker";
+      break;
+    }
+    if (shouldStopForTimeWindow(Array.from(merged.values()), commentDays, r + 1)) {
+      stoppedReason = "comment_days";
+      break;
+    }
+    if (merged.size === sizeBefore && r >= 2 && hasCommentEndMarker()) {
+      stoppedReason = "api_no_growth";
+      break;
+    }
   }
-  for (const item of domComments) {
-    const key =
-      item.comment_id ||
-      `${item.author}|${item.content.slice(0, 80)}`;
-    if (merged.has(key)) continue;
-    if (!isValidCommentContent(item.content, item.author)) continue;
-    merged.set(key, mapApiComment({
-      comment_id: item.comment_id || key,
-      content: item.content,
-      author: item.author,
-      user_id: "",
-      sec_uid: "",
-      avatar_url: item.avatar_url || "",
-      digg_count: 0,
-      create_time: item.create_time,
-    }, "dom"));
+
+  if (stoppedReason === "api_empty" && scrolledRounds > 0) {
+    stoppedReason = "api_rounds_exhausted";
   }
 
-  return Array.from(merged.values()).map((item, index) => ({
-    ...item,
-    index: index + 1,
-  }));
+  return {
+    items: Array.from(merged.values()).map((item, index) => ({
+      ...item,
+      index: index + 1,
+    })),
+    scrolledRounds,
+    stoppedReason,
+  };
 }
 
-function cutoffTs(commentDays: number): number | null {
-  if (!commentDays || commentDays <= 0) return null;
-  return Math.floor(Date.now() / 1000) - commentDays * 86400;
-}
-
-function shouldStopForTimeWindow(
-  comments: Array<{ create_time?: number | null }>,
+/** DOM 兜底：仅在 API 截获完全失败时使用 */
+async function collectViaDom(
+  maxRounds: number,
+  maxComments: number,
   commentDays: number,
-  roundIdx: number,
-): boolean {
-  const cutoff = cutoffTs(commentDays);
-  if (cutoff === null || roundIdx < 1) return false;
-  const times = comments
-    .map((c) => c.create_time)
-    .filter((t): t is number => typeof t === "number" && t > 0);
-  if (times.length === 0) return false;
-  const newest = Math.max(...times);
-  return newest < cutoff;
-}
-
-export interface ScrollCollectCommentsPayload {
-  scroll_rounds?: number;
-  max_comments?: number;
-  comment_days?: number;
-}
-
-/** 步骤 11：滑动评论列表并采集可见评论（按 comment_days 与时间窗停止） */
-export async function scrollAndCollectComments(payload: ScrollCollectCommentsPayload = {}) {
-  const maxRounds = Math.max(1, Math.min(Number(payload.scroll_rounds ?? 12), 60));
-  const maxComments = Math.max(1, Math.min(Number(payload.max_comments ?? 80), 300));
-  const commentDays = Math.max(0, Number(payload.comment_days ?? 0));
-
-  if (!isCommentSidebarReadyForCollect()) {
-    await activateCommentSidebar();
-    await sleep(humanPace.afterCommentClick());
-  }
-
+) {
   const seen = new Set<string>();
   const comments: ReturnType<typeof parseCommentItem>[] = [];
 
@@ -416,7 +435,7 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
   collectVisible();
 
   let scrolledRounds = 0;
-  let stoppedReason = comments.length > 0 ? "initial" : "no_visible_comments";
+  let stoppedReason = comments.length > 0 ? "dom_initial" : "dom_no_visible_comments";
 
   for (let r = 0; r < maxRounds && comments.length < maxComments; r += 1) {
     if (hasCommentEndMarker()) {
@@ -446,10 +465,6 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
     }
   }
 
-  if (stoppedReason === "initial" || stoppedReason === "no_visible_comments") {
-    stoppedReason = scrolledRounds > 0 ? "rounds_exhausted" : stoppedReason;
-  }
-
   const inWindow = commentDays > 0
     ? comments.filter((c) => {
         if (!c.create_time) return true;
@@ -458,8 +473,79 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
       })
     : comments;
 
+  const items = inWindow.map((item, index) =>
+    mapApiComment({
+      comment_id: item.comment_id || `${item.author}|${item.content.slice(0, 80)}`,
+      content: item.content,
+      author: item.author,
+      user_id: "",
+      sec_uid: "",
+      avatar_url: item.avatar_url || "",
+      digg_count: 0,
+      create_time: item.create_time,
+    }, "dom"),
+  ).map((item, index) => ({ ...item, index: index + 1 }));
+
+  if (stoppedReason === "dom_initial" || stoppedReason === "dom_no_visible_comments") {
+    stoppedReason = scrolledRounds > 0 ? "dom_rounds_exhausted" : stoppedReason;
+  }
+
+  return { items, scrolledRounds, stoppedReason };
+}
+
+function cutoffTs(commentDays: number): number | null {
+  if (!commentDays || commentDays <= 0) return null;
+  return Math.floor(Date.now() / 1000) - commentDays * 86400;
+}
+
+function shouldStopForTimeWindow(
+  comments: Array<{ create_time?: number | null }>,
+  commentDays: number,
+  roundIdx: number,
+): boolean {
+  const cutoff = cutoffTs(commentDays);
+  if (cutoff === null || roundIdx < 1) return false;
+  const times = comments
+    .map((c) => c.create_time)
+    .filter((t): t is number => typeof t === "number" && t > 0);
+  if (times.length === 0) return false;
+  const newest = Math.max(...times);
+  return newest < cutoff;
+}
+
+export interface ScrollCollectCommentsPayload {
+  scroll_rounds?: number;
+  max_comments?: number;
+  comment_days?: number;
+}
+
+/** 步骤 11：优先截获 comment/list API，失败再 DOM 解析可见评论 */
+export async function scrollAndCollectComments(payload: ScrollCollectCommentsPayload = {}) {
+  const maxRounds = Math.max(1, Math.min(Number(payload.scroll_rounds ?? 12), 60));
+  const maxComments = Math.max(1, Math.min(Number(payload.max_comments ?? 80), 300));
+  const commentDays = Math.max(0, Number(payload.comment_days ?? 0));
+
+  if (!isCommentSidebarReadyForCollect()) {
+    await activateCommentSidebar();
+    await sleep(humanPace.afterCommentClick());
+  }
+
   const awemeHint = extractAwemeIdFromLocation();
-  const merged = await mergeApiComments(inWindow, awemeHint);
+  const apiResult = await collectViaApi(awemeHint, maxRounds, maxComments, commentDays);
+
+  let merged = apiResult.items;
+  let captureMethod: "api" | "dom" = "api";
+  let scrolledRounds = apiResult.scrolledRounds;
+  let stoppedReason = apiResult.stoppedReason;
+
+  if (merged.length === 0) {
+    const domResult = await collectViaDom(maxRounds, maxComments, commentDays);
+    merged = domResult.items;
+    captureMethod = "dom";
+    scrolledRounds = domResult.scrolledRounds;
+    stoppedReason = domResult.stoppedReason;
+  }
+
   const apiCount = merged.filter((row) => row.source === "api").length;
   const domCount = merged.length - apiCount;
 
@@ -469,6 +555,7 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
     comments: merged,
     items: merged,
     aweme_id: awemeHint,
+    capture_method: captureMethod,
     api_count: apiCount,
     dom_count: domCount,
     scroll_rounds: scrolledRounds,
@@ -478,7 +565,9 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
     url: location.href,
     message:
       merged.length > 0
-        ? `已采集 ${merged.length} 条评论（API ${apiCount} + DOM ${domCount}，滚动 ${scrolledRounds} 轮，停止: ${stoppedReason}）`
+        ? captureMethod === "api"
+          ? `已采集 ${merged.length} 条评论（API 截获，滚动 ${scrolledRounds} 轮，停止: ${stoppedReason}）`
+          : `已采集 ${merged.length} 条评论（API 未截获，DOM 兜底 ${domCount} 条，滚动 ${scrolledRounds} 轮，停止: ${stoppedReason}）`
         : "评论区无可见评论，请先执行步骤 10 打开评论区",
   };
 }

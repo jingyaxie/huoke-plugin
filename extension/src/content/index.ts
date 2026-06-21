@@ -5,7 +5,15 @@ import { extensionVersion } from "../shared/runtime";
 import { dispatchCommand, getPageInfo } from "./platforms/registry";
 import { dispatchPluginLabCommand, isPluginLabContentAction } from "../plugin-lab/content";
 import { enableSearchNetworkHook, initSearchApiCaptureBridge, ingestNetworkPayload } from "../plugin-lab/search-api";
-import { initCommentApiCaptureBridge, ingestCommentNetworkPayload } from "../plugin-lab/comment-api";
+import {
+  initProfileApiCaptureBridge,
+  ingestProfileNetworkPayload,
+} from "../plugin-lab/profile-api";
+import {
+  enableCommentNetworkHook,
+  initCommentApiCaptureBridge,
+  ingestCommentNetworkPayload,
+} from "../plugin-lab/comment-api";
 
 let injected = false;
 
@@ -21,9 +29,11 @@ async function ensureInjected() {
   injected = true;
   log("injected network hook", src);
   initSearchApiCaptureBridge();
+  initProfileApiCaptureBridge();
   initCommentApiCaptureBridge();
   if (/douyin\.com/i.test(location.hostname)) {
     enableSearchNetworkHook();
+    enableCommentNetworkHook();
   }
 }
 
@@ -65,6 +75,7 @@ window.addEventListener("message", (event) => {
   }
   const payload = event.data.payload;
   ingestNetworkPayload(payload ?? {});
+  ingestProfileNetworkPayload(payload ?? {});
   ingestCommentNetworkPayload(payload ?? {});
   chrome.runtime.sendMessage({
     type: CONTENT_MESSAGE,

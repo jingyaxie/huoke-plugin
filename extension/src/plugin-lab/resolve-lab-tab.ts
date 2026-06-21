@@ -64,7 +64,7 @@ function buildContextMismatchError(
   const actionHint = action ? `（${action}）` : "";
   return (
     `无匹配${contextLabel(required)}的标签${actionHint}。` +
-    `请先执行前置步骤（如 1→7 进入搜索页，9 打开视频）。` +
+    `请先执行前置步骤（搜索：1→7→9；手动获客：打开主页→点击作品视频）。` +
     `当前平台标签：${hints || "无"}`
   );
 }
