@@ -15,6 +15,7 @@ pub use outreach::{
 pub enum JobStatus {
     Pending,
     Running,
+    Paused,
     Completed,
     Failed,
 }
@@ -24,6 +25,7 @@ impl JobStatus {
         match self {
             Self::Pending => "pending",
             Self::Running => "running",
+            Self::Paused => "paused",
             Self::Completed => "completed",
             Self::Failed => "failed",
         }
@@ -32,6 +34,7 @@ impl JobStatus {
     pub fn from_str(value: &str) -> Self {
         match value {
             "running" => Self::Running,
+            "paused" => Self::Paused,
             "completed" => Self::Completed,
             "failed" => Self::Failed,
             _ => Self::Pending,
@@ -56,6 +59,9 @@ pub struct CollectJob {
     pub updated_at: i64,
     pub video_count: i64,
     pub comment_count: i64,
+    pub reply_count: i64,
+    pub dm_count: i64,
+    pub follow_count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<serde_json::Value>,
 }
@@ -90,8 +96,20 @@ pub struct CapturedComment {
     pub username: String,
     pub user_id: String,
     pub sec_uid: String,
+    pub avatar_url: String,
     pub digg_count: i64,
     pub create_time: Option<i64>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InteractionRecord {
+    pub id: String,
+    pub job_id: String,
+    pub action: String,
+    pub comment_id: String,
+    pub user_id: String,
+    pub day: String,
     pub created_at: i64,
 }
 
@@ -187,6 +205,10 @@ impl Database {
             [],
         );
         let _ = conn.execute("ALTER TABLE collect_jobs ADD COLUMN input_url TEXT", []);
+        let _ = conn.execute(
+            "ALTER TABLE captured_comments ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         Ok(())
     }
 
@@ -211,6 +233,7 @@ impl Database {
         config_json: Option<String>,
     ) -> Result<CollectJob, String> {
         let (video_count, comment_count) = self.counts_for_job(&id)?;
+        let (reply_count, dm_count, follow_count) = self.interaction_counts_for_job(&id)?;
         Ok(CollectJob {
             id,
             platform,
@@ -226,6 +249,9 @@ impl Database {
             updated_at,
             video_count,
             comment_count,
+            reply_count,
+            dm_count,
+            follow_count,
             config: Self::parse_config_json(config_json),
         })
     }
@@ -368,6 +394,52 @@ impl Database {
             )
             .map_err(|e| e.to_string())?;
         Ok((video_count, comment_count))
+    }
+
+    fn interaction_counts_for_job(&self, job_id: &str) -> Result<(i64, i64, i64), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let count_action = |action: &str| -> Result<i64, String> {
+            conn.query_row(
+                "SELECT COUNT(*) FROM interaction_log WHERE job_id = ?1 AND action = ?2",
+                params![job_id, action],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())
+        };
+        Ok((
+            count_action("reply")?,
+            count_action("dm")?,
+            count_action("follow")?,
+        ))
+    }
+
+    pub fn list_interactions_for_job(
+        &self,
+        job_id: &str,
+        limit: i64,
+    ) -> Result<Vec<InteractionRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, job_id, action, comment_id, user_id, day, created_at
+                 FROM interaction_log WHERE job_id = ?1
+                 ORDER BY created_at DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![job_id, limit.clamp(1, 5000)], |row| {
+                Ok(InteractionRecord {
+                    id: row.get(0)?,
+                    job_id: row.get(1)?,
+                    action: row.get(2)?,
+                    comment_id: row.get(3)?,
+                    user_id: row.get(4)?,
+                    day: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.map(|row| row.map_err(|e| e.to_string())).collect()
     }
 
     pub fn get_job(&self, job_id: &str) -> Result<CollectJob, String> {
@@ -543,6 +615,16 @@ impl Database {
         .map_err(|e| e.to_string())
     }
 
+    pub fn count_comments_for_aweme(&self, job_id: &str, aweme_id: &str) -> Result<i64, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM captured_comments WHERE job_id = ?1 AND aweme_id = ?2",
+            params![job_id, aweme_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
     pub fn comment_days_for_running_job(&self, job_id: &str) -> i64 {
         self.get_job(job_id)
             .ok()
@@ -688,10 +770,14 @@ impl Database {
             let changed = conn
                 .execute(
                     "INSERT INTO captured_comments
-                     (id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, digg_count, create_time, raw_json, created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                     (id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, avatar_url, digg_count, create_time, raw_json, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                      ON CONFLICT(job_id, comment_id) DO UPDATE SET
                        content = excluded.content,
+                       username = excluded.username,
+                       user_id = excluded.user_id,
+                       sec_uid = excluded.sec_uid,
+                       avatar_url = CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE avatar_url END,
                        digg_count = excluded.digg_count,
                        raw_json = excluded.raw_json",
                     params![
@@ -704,6 +790,7 @@ impl Database {
                         comment.username,
                         comment.user_id,
                         comment.sec_uid,
+                        comment.avatar_url,
                         comment.digg_count,
                         comment.create_time,
                         comment.raw_json,
@@ -754,7 +841,7 @@ impl Database {
         if let Some(aweme_id) = aweme_id {
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, digg_count, create_time, created_at
+                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, avatar_url, digg_count, create_time, created_at
                      FROM captured_comments WHERE job_id = ?1 AND aweme_id = ?2
                      ORDER BY create_time DESC LIMIT ?3",
                 )
@@ -768,7 +855,7 @@ impl Database {
         } else {
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, digg_count, create_time, created_at
+                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, avatar_url, digg_count, create_time, created_at
                      FROM captured_comments WHERE job_id = ?1
                      ORDER BY create_time DESC LIMIT ?2",
                 )
@@ -795,8 +882,9 @@ fn map_comment_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CapturedComment>
         username: row.get(6)?,
         user_id: row.get(7)?,
         sec_uid: row.get(8)?,
-        digg_count: row.get(9)?,
-        create_time: row.get(10)?,
-        created_at: row.get(11)?,
+        avatar_url: row.get(9)?,
+        digg_count: row.get(10)?,
+        create_time: row.get(11)?,
+        created_at: row.get(12)?,
     })
 }

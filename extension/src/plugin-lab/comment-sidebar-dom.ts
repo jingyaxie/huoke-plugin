@@ -1,9 +1,11 @@
+import { humanClick, humanPace, sleep } from "./search-input";
 import { isSearchFeedOverlay, isStandaloneVideoPage } from "./search-feed-open";
 
 const FEED_SCOPED_ICON_SELECTORS = [
   '[data-e2e="feed-active-video"] [data-e2e="feed-comment-icon"]',
   '[data-e2e="feed-active-video"] [data-e2e="comment-icon"]',
   '[data-e2e="feed-active-video"] [data-e2e="detail-tab-comment"]',
+  '[data-e2e="feed-active-video"] [data-e2e="browse-comment-icon"]',
   '[class*="comment"] [data-e2e="feed-comment-icon"]',
 ] as const;
 
@@ -11,6 +13,7 @@ const COMMENT_ICON_SELECTORS = [
   '[data-e2e="feed-comment-icon"]',
   '[data-e2e="comment-icon"]',
   '[data-e2e="detail-tab-comment"]',
+  '[data-e2e="browse-comment-icon"]',
 ] as const;
 
 export interface DomPoint {
@@ -112,6 +115,15 @@ export function isCommentSidebarActive(): boolean {
   return hasVisibleCommentItems() || findAllCommentsHeader() !== null;
 }
 
+/** 对齐 Python：搜索 Feed 须可见评论项才算已展开；独立页/详情页「全部评论」标题也算打开 */
+export function isCommentSidebarReadyForCollect(): boolean {
+  const itemCount = countVisibleCommentItems();
+  if (itemCount > 0) return true;
+  const searchFeed = isSearchFeedOverlay();
+  if (searchFeed) return false;
+  return findAllCommentsHeader() !== null;
+}
+
 const FEED_OVERLAY_SELECTORS = [
   '[data-e2e="feed-active-video"]',
   '[data-e2e="feed-comment-icon"]',
@@ -199,20 +211,127 @@ function findVideoPlayerCenter(): DomPoint | null {
   return null;
 }
 
+/** 对齐 Python `_CLICK_COMMENT_ICON_JS` */
+export function clickCommentIconViaDom(): string {
+  for (const selector of COMMENT_ICON_SELECTORS) {
+    const nodes = document.querySelectorAll(selector);
+    for (let i = 0; i < nodes.length; i += 1) {
+      const el = nodes[i] as HTMLElement;
+      if (!isVisible(el)) continue;
+      humanClick(resolveClickTarget(el));
+      return selector;
+    }
+  }
+
+  const tabs = document.querySelectorAll('div[role="tab"], span, div, button');
+  for (let i = 0; i < tabs.length && i < 120; i += 1) {
+    const el = tabs[i] as HTMLElement;
+    const text = (el.textContent ?? "").replace(/\s+/g, "");
+    if (text !== "评论" && !text.startsWith("评论(")) continue;
+    if (!isVisible(el)) continue;
+    humanClick(resolveClickTarget(el));
+    return "tab:评论";
+  }
+
+  return "";
+}
+
+/** 内容脚本内尝试展开评论区（CDP 失败后的兜底） */
+export async function activateCommentSidebar(maxAttempts = 5): Promise<{
+  ok: boolean;
+  method: string;
+  comment_item_count: number;
+  message: string;
+}> {
+  if (isCommentSidebarReadyForCollect()) {
+    return {
+      ok: true,
+      method: "already_open",
+      comment_item_count: countVisibleCommentItems(),
+      message: "评论区已展开",
+    };
+  }
+
+  const searchFeed = isSearchFeedOverlay();
+  let lastMethod = "";
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (isCommentSidebarReadyForCollect()) {
+      return {
+        ok: true,
+        method: lastMethod || "probe",
+        comment_item_count: countVisibleCommentItems(),
+        message: "评论区已展开",
+      };
+    }
+
+    for (const target of collectCommentIconTargets()) {
+      const el = document.elementFromPoint(target.center.x, target.center.y) as HTMLElement | null;
+      if (!el || !isVisible(el)) continue;
+      humanClick(resolveClickTarget(el));
+      lastMethod = target.selector;
+      await sleep(humanPace.afterCommentClick());
+      if (isCommentSidebarReadyForCollect()) {
+        return {
+          ok: true,
+          method: lastMethod,
+          comment_item_count: countVisibleCommentItems(),
+          message: `已通过 ${lastMethod} 打开评论区`,
+        };
+      }
+    }
+
+    const domHit = clickCommentIconViaDom();
+    if (domHit) {
+      lastMethod = domHit;
+      await sleep(humanPace.afterCommentClick());
+      if (isCommentSidebarReadyForCollect()) {
+        return {
+          ok: true,
+          method: domHit,
+          comment_item_count: countVisibleCommentItems(),
+          message: `已通过 DOM 点击 ${domHit} 打开评论区`,
+        };
+      }
+    }
+
+    if (!searchFeed) {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }),
+      );
+      await sleep(300);
+    }
+
+    await sleep(humanPace.beforeCommentAction());
+  }
+
+  return {
+    ok: false,
+    method: lastMethod || "none",
+    comment_item_count: countVisibleCommentItems(),
+    message: searchFeed
+      ? "搜索 Feed 浮层已打开，但未能展开右侧评论区"
+      : "未能打开评论区，请确认视频 Feed 已打开",
+  };
+}
+
 /** 供 background CDP 探测 */
 export function probeCommentSidebar() {
   const icons = collectCommentIconTargets();
   const commentCount = countVisibleCommentItems();
   const searchFeed = isSearchFeedOverlay();
+  const feedOpen = isFeedOverlayOpen() || searchFeed;
   const standalone = isStandaloneVideoPage();
   const sidebarActive = isCommentSidebarActive();
+  const sidebarReady = isCommentSidebarReadyForCollect();
   const hasHeader = findAllCommentsHeader() !== null;
 
   return {
     ok: true,
     active: sidebarActive,
     sidebar_active: sidebarActive,
-    feed_open: searchFeed,
+    sidebar_ready: sidebarReady,
+    feed_open: feedOpen,
     is_search_feed: searchFeed,
     is_standalone_video: standalone,
     comment_item_count: commentCount,
@@ -238,11 +357,14 @@ export function probeCommentSidebar() {
 }
 
 export async function clickCommentButtonFallback() {
-  const { ok: _ignored, ...probe } = probeCommentSidebar();
+  const probe = probeCommentSidebar();
+  const activated = await activateCommentSidebar();
   return {
     ...probe,
-    ok: false,
-    mode: "content_fallback",
-    message: "请重新加载扩展以启用 CDP 评论点击",
+    ok: activated.ok,
+    mode: "content_dom",
+    method: activated.method,
+    comment_item_count: activated.comment_item_count,
+    message: activated.message,
   };
 }

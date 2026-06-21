@@ -33,6 +33,19 @@ const INTENT_BY_TASK_TYPE = {
   home_manual: "account_home",
 };
 
+/** 采集完成后是否执行关注/私信/回复（与后端 should_run_auto_outreach 对齐） */
+export function computeAutoOutreach({
+  commentPresetPayload = [],
+  dmPresetPayload = [],
+  followPerDay = 0,
+  dmPerDay = 0,
+} = {}) {
+  if (commentPresetPayload.length > 0 || dmPresetPayload.length > 0) {
+    return true;
+  }
+  return Number(followPerDay) > 0 || Number(dmPerDay) > 0;
+}
+
 export function platformLabel(platform) {
   if (platform === "xiaohongshu") return "小红书";
   if (platform === "kuaishou") return "快手";

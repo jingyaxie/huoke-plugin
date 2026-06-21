@@ -5,7 +5,7 @@ use crate::simulate;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-use crate::db::{CapturedComment, Database};
+use crate::db::{CapturedComment, Database, JobStatus};
 use crate::job_config::JobConfig;
 use crate::lab_commands::LabCommands;
 use crate::ws::BridgeHub;
@@ -73,6 +73,10 @@ impl<'a> InlineOutreachRunner<'a> {
         while cursor < eligible.len()
             && (stats.replies < reply_budget || stats.dms < dm_budget || stats.follows < follow_budget)
         {
+            if self.db.get_job(job_id)?.status == JobStatus::Paused {
+                info!("job {job_id}: outreach paused");
+                return Ok(stats);
+            }
             let comment = &eligible[cursor];
             cursor += 1;
 

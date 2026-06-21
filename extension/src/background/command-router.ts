@@ -1,7 +1,8 @@
 import type { BridgeMessage } from "../shared/protocol";
 import { isPluginLabBackgroundAction } from "../plugin-lab/background-actions";
-import { resolveLabTabForAction } from "../plugin-lab/resolve-lab-tab";
+import { resolveLabTabForAction, resolveLabTargetTab } from "../plugin-lab/resolve-lab-tab";
 import { ensureLabCommandReady } from "../plugin-lab/lab-preflight";
+import { readLabSession } from "../plugin-lab/lab-context";
 import { log, warn } from "../shared/logger";
 import { extensionVersion } from "../shared/runtime";
 
@@ -25,6 +26,22 @@ async function focusTab(tab: chrome.tabs.Tab) {
   if (!tab.id || tab.windowId === undefined) return;
   await chrome.windows.update(tab.windowId, { focused: true });
   await chrome.tabs.update(tab.id, { active: true });
+}
+
+async function resolveNetworkHookTab(): Promise<chrome.tabs.Tab> {
+  const session = await readLabSession();
+  if (session?.tabId) {
+    try {
+      const tab = await chrome.tabs.get(session.tabId);
+      if (tab.id && isDouyinUrl(tab.url)) {
+        await focusTab(tab);
+        return tab;
+      }
+    } catch {
+      // pinned tab closed — fall through
+    }
+  }
+  return resolveLabTargetTab();
 }
 
 async function resolveTargetTab(command: BridgeMessage): Promise<chrome.tabs.Tab> {
@@ -175,9 +192,11 @@ export async function routeCommandToTab(command: BridgeMessage): Promise<unknown
       ? payload.target_action
       : command.action;
 
-  const tab = command.action.startsWith("plugin_lab.") && !isPluginLabBackgroundAction(command.action)
-    ? await resolveLabTabForAction(tabAction)
-    : await resolveTargetTab(command);
+  const tab = command.action.startsWith("network.hook.")
+    ? await resolveNetworkHookTab()
+    : command.action.startsWith("plugin_lab.") && !isPluginLabBackgroundAction(command.action)
+      ? await resolveLabTabForAction(tabAction)
+      : await resolveTargetTab(command);
   if (!tab.id) {
     throw new Error("target tab has no id");
   }

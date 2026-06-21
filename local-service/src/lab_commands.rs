@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use tracing::warn;
+
 use crate::plugin_lab;
 use crate::simulate;
 use crate::ws::BridgeHub;
@@ -17,20 +19,43 @@ impl<'a> LabCommands<'a> {
     }
 
     pub async fn enable_network_hook(&self) -> Result<(), String> {
-        self.hub
-            .request_command(
-                "network.hook.enable",
-                json!({ "patterns": ["/aweme/", "/comment/", "/search/"] }),
-                Duration::from_secs(10),
-            )
-            .await?;
-        Ok(())
+        const MAX_ATTEMPTS: u32 = 3;
+        let mut last_err = String::new();
+        for attempt in 1..=MAX_ATTEMPTS {
+            match self
+                .hub
+                .request_command(
+                    "network.hook.enable",
+                    json!({ "patterns": ["/aweme/", "/comment/", "/search/"] }),
+                    Duration::from_secs(15),
+                )
+                .await
+            {
+                Ok(_) => return Ok(()),
+                Err(err) => {
+                    last_err = err;
+                    if attempt < MAX_ATTEMPTS {
+                        warn!("network.hook.enable attempt {attempt} failed: {last_err}, retrying…");
+                        simulate::pause(Duration::from_millis(1500)).await;
+                    }
+                }
+            }
+        }
+        Err(last_err)
     }
 
     pub async fn run_keyword_search(&self, keyword: &str, publish_days: i64) -> Result<Value, String> {
         // 与插件实验室单步流程一致：1 打开 → 3~7 搜索 →（可选）4~5 筛选
-        self.action("open_browser", json!({ "platform": "douyin", "reuse_existing": true }))
-            .await?;
+        self.action(
+            "open_browser",
+            json!({
+                "platform": "douyin",
+                "reuse_existing": true,
+                "reset_to_start": true,
+                "wait_load": true,
+            }),
+        )
+        .await?;
         simulate::pause(Duration::from_secs(2)).await;
 
         self.action("find_search_box", json!({ "platform": "douyin" }))

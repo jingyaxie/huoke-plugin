@@ -6,6 +6,7 @@ import { clickCommentAvatar, type ClickCommentAvatarPayload } from "./click-comm
 import {
   clickCommentButtonFallback,
   probeCommentSidebar,
+  activateCommentSidebar,
 } from "./comment-sidebar-dom";
 import { clickDmButton } from "./click-dm-btn";
 import { probeDmButton, probeDmInput, probeDmSendButton, probeDmSendVerify, typeDmTextFallback } from "./dm-dom";
@@ -70,10 +71,12 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
       return clickSearchVideoFallback((payload ?? {}) as { video_index?: number; index?: number });
     case "plugin_lab.search_video_probe":
       return probeSearchVideoCard((payload ?? {}) as { video_index?: number; index?: number });
-    case "plugin_lab.click_comment_btn":
-      return clickCommentButtonFallback();
     case "plugin_lab.comment_sidebar_probe":
       return probeCommentSidebar();
+    case "plugin_lab.activate_comment_sidebar":
+      return activateCommentSidebar();
+    case "plugin_lab.click_comment_btn":
+      return clickCommentButtonFallback();
     case "plugin_lab.scroll_and_collect_comments":
       return scrollAndCollectComments((payload ?? {}) as ScrollCollectCommentsPayload);
     case "plugin_lab.send_comment":

@@ -201,6 +201,7 @@ impl JobConfig {
         self.has_reply_presets()
             || self.has_dm_presets()
             || self.interaction.follow_per_day > 0
+            || self.interaction.dm_per_day > 0
     }
 
     pub fn reply_templates(&self) -> Vec<String> {
@@ -315,5 +316,15 @@ mod tests {
         assert!(job_cfg.should_run_auto_outreach());
         assert!(!job_cfg.has_reply_presets());
         assert!(job_cfg.has_dm_presets());
+    }
+
+    #[test]
+    fn auto_outreach_with_follow_quota_only() {
+        let cfg = json!({
+            "auto_outreach": true,
+            "interaction": { "follow_per_day": 30, "dm_per_day": 0 }
+        });
+        let job_cfg = JobConfig::from_parts(&cfg, 5, 10, "test");
+        assert!(job_cfg.should_run_auto_outreach());
     }
 }

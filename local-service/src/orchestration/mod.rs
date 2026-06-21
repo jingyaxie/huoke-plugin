@@ -41,8 +41,17 @@ impl JobOrchestrator {
             self.run_keyword_job(job_id, &job, &cfg).await
         };
 
+        if self.is_job_paused(job_id)? {
+            info!("job {job_id} paused");
+            return Ok(());
+        }
+
         match result {
             Ok(()) => {
+                if self.is_job_paused(job_id)? {
+                    info!("job {job_id} paused");
+                    return Ok(());
+                }
                 if cfg.should_run_auto_outreach() {
                     let runner = InlineOutreachRunner {
                         db: &self.db,
@@ -52,6 +61,19 @@ impl JobOrchestrator {
                     if let Err(err) = runner.run(job_id, &cfg).await {
                         warn!("job {job_id} inline outreach partial failure: {err}");
                     }
+                } else {
+                    info!(
+                        "job {job_id}: skipping outreach (auto_outreach={}, follow={}, dm={}, reply_presets={}, dm_presets={})",
+                        cfg.auto_outreach,
+                        cfg.interaction.follow_per_day,
+                        cfg.interaction.dm_per_day,
+                        cfg.comment_presets.len(),
+                        cfg.dm_presets.len(),
+                    );
+                }
+                if self.is_job_paused(job_id)? {
+                    info!("job {job_id} paused");
+                    return Ok(());
                 }
                 self.db
                     .update_job_status(job_id, JobStatus::Completed, None)?;
@@ -59,6 +81,10 @@ impl JobOrchestrator {
                 Ok(())
             }
             Err(err) => {
+                if self.is_job_paused(job_id)? {
+                    info!("job {job_id} paused");
+                    return Ok(());
+                }
                 self.db
                     .update_job_status(job_id, JobStatus::Failed, Some(&err))?;
                 Err(err)
@@ -91,7 +117,6 @@ impl JobOrchestrator {
             return Err(msg.to_string());
         }
 
-        lab.enable_network_hook().await?;
         self.ensure_search_videos_captured(job_id, &lab, Some(&search_result))
             .await?;
 
@@ -169,8 +194,14 @@ impl JobOrchestrator {
         simulate::pause(Duration::from_millis(500)).await;
 
         while self.db.count_comments_for_job(job_id)? < cfg.target_count && pass < 3 {
+            if self.is_job_paused(job_id)? {
+                return Ok(());
+            }
             pass += 1;
             for (index, video) in videos.iter().enumerate() {
+                if self.is_job_paused(job_id)? {
+                    return Ok(());
+                }
                 if self.db.count_comments_for_job(job_id)? >= cfg.target_count {
                     break;
                 }
@@ -334,13 +365,27 @@ impl JobOrchestrator {
         }
         simulate::human_pause_ms(5500, 8500).await;
 
-        let sidebar = lab.open_comment_sidebar().await?;
-        if !sidebar.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
+        let mut sidebar_ok = false;
+        for attempt in 1..=3 {
+            let sidebar = lab.open_comment_sidebar().await?;
+            sidebar_ok = sidebar.get("ok").and_then(|v| v.as_bool()).unwrap_or(false)
+                || (sidebar
+                    .get("comment_item_count")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0)
+                    > 0);
+            if sidebar_ok {
+                break;
+            }
             let msg = sidebar
                 .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("failed to open comment sidebar");
-            warn!("job {job_id}: {msg}");
+            warn!("job {job_id}: comment sidebar attempt {attempt}/3 — {msg}");
+            simulate::human_pause_ms(1200, 2200).await;
+        }
+        if !sidebar_ok {
+            return Err("failed to open comment sidebar after 3 attempts".into());
         }
         simulate::human_pause_ms(1500, 2800).await;
 
@@ -360,15 +405,29 @@ impl JobOrchestrator {
             page_url,
         );
         let dom_comments = parse_dom_scroll_comments(&scroll_resp);
-        if !dom_comments.is_empty() {
-            let inserted = self.db.upsert_comments(job_id, &aweme_id, &dom_comments)?;
+        let api_cached = scroll_resp
+            .get("api_count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let existing_for_aweme = self.db.count_comments_for_aweme(job_id, &aweme_id).unwrap_or(0);
+        let persistable: Vec<_> = dom_comments
+            .into_iter()
+            .filter(|c| !c.comment_id.starts_with("dom_"))
+            .collect();
+
+        if existing_for_aweme > 0 && persistable.is_empty() {
             info!(
-                "job {job_id}: stored {inserted} DOM comments for aweme {aweme_id} (stopped={:?})",
+                "job {job_id}: skip DOM upsert for aweme {aweme_id} — {existing_for_aweme} API comments already stored (scroll api_count={api_cached})"
+            );
+        } else if !persistable.is_empty() {
+            let inserted = self.db.upsert_comments(job_id, &aweme_id, &persistable)?;
+            info!(
+                "job {job_id}: stored {inserted} scroll comments for aweme {aweme_id} (stopped={:?})",
                 scroll_resp.get("stopped_reason").and_then(|v| v.as_str())
             );
-        } else {
+        } else if existing_for_aweme == 0 && api_cached == 0 {
             warn!(
-                "job {job_id}: scroll returned 0 DOM comments for aweme {} — {:?}",
+                "job {job_id}: scroll returned 0 persistable comments for aweme {} — {:?}",
                 aweme_id,
                 scroll_resp.get("message").and_then(|v| v.as_str())
             );
@@ -387,6 +446,10 @@ impl JobOrchestrator {
             simulate::human_pause_ms(1200, 2200).await;
         }
         Ok(())
+    }
+
+    fn is_job_paused(&self, job_id: &str) -> Result<bool, String> {
+        Ok(self.db.get_job(job_id)?.status == JobStatus::Paused)
     }
 }
 

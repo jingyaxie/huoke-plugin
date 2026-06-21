@@ -77,8 +77,16 @@ pub fn build_router(state: AppState) -> Router {
             get(api::douyin::list_job_comments),
         )
         .route(
+            "/api/douyin/jobs/:job_id/interactions",
+            get(api::douyin::list_job_interactions),
+        )
+        .route(
             "/api/douyin/jobs/:job_id/start",
             post(api::douyin::start_job),
+        )
+        .route(
+            "/api/douyin/jobs/:job_id/pause",
+            post(api::douyin::pause_job),
         )
         .route("/api/douyin/quota", get(api::outreach::get_quota))
         .route(

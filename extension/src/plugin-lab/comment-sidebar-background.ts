@@ -15,6 +15,7 @@ function sleep(ms: number) {
 interface SidebarProbe {
   active?: boolean;
   sidebar_active?: boolean;
+  sidebar_ready?: boolean;
   feed_open?: boolean;
   is_search_feed?: boolean;
   is_standalone_video?: boolean;
@@ -27,20 +28,35 @@ interface SidebarProbe {
   message?: string;
 }
 
-function sidebarOpen(probe: SidebarProbe): boolean {
-  return Boolean(
-    probe.sidebar_active
-    || probe.active
-    || (probe.comment_item_count ?? 0) > 0
-    || probe.has_comments_header,
-  );
+function sidebarReady(probe: SidebarProbe): boolean {
+  if (probe.sidebar_ready === true) return true;
+  return (probe.comment_item_count ?? 0) > 0;
 }
 
 async function probe(tabId: number): Promise<SidebarProbe> {
   return (await sendContentPluginLabCommand(tabId, "plugin_lab.comment_sidebar_probe", {})) as SidebarProbe;
 }
 
-/** 步骤 10：CDP 真实鼠标打开评论区 */
+async function activateViaContent(tabId: number): Promise<{
+  ok?: boolean;
+  method?: string;
+  comment_item_count?: number;
+  message?: string;
+}> {
+  return (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.activate_comment_sidebar",
+    {},
+    { skipPreflight: true },
+  )) as {
+    ok?: boolean;
+    method?: string;
+    comment_item_count?: number;
+    message?: string;
+  };
+}
+
+/** 步骤 10：CDP 真实鼠标打开评论区，失败则 content DOM 兜底 */
 export async function clickCommentButtonBackground() {
   const tab = await resolveLabTabForAction("plugin_lab.click_comment_btn");
   if (!tab.id) throw new Error("target tab has no id");
@@ -58,16 +74,15 @@ export async function clickCommentButtonBackground() {
     };
   }
 
-  if (sidebarOpen(status)) {
+  if (sidebarReady(status)) {
     return {
       ok: true,
       already_open: true,
       mode: "cdp_real_mouse",
       is_search_feed: status.is_search_feed,
       comment_item_count: status.comment_item_count ?? 0,
-      has_comments_header: status.has_comments_header,
       url: status.url ?? tab.url,
-      message: status.message ?? "评论区已打开",
+      message: status.message ?? "评论区已展开",
     };
   }
 
@@ -82,71 +97,65 @@ export async function clickCommentButtonBackground() {
     };
   }
 
-  // 搜索 Feed 浮层：右侧评论栏常已展开
-  if (status.is_search_feed && (status.has_visible_comments || status.has_comments_header)) {
-    return {
-      ok: true,
-      already_open: true,
-      mode: "cdp_real_mouse",
-      is_search_feed: true,
-      comment_item_count: status.comment_item_count ?? 0,
-      url: status.url ?? tab.url,
-      message: "搜索 Feed 右侧评论栏已可见",
-    };
-  }
-
   const targets = status.icon_targets ?? [];
-  if (targets.length === 0) {
-    return {
-      ok: false,
-      mode: "cdp_real_mouse",
-      feed_open: true,
-      is_search_feed: status.is_search_feed,
-      url: status.url ?? tab.url,
-      message: "未找到评论按钮 DOM（feed-comment-icon / 评论 Tab）",
-    };
-  }
-
   let method = "none";
 
-  await attachDebugger(tabId);
-  try {
-    // 非搜索 Feed 才点视频暂停，搜索浮层右侧常已有评论栏，点视频易误触点赞
-    if (!status.is_search_feed && status.video_player_center) {
-      await clickMouse(tabId, status.video_player_center.x, status.video_player_center.y);
-      await sleep(humanPace.afterCommentClick());
-      status = await probe(tabId);
-      if (sidebarOpen(status)) {
-        method = "video_pause";
-      }
-    }
-
-    for (let attempt = 0; attempt < 6 && !sidebarOpen(status); attempt += 1) {
-      const roundTargets = status.icon_targets ?? targets;
-      for (const target of roundTargets) {
-        await moveMouse(tabId, target.center.x, target.center.y);
-        await sleep(humanPace.mouseHover());
-        await clickMouse(tabId, target.center.x, target.center.y);
-        method = target.selector;
+  if (targets.length > 0) {
+    await attachDebugger(tabId);
+    try {
+      if (!status.is_search_feed && status.video_player_center) {
+        await clickMouse(tabId, status.video_player_center.x, status.video_player_center.y);
         await sleep(humanPace.afterCommentClick());
-
         status = await probe(tabId);
-        if (sidebarOpen(status)) break;
+        if (sidebarReady(status)) {
+          method = "video_pause";
+        }
       }
 
-      if (sidebarOpen(status)) break;
-      await sleep(humanPace.beforeCommentAction());
+      for (let attempt = 0; attempt < 6 && !sidebarReady(status); attempt += 1) {
+        const roundTargets = status.icon_targets ?? targets;
+        for (const target of roundTargets) {
+          await moveMouse(tabId, target.center.x, target.center.y);
+          await sleep(humanPace.mouseHover());
+          await clickMouse(tabId, target.center.x, target.center.y);
+          method = target.selector;
+          await sleep(humanPace.afterCommentClick());
+
+          status = await probe(tabId);
+          if (sidebarReady(status)) break;
+        }
+
+        if (sidebarReady(status)) break;
+        await sleep(humanPace.beforeCommentAction());
+      }
+    } finally {
+      await detachDebugger(tabId);
     }
-  } finally {
-    await detachDebugger(tabId);
   }
 
-  const ok = sidebarOpen(status);
+  if (!sidebarReady(status)) {
+    const domResult = await activateViaContent(tabId);
+    status = await probe(tabId);
+    if (domResult.ok || sidebarReady(status)) {
+      return {
+        ok: true,
+        already_open: false,
+        mode: "content_dom",
+        method: domResult.method ?? method,
+        comment_item_count: status.comment_item_count ?? domResult.comment_item_count ?? 0,
+        is_search_feed: status.is_search_feed,
+        url: status.url ?? tab.url,
+        message: domResult.message ?? "已通过 DOM 展开评论区",
+      };
+    }
+  }
+
+  const ok = sidebarReady(status);
 
   return {
     ok,
     already_open: false,
-    mode: "cdp_real_mouse",
+    mode: ok ? "cdp_real_mouse" : targets.length > 0 ? "cdp_real_mouse" : "content_dom",
     method,
     comment_item_count: status.comment_item_count ?? 0,
     has_comments_header: status.has_comments_header,
@@ -155,6 +164,6 @@ export async function clickCommentButtonBackground() {
     url: status.url ?? tab.url,
     message: ok
       ? status.message ?? "已打开评论区"
-      : "未能打开评论区，请确认步骤 9 已打开视频 Feed，或刷新页面后重试",
+      : "未能展开评论区，请确认步骤 9 已打开视频 Feed，或刷新页面后重试",
   };
 }

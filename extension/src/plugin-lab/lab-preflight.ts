@@ -8,6 +8,9 @@ const SKIP_PREFLIGHT = new Set([
   "plugin_lab.search_video_probe",
   "plugin_lab.search_prepare",
   "plugin_lab.search_submit",
+  "network.hook.enable",
+  "network.hook.disable",
+  "network.hook.status",
 ]);
 
 export class LabPreflightError extends Error {

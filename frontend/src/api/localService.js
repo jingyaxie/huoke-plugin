@@ -50,6 +50,11 @@ export async function startCollectJob(jobId) {
   return data;
 }
 
+export async function pauseCollectJob(jobId) {
+  const { data } = await localService.post(`/api/douyin/jobs/${jobId}/pause`);
+  return data;
+}
+
 export async function getCollectJob(jobId) {
   const { data } = await localService.get(`/api/douyin/jobs/${jobId}`);
   return data;
@@ -63,6 +68,23 @@ export async function listCollectVideos(jobId) {
 export async function listCollectComments(jobId, params = {}) {
   const { data } = await localService.get(`/api/douyin/jobs/${jobId}/comments`, { params });
   return data;
+}
+
+export async function listCollectInteractions(jobId, params = {}) {
+  const { data } = await localService.get(`/api/douyin/jobs/${jobId}/interactions`, { params });
+  return data;
+}
+
+/** 兼容未重启的旧 local-service（尚无 interactions 路由） */
+export async function listCollectInteractionsOptional(jobId, params = {}) {
+  try {
+    return await listCollectInteractions(jobId, params);
+  } catch (err) {
+    if (err?.response?.status === 404) {
+      return { job_id: jobId, interactions: [] };
+    }
+    throw err;
+  }
 }
 
 export async function deleteCollectJob(jobId) {

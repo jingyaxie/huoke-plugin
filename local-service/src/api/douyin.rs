@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::db::{CollectJob, JobStatus};
-use crate::job_config::{build_config_json, PresetRef};
+use crate::job_config::{build_config_json, InteractionSettings, PresetRef};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -169,6 +169,9 @@ pub async fn create_job(
     let max_comments_per_video = body.max_comments_per_video.clamp(1, 500);
     let comment_presets = resolve_presets(body.comment_presets, body.comment_preset_ids);
     let dm_presets = resolve_presets(body.dm_presets, body.dm_preset_ids);
+    let interaction = body
+        .interaction
+        .unwrap_or_else(|| serde_json::to_value(InteractionSettings::default()).unwrap_or(json!({})));
 
     let base_config = json!({
         "job_type": job_type,
@@ -179,7 +182,7 @@ pub async fn create_job(
         "region_name": body.region_name,
         "publish_time_range": body.publish_time_range.unwrap_or_else(|| "unlimited".to_string()),
         "comment_days": body.comment_days.unwrap_or(3),
-        "interaction": body.interaction,
+        "interaction": interaction,
         "auto_start": body.auto_start.unwrap_or(false),
         "auto_outreach": body.auto_outreach,
     });
@@ -253,6 +256,19 @@ pub async fn list_job_comments(
     Ok(Json(json!({ "job_id": job_id, "comments": comments })))
 }
 
+pub async fn list_job_interactions(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+    Query(query): Query<ListCommentsQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _ = state.db.get_job(&job_id).map_err(|_| not_found())?;
+    let interactions = state
+        .db
+        .list_interactions_for_job(&job_id, query.limit.clamp(1, 5000))
+        .map_err(internal_error)?;
+    Ok(Json(json!({ "job_id": job_id, "interactions": interactions })))
+}
+
 pub async fn start_job(
     State(state): State<AppState>,
     Path(job_id): Path<String>,
@@ -276,6 +292,24 @@ pub async fn start_job(
         "status": "running",
         "message": "collect job started — keep Douyin tab active in Chrome"
     })))
+}
+
+pub async fn pause_job(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let job = state.db.get_job(&job_id).map_err(|_| not_found())?;
+    if job.status != JobStatus::Running && job.status != JobStatus::Pending {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("任务当前为 {}，仅运行中或待执行的任务可暂停", job.status.as_str()) })),
+        ));
+    }
+    state
+        .db
+        .update_job_status(&job_id, JobStatus::Paused, None)
+        .map_err(internal_error)?;
+    Ok(Json(json!({ "job_id": job_id, "status": "paused" })))
 }
 
 pub async fn delete_job(

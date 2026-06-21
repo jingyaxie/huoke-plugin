@@ -119,6 +119,7 @@ import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/preset
 import {
   FALLBACK_COMMENT_DAYS_OPTIONS,
   FALLBACK_PUBLISH_TIME_OPTIONS,
+  computeAutoOutreach,
   listManualModeOptions,
   loadExtensionAutoStartPref,
   saveExtensionAutoStartPref,
@@ -277,7 +278,12 @@ async function submit() {
       interaction: settings.value,
       comment_presets: commentPresetPayload,
       dm_presets: dmPresetPayload,
-      auto_outreach: commentPresetPayload.length > 0 || dmPresetPayload.length > 0,
+      auto_outreach: computeAutoOutreach({
+        commentPresetPayload,
+        dmPresetPayload,
+        followPerDay: settings.value.follow_per_day,
+        dmPerDay: settings.value.dm_per_day,
+      }),
       auto_start: form.autoStart,
     });
     ElMessage.success(

@@ -54,7 +54,7 @@
         class="empty-hint"
       />
 
-      <el-table v-loading="loading" :data="pageRows" stripe empty-text="暂无触达数据">
+      <el-table v-loading="loading || tableLoading" :data="pageRows" stripe empty-text="暂无触达数据">
         <el-table-column prop="nickname" label="用户昵称" width="120" show-overflow-tooltip />
         <el-table-column label="头像" width="72">
           <template #default="{ row }">
@@ -145,6 +145,7 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   job: { type: Object, default: null },
   initialView: { type: String, default: OUTREACH_METRIC_VIEWS.ALL },
+  loading: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["update:modelValue"]);
@@ -154,7 +155,7 @@ const keyword = ref("");
 const actionType = ref("all");
 const page = ref(1);
 const pageSize = 10;
-const loading = ref(false);
+const tableLoading = ref(false);
 const activeView = ref(OUTREACH_METRIC_VIEWS.ALL);
 
 watch(
@@ -227,7 +228,7 @@ const pageStart = computed(() => (filteredRows.value.length ? (page.value - 1) *
 const pageEnd = computed(() => Math.min(page.value * pageSize, filteredRows.value.length));
 
 const emptyHint = computed(() => {
-  if (!props.job || loading.value) return "";
+  if (!props.job || props.loading) return "";
   const commentsCaptured = Number(
     props.job?.sync?.progress?.comments_captured
     || rowModel.value?.metrics?.produced_total

@@ -1,8 +1,31 @@
 import { humanPace, sleep } from "./search-input";
+import {
+  activateCommentSidebar,
+  isCommentSidebarReadyForCollect,
+} from "./comment-sidebar-dom";
+import {
+  getAllCachedCommentApiItems,
+  getCommentApiItemsForAweme,
+  pollCommentApiCache,
+} from "./comment-api";
 
 const COMMENT_ITEM_SELECTOR = '[data-e2e="comment-item"]';
 const END_MARKERS = ["暂时没有更多评论", "没有更多评论"] as const;
 const MAX_PARSE_NODES = 200;
+const META_LABELS = new Set(["作者", "回复", "分享", "赞", "置顶", "展开", "收起", "展开更多", "收起更多"]);
+
+function extractAwemeIdFromLocation(): string {
+  try {
+    const url = new URL(location.href);
+    const modalId = url.searchParams.get("modal_id");
+    if (modalId && /^\d{8,22}$/.test(modalId)) return modalId;
+    const match = location.pathname.match(/\/video\/(\d{8,22})/);
+    if (match?.[1]) return match[1];
+  } catch {
+    // ignore
+  }
+  return "";
+}
 
 function commentSidebarRoot(): HTMLElement | null {
   return (
@@ -142,29 +165,191 @@ function pickCommentTime(node: HTMLElement): number | null {
   return null;
 }
 
-function parseCommentItem(node: HTMLElement, index: number) {
-  const textNode =
-    node.querySelector('[class*="comment-content"]') ??
-    node.querySelector('[class*="content"]') ??
-    node.querySelector("span");
-  const authorNode =
-    node.querySelector('[class*="nickname"]') ??
-    node.querySelector('[class*="name"]') ??
-    node.querySelector('a[href*="/user/"]');
-  const avatar = node.querySelector('a[href*="/user/"]') as HTMLAnchorElement | null;
+function isValidCommentContent(text: string, nickname: string): boolean {
+  const value = text.replace(/\s+/g, " ").trim();
+  if (!value || value === "—") return false;
+  if (META_LABELS.has(value)) return false;
+  if (/^\d+$/.test(value)) return false;
+  if (nickname && value === nickname) return false;
+  if (value === "回复" || value.startsWith("回复@")) return false;
+  if (/^\d+[分钟小时天周月]+前$/.test(value.replace(/\s+/g, ""))) return false;
+  if (/^\d{1,2}-\d{1,2}$/.test(value)) return false;
+  if (/^[\d.]+[wW万]?$/.test(value)) return false;
+  return value.length >= 2;
+}
 
-  const content = nodeShortText(textNode) || nodeShortText(node.querySelector("p"));
-  const author = nodeShortText(authorNode, 60) || "—";
+function extractCommentId(node: HTMLElement): string {
+  const direct =
+    node.getAttribute("data-cid") ||
+    node.dataset.cid ||
+    node.getAttribute("data-comment-id") ||
+    "";
+  if (direct.trim()) return direct.trim();
+
+  const nested = node.querySelector("[data-cid], [data-comment-id]") as HTMLElement | null;
+  if (nested) {
+    const nestedId =
+      nested.getAttribute("data-cid") ||
+      nested.getAttribute("data-comment-id") ||
+      "";
+    if (nestedId.trim()) return nestedId.trim();
+  }
+
+  const idMatch = node.id.match(/^comment-(\d+)/)?.[1];
+  return idMatch ?? "";
+}
+
+function extractNickname(node: HTMLElement): string {
+  const selectors = [
+    '[class*="nickname"]',
+    '[class*="user-name"]',
+    '[class*="author-name"]',
+    '[class*="name-text"]',
+    'a[href*="/user/"] span',
+    'a[href*="/user/"]',
+  ];
+  for (const selector of selectors) {
+    const el = node.querySelector(selector);
+    if (!el) continue;
+    const text = nodeShortText(el, 60);
+    if (text && text !== "—" && !META_LABELS.has(text) && !/^\d+$/.test(text)) {
+      return text;
+    }
+  }
+  return "—";
+}
+
+function extractContent(node: HTMLElement, nickname: string): string {
+  const selectors = [
+    '[class*="CommentContent"]',
+    '[class*="comment-content"]',
+    '[class*="CommentText"]',
+    '[class*="comment-text"]',
+    '[data-e2e="comment-content"]',
+  ];
+  for (const selector of selectors) {
+    const el = node.querySelector(selector);
+    const text = nodeShortText(el);
+    if (isValidCommentContent(text, nickname)) return text;
+  }
+
+  let best = "";
+  const nodes = node.querySelectorAll("span, p, div");
+  for (let i = 0; i < nodes.length && i < 40; i += 1) {
+    const el = nodes[i] as HTMLElement;
+    if (el.querySelector(COMMENT_ITEM_SELECTOR)) continue;
+    if (el.closest("button")) continue;
+    const text = nodeShortText(el, 500);
+    if (!isValidCommentContent(text, nickname)) continue;
+    if (text.length > best.length) best = text;
+  }
+  return best;
+}
+
+function extractAvatarUrl(node: HTMLElement): string {
+  const img =
+    (node.querySelector("div.comment-item-avatar img") as HTMLImageElement | null) ??
+    (node.querySelector('[data-e2e="live-avatar"] img') as HTMLImageElement | null) ??
+    (node.querySelector('a[href*="/user/"] img') as HTMLImageElement | null) ??
+    (node.querySelector("img") as HTMLImageElement | null);
+  const src = img?.currentSrc || img?.src || img?.getAttribute("src") || "";
+  return src.startsWith("http") ? src : "";
+}
+
+function parseCommentItem(node: HTMLElement, index: number) {
+  const nickname = extractNickname(node);
+  const content = extractContent(node, nickname);
+  const authorNode =
+    node.querySelector('a[href*="/user/"]') as HTMLAnchorElement | null;
   const createTime = pickCommentTime(node);
 
   return {
     index,
     content: content || "—",
-    author,
-    user_url: avatar?.href ?? "",
-    comment_id: node.getAttribute("data-comment-id") ?? "",
+    author: nickname,
+    user_url: authorNode?.href ?? "",
+    avatar_url: extractAvatarUrl(node),
+    comment_id: extractCommentId(node),
     create_time: createTime,
+    source: "dom" as const,
   };
+}
+
+function mapApiComment(item: {
+  comment_id: string;
+  content: string;
+  author: string;
+  user_id: string;
+  sec_uid: string;
+  avatar_url: string;
+  digg_count: number;
+  create_time: number | null;
+}, source: "api" | "dom" = "api") {
+  const profile =
+    item.sec_uid
+      ? `https://www.douyin.com/user/${item.sec_uid}`
+      : item.user_id
+        ? `https://www.douyin.com/user/${item.user_id}`
+        : "";
+  return {
+    index: 0,
+    content: item.content,
+    author: item.author || "—",
+    user_url: profile,
+    avatar_url: item.avatar_url || "",
+    comment_id: item.comment_id,
+    create_time: item.create_time,
+    digg_count: item.digg_count,
+    user_id: item.user_id,
+    sec_uid: item.sec_uid,
+    source,
+  };
+}
+
+async function mergeApiComments(
+  domComments: ReturnType<typeof parseCommentItem>[],
+  awemeHint: string,
+) {
+  const polled = await pollCommentApiCache({
+    timeoutMs: 6000,
+    minItems: 1,
+    awemeId: awemeHint || undefined,
+  });
+  const apiItems =
+    polled.length > 0
+      ? polled
+      : awemeHint
+        ? await getCommentApiItemsForAweme(awemeHint)
+        : await getAllCachedCommentApiItems();
+
+  if (!apiItems.length) return domComments;
+
+  const merged = new Map<string, ReturnType<typeof mapApiComment>>();
+  for (const item of apiItems) {
+    merged.set(item.comment_id, mapApiComment(item));
+  }
+  for (const item of domComments) {
+    const key =
+      item.comment_id ||
+      `${item.author}|${item.content.slice(0, 80)}`;
+    if (merged.has(key)) continue;
+    if (!isValidCommentContent(item.content, item.author)) continue;
+    merged.set(key, mapApiComment({
+      comment_id: item.comment_id || key,
+      content: item.content,
+      author: item.author,
+      user_id: "",
+      sec_uid: "",
+      avatar_url: item.avatar_url || "",
+      digg_count: 0,
+      create_time: item.create_time,
+    }, "dom"));
+  }
+
+  return Array.from(merged.values()).map((item, index) => ({
+    ...item,
+    index: index + 1,
+  }));
 }
 
 function cutoffTs(commentDays: number): number | null {
@@ -199,6 +384,11 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
   const maxComments = Math.max(1, Math.min(Number(payload.max_comments ?? 80), 300));
   const commentDays = Math.max(0, Number(payload.comment_days ?? 0));
 
+  if (!isCommentSidebarReadyForCollect()) {
+    await activateCommentSidebar();
+    await sleep(humanPace.afterCommentClick());
+  }
+
   const seen = new Set<string>();
   const comments: ReturnType<typeof parseCommentItem>[] = [];
 
@@ -212,7 +402,7 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
       if (rect.height < 8) continue;
 
       const parsed = parseCommentItem(node, comments.length + 1);
-      if (!parsed.content || parsed.content === "—") continue;
+      if (!isValidCommentContent(parsed.content, parsed.author)) continue;
 
       const key = `${parsed.author}|${parsed.content.slice(0, 80)}`;
       if (seen.has(key)) continue;
@@ -268,19 +458,27 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
       })
     : comments;
 
+  const awemeHint = extractAwemeIdFromLocation();
+  const merged = await mergeApiComments(inWindow, awemeHint);
+  const apiCount = merged.filter((row) => row.source === "api").length;
+  const domCount = merged.length - apiCount;
+
   return {
-    ok: inWindow.length > 0,
-    count: inWindow.length,
-    comments: inWindow,
-    items: inWindow,
+    ok: merged.length > 0,
+    count: merged.length,
+    comments: merged,
+    items: merged,
+    aweme_id: awemeHint,
+    api_count: apiCount,
+    dom_count: domCount,
     scroll_rounds: scrolledRounds,
     max_rounds: maxRounds,
     comment_days: commentDays,
     stopped_reason: stoppedReason,
     url: location.href,
     message:
-      inWindow.length > 0
-        ? `已采集 ${inWindow.length} 条评论（滚动 ${scrolledRounds} 轮，停止原因: ${stoppedReason}）`
+      merged.length > 0
+        ? `已采集 ${merged.length} 条评论（API ${apiCount} + DOM ${domCount}，滚动 ${scrolledRounds} 轮，停止: ${stoppedReason}）`
         : "评论区无可见评论，请先执行步骤 10 打开评论区",
   };
 }

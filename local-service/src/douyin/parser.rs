@@ -19,6 +19,7 @@ pub struct ParsedComment {
     pub username: String,
     pub user_id: String,
     pub sec_uid: String,
+    pub avatar_url: String,
     pub digg_count: i64,
     pub create_time: Option<i64>,
     pub raw_json: Option<String>,
@@ -367,6 +368,7 @@ fn normalize_comment(item: &Value, parent_comment_id: Option<String>) -> Option<
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
+        avatar_url: _avatar_url.to_string(),
         digg_count: map
             .get("digg_count")
             .and_then(|v| v.as_i64())
@@ -407,6 +409,9 @@ pub fn parse_dom_scroll_comments(resp: &Value) -> Vec<ParsedComment> {
             .unwrap_or("")
             .trim()
             .to_string();
+        if is_junk_dom_comment(&content, &author) {
+            continue;
+        }
         let comment_id = map
             .get("comment_id")
             .and_then(|v| v.as_str())
@@ -426,15 +431,37 @@ pub fn parse_dom_scroll_comments(resp: &Value) -> Vec<ParsedComment> {
             .get("user_url")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let (user_id, sec_uid) = parse_user_ids_from_url(user_url);
+        let user_id = map
+            .get("user_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_default();
+        let sec_uid = map
+            .get("sec_uid")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_default();
+        let (parsed_user_id, parsed_sec_uid) = parse_user_ids_from_url(user_url);
+        let digg_count = map.get("digg_count").and_then(|v| v.as_i64()).unwrap_or(0);
+        let avatar_url = map
+            .get("avatar_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
         out.push(ParsedComment {
             comment_id,
             parent_comment_id: None,
             content,
             username: author,
-            user_id,
-            sec_uid,
-            digg_count: 0,
+            user_id: if user_id.is_empty() { parsed_user_id } else { user_id },
+            sec_uid: if sec_uid.is_empty() { parsed_sec_uid } else { sec_uid },
+            avatar_url,
+            digg_count,
             create_time: map.get("create_time").and_then(|v| v.as_i64()),
             raw_json: serde_json::to_string(item).ok(),
         });
@@ -451,6 +478,26 @@ fn stable_hash(text: &str) -> u32 {
         hash = hash.wrapping_mul(31).wrapping_add(u32::from(b));
     }
     hash
+}
+
+fn is_junk_dom_comment(content: &str, author: &str) -> bool {
+    let text = content.trim();
+    if text.is_empty() || text == "—" {
+        return true;
+    }
+    if matches!(text, "作者" | "回复" | "分享" | "置顶" | "展开" | "收起") {
+        return true;
+    }
+    if text.len() <= 2 && text.chars().all(|ch| ch.is_ascii_digit()) {
+        return true;
+    }
+    if !author.is_empty() && author != "—" && text == author {
+        return true;
+    }
+    if text.starts_with("回复@") {
+        return true;
+    }
+    false
 }
 
 fn parse_user_ids_from_url(url: &str) -> (String, String) {
@@ -574,6 +621,21 @@ mod tests {
         let payload = dom_poster_click_payload(videos[0].raw_json.as_deref());
         assert_eq!(payload["video_index"], 1);
         assert_eq!(payload["rect"]["top"], 100);
+    }
+
+    #[test]
+    fn filters_junk_dom_comments() {
+        let resp = json!({
+            "comments": [
+                { "content": "作者", "author": "—" },
+                { "content": "0", "author": "—" },
+                { "content": "是联明啊", "author": "是联明啊" },
+                { "content": "求带练", "author": "用户A", "comment_id": "c1" }
+            ]
+        });
+        let comments = parse_dom_scroll_comments(&resp);
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].content, "求带练");
     }
 
     #[test]

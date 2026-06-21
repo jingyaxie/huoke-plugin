@@ -23,6 +23,8 @@ export interface OpenBrowserPayload {
   /** 为 true 时聚焦已有平台窗口，否则新建独立 Chrome 窗口 */
   reuse_existing?: boolean;
   wait_load?: boolean;
+  /** 任务开始时若不在合法起始页，则导航到平台首页 */
+  reset_to_start?: boolean;
 }
 
 export interface OpenBrowserResult {
@@ -66,6 +68,25 @@ function shouldReuseExisting(payload: OpenBrowserPayload): boolean {
   if (payload.reuse_existing === true) return true;
   // 兼容旧字段：new_tab=false 表示复用
   if (payload.new_tab === false) return true;
+  return false;
+}
+
+/** 关键词采集任务的起始页：抖音首页/精选，而非视频详情、个人页、搜索页或 Feed 浮层 */
+function needsJobStartReset(url: string | undefined, platform: PlatformId): boolean {
+  if (!url) return true;
+  if (platform === "douyin") {
+    try {
+      const parsed = new URL(url);
+      if (!parsed.hostname.includes("douyin.com")) return true;
+      if (/\/video\/\d/i.test(url) || /\/note\/\d/i.test(url)) return true;
+      if (/\/user\//i.test(url)) return true;
+      if (/modal_id=\d/i.test(url)) return true;
+      if (/\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(parsed.pathname)) return true;
+      return false;
+    } catch {
+      return true;
+    }
+  }
   return false;
 }
 
@@ -165,7 +186,9 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
   const url = resolveTargetUrl(payload, platform);
   const reuseExisting = shouldReuseExisting(payload);
   const waitLoad = payload.wait_load === true;
+  const resetToStart = payload.reset_to_start === true;
   const customUrl = String(payload.url ?? "").trim();
+  const startUrl = PLATFORM_URLS[platform] ?? PLATFORM_URLS.douyin;
 
   if (reuseExisting) {
     const existing = await findExistingPlatformTab(platform);
@@ -176,12 +199,17 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
       }
       await focusTab(existing);
 
-      const navigated = customUrl && existing.url !== customUrl;
+      const shouldReset =
+        resetToStart && !customUrl && needsJobStartReset(existing.url, platform);
+      const navigatedToCustom = Boolean(customUrl && existing.url !== customUrl);
+      const navigated = navigatedToCustom || shouldReset;
+
       if (navigated) {
-        await chrome.tabs.update(existing.id, { url: customUrl });
-        if (waitLoad) {
-          await waitForTabLoad(existing.id);
-        }
+        const targetUrl = customUrl || startUrl;
+        await chrome.tabs.update(existing.id, { url: targetUrl });
+        await waitForTabLoad(existing.id, shouldReset ? 15_000 : 8_000);
+      } else if (waitLoad) {
+        await waitForTabLoad(existing.id);
       }
 
       const refreshed = await chrome.tabs.get(existing.id);
@@ -190,9 +218,11 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
         opened: false,
         newWindow: false,
         bounds,
-        message: navigated
-          ? `已聚焦 ${platform} 并打开 ${customUrl}`
-          : `已聚焦已有 ${platform} 窗口（左侧半屏）`,
+        message: shouldReset
+          ? `已重置到 ${platform} 任务起始页`
+          : navigatedToCustom
+            ? `已聚焦 ${platform} 并打开 ${customUrl}`
+            : `已聚焦已有 ${platform} 窗口（左侧半屏）`,
       });
     }
   }

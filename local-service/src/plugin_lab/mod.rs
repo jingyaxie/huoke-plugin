@@ -61,12 +61,17 @@ fn normalize_open_browser_payload(payload: Value) -> Value {
         })
         .unwrap_or(false);
     let wait_load = payload.get("wait_load").and_then(|v| v.as_bool()).unwrap_or(false);
+    let reset_to_start = payload
+        .get("reset_to_start")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     json!({
         "platform": platform,
         "url": url,
         "reuse_existing": reuse_existing,
         "wait_load": wait_load,
+        "reset_to_start": reset_to_start,
     })
 }
 

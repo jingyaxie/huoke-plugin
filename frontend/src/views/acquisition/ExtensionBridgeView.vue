@@ -71,10 +71,43 @@
               <template #default="{ row }">{{ row.keyword }}</template>
             </el-table-column>
             <el-table-column label="预设抓取数量" width="112" align="right">
-              <template #default="{ row }">{{ jobTargetCount(row) }}</template>
+              <template #default="{ row }">{{ extensionJobTargetCount(row) }}</template>
             </el-table-column>
-            <el-table-column label="采集评论" width="88" align="right">
-              <template #default="{ row }">{{ row.comment_count || 0 }}</template>
+            <el-table-column label="实际抓取总线索" width="120" align="right">
+              <template #default="{ row }">
+                <MetricLink
+                  :value="row.comment_count || 0"
+                  :clickable="Number(row.comment_count) > 0"
+                  @click="openCollectData(row, 'all')"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="评论数" width="80" align="right">
+              <template #default="{ row }">
+                <MetricLink
+                  :value="row.reply_count || 0"
+                  :clickable="Number(row.reply_count) > 0"
+                  @click="openCollectData(row, 'reply')"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="私信数" width="80" align="right">
+              <template #default="{ row }">
+                <MetricLink
+                  :value="row.dm_count || 0"
+                  :clickable="Number(row.dm_count) > 0"
+                  @click="openCollectData(row, 'dm')"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="关注数" width="80" align="right">
+              <template #default="{ row }">
+                <MetricLink
+                  :value="row.follow_count || 0"
+                  :clickable="Number(row.follow_count) > 0"
+                  @click="openCollectData(row, 'follow')"
+                />
+              </template>
             </el-table-column>
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
@@ -85,33 +118,9 @@
             <el-table-column label="创建时间" width="160">
               <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="300" fixed="right">
+            <el-table-column label="" width="56" align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openJobDetail(row)">详情</el-button>
-                <el-button
-                  link
-                  type="primary"
-                  :disabled="row.status === 'running' || row.status === 'completed'"
-                  @click="onStartCollect(row)"
-                >
-                  开始采集
-                </el-button>
-                <el-button
-                  link
-                  type="success"
-                  :disabled="row.comment_count <= 0"
-                  @click="openOutreachDialog(row)"
-                >
-                  创建触达
-                </el-button>
-                <el-button
-                  v-if="canDeleteJob(row.status)"
-                  link
-                  type="danger"
-                  @click="onDeleteCollect(row)"
-                >
-                  删除
-                </el-button>
+                <CollectJobRowActions :row="row" @action="onCollectJobAction(row, $event)" />
               </template>
             </el-table-column>
           </el-table>
@@ -138,14 +147,9 @@
             <el-table-column prop="completed_count" label="成功" width="72" align="right" />
             <el-table-column prop="failed_count" label="失败" width="72" align="right" />
             <el-table-column prop="pending_count" label="待执行" width="80" align="right" />
-            <el-table-column label="操作" width="180" fixed="right">
+            <el-table-column label="" width="56" align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" :disabled="row.status === 'running'" @click="onStartOutreach(row)">
-                  开始
-                </el-button>
-                <el-button link type="warning" :disabled="row.status !== 'running'" @click="onPauseOutreach(row)">
-                  暂停
-                </el-button>
+                <OutreachTaskRowActions :row="row" @action="onOutreachTaskAction(row, $event)" />
               </template>
             </el-table-column>
           </el-table>
@@ -155,6 +159,13 @@
     </el-tabs>
 
     <CreateExtensionAutoTaskDialog v-model="createCollectOpen" @created="refreshAll" />
+
+    <AcquisitionOutreachModal
+      v-model="outreachOpen"
+      :job="outreachJob"
+      :initial-view="outreachView"
+      :loading="outreachLoading"
+    />
 
     <el-dialog v-model="createOutreachOpen" title="创建评论触达" width="560px">
       <el-form label-width="120px">
@@ -192,47 +203,31 @@
         <el-button type="primary" :loading="submitting" @click="submitOutreach">创建</el-button>
       </template>
     </el-dialog>
-
-    <el-drawer v-model="detailOpen" :title="detailTitle" size="720px">
-      <div v-loading="detailLoading" class="detail-body">
-        <h4>采集视频 ({{ detailVideos.length }})</h4>
-        <el-table :data="detailVideos" size="small" max-height="220" @row-click="selectVideo">
-          <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="author" label="作者" width="120" show-overflow-tooltip />
-        </el-table>
-
-        <h4 class="detail-comments-title">
-          评论 ({{ detailComments.length }})
-          <span v-if="selectedVideoId" class="muted">· 视频 {{ selectedVideoId }}</span>
-        </h4>
-        <el-table :data="detailComments" size="small" max-height="360" empty-text="暂无评论">
-          <el-table-column prop="username" label="用户" width="120" show-overflow-tooltip />
-          <el-table-column prop="content" label="内容" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="digg_count" label="赞" width="64" align="right" />
-        </el-table>
-      </div>
-    </el-drawer>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import AcquisitionOutreachModal from "../../components/AcquisitionOutreachModal.vue";
 import AcquisitionStatsCards from "../../components/AcquisitionStatsCards.vue";
+import CollectJobRowActions from "../../components/CollectJobRowActions.vue";
 import CreateExtensionAutoTaskDialog from "../../components/CreateExtensionAutoTaskDialog.vue";
+import MetricLink from "../../components/MetricLink.vue";
+import OutreachTaskRowActions from "../../components/OutreachTaskRowActions.vue";
 import {
   createOutreachTask,
   deleteCollectJob,
   fetchBridgeStatus,
   fetchReplyQuota,
-  listCollectComments,
   listCollectJobs,
-  listCollectVideos,
   listOutreachTasks,
+  pauseCollectJob,
   pauseOutreachTask,
   startCollectJob,
   startOutreachTask,
 } from "../../api/localService";
+import { extensionJobTargetCount, loadCollectJobForModal } from "../../utils/extensionCollectJobs";
 import { loadReplyPresetOptions } from "../../utils/localPresets";
 import {
   getExtensionSetupStatus,
@@ -266,12 +261,10 @@ const outreachForm = reactive({
   min_digg_count: 0,
 });
 
-const detailOpen = ref(false);
-const detailLoading = ref(false);
-const detailJob = ref(null);
-const detailVideos = ref([]);
-const detailComments = ref([]);
-const selectedVideoId = ref("");
+const outreachOpen = ref(false);
+const outreachLoading = ref(false);
+const outreachJob = ref(null);
+const outreachView = ref("all");
 
 const bridgeLabel = computed(() => {
   const count = Number(bridgeStatus.value.connected_clients || 0);
@@ -289,30 +282,43 @@ const dashboard = computed(() => {
   const runningTasks = tasks.filter((row) => row.status === "running").length;
   const queued = jobs.filter((row) => row.status === "pending").length;
   const totalComments = jobs.reduce((sum, row) => sum + Number(row.comment_count || 0), 0);
-  const completedReplies = tasks.reduce((sum, row) => sum + Number(row.completed_count || 0), 0);
+  const totalReplies = jobs.reduce((sum, row) => sum + Number(row.reply_count || 0), 0);
+  const totalDm = jobs.reduce((sum, row) => sum + Number(row.dm_count || 0), 0);
+  const totalFollow = jobs.reduce((sum, row) => sum + Number(row.follow_count || 0), 0);
   return {
     running_tasks: runningJobs + runningTasks,
     queued_tasks: queued,
-    precise_customers: totalComments,
+    precise_customers: 0,
     total_leads: totalComments,
-    dm_count: 0,
-    follow_count: completedReplies,
+    dm_count: totalDm,
+    follow_count: totalFollow + totalReplies,
   };
-});
-
-const detailTitle = computed(() => {
-  if (!detailJob.value) return "任务详情";
-  return `任务详情 · ${detailJob.value.keyword}`;
 });
 
 function jobDisplayName(row) {
   return row.name || `关键词获客-${row.keyword}`;
 }
 
-function jobTargetCount(row) {
-  const fromConfig = Number(row.config?.target_count);
-  if (Number.isFinite(fromConfig) && fromConfig > 0) return fromConfig;
-  return Number(row.limit_videos || 0) * Number(row.max_comments_per_video || 0) || "—";
+async function openCollectData(row, view = "all") {
+  const countMap = {
+    all: row.comment_count,
+    reply: row.reply_count,
+    dm: row.dm_count,
+    follow: row.follow_count,
+  };
+  if (Number(countMap[view] || 0) <= 0) return;
+  outreachView.value = view;
+  outreachOpen.value = true;
+  outreachLoading.value = true;
+  outreachJob.value = null;
+  try {
+    outreachJob.value = await loadCollectJobForModal(row);
+  } catch (err) {
+    outreachOpen.value = false;
+    ElMessage.error(err?.response?.data?.error || err?.message || "加载采集数据失败");
+  } finally {
+    outreachLoading.value = false;
+  }
 }
 
 function platformLabel(platform) {
@@ -342,8 +348,17 @@ function statusTagType(status) {
   return map[status] || "info";
 }
 
-function canDeleteJob(status) {
-  return ["pending", "failed", "completed"].includes(status);
+function onCollectJobAction(row, action) {
+  if (action === "view") openCollectData(row, "all");
+  else if (action === "start") onStartCollect(row);
+  else if (action === "pause") onPauseCollect(row);
+  else if (action === "outreach") openOutreachDialog(row);
+  else if (action === "delete") onDeleteCollect(row);
+}
+
+function onOutreachTaskAction(row, action) {
+  if (action === "start") onStartOutreach(row);
+  else if (action === "pause") onPauseOutreach(row);
 }
 
 function formatTime(ts) {
@@ -427,6 +442,16 @@ async function onStartCollect(row) {
   }
 }
 
+async function onPauseCollect(row) {
+  try {
+    await pauseCollectJob(row.id);
+    ElMessage.success("采集任务已暂停");
+    await refreshAll();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.error || err?.message || "暂停失败");
+  }
+}
+
 async function onDeleteCollect(row) {
   const name = jobDisplayName(row);
   try {
@@ -441,7 +466,7 @@ async function onDeleteCollect(row) {
   try {
     await deleteCollectJob(row.id);
     ElMessage.success("任务已删除");
-    if (detailJob.value?.id === row.id) detailOpen.value = false;
+    if (outreachJob.value?.job_id === row.id) outreachOpen.value = false;
     await refreshAll();
   } catch (err) {
     ElMessage.error(err?.response?.data?.error || err?.message || "删除失败");
@@ -506,42 +531,6 @@ async function onPauseOutreach(row) {
     await refreshAll();
   } catch (err) {
     ElMessage.error(err?.response?.data?.error || err?.message || "暂停失败");
-  }
-}
-
-async function openJobDetail(row) {
-  detailJob.value = row;
-  detailOpen.value = true;
-  detailLoading.value = true;
-  detailVideos.value = [];
-  detailComments.value = [];
-  selectedVideoId.value = "";
-  try {
-    const videoResp = await listCollectVideos(row.id);
-    detailVideos.value = videoResp.videos || [];
-    const commentResp = await listCollectComments(row.id, { limit: 200 });
-    detailComments.value = commentResp.comments || [];
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || "加载详情失败");
-  } finally {
-    detailLoading.value = false;
-  }
-}
-
-async function selectVideo(row) {
-  if (!detailJob.value || !row?.aweme_id) return;
-  selectedVideoId.value = row.aweme_id;
-  detailLoading.value = true;
-  try {
-    const commentResp = await listCollectComments(detailJob.value.id, {
-      aweme_id: row.aweme_id,
-      limit: 200,
-    });
-    detailComments.value = commentResp.comments || [];
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || "加载评论失败");
-  } finally {
-    detailLoading.value = false;
   }
 }
 
