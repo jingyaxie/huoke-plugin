@@ -1,4 +1,4 @@
-import { resolveLabTargetTab } from "./resolve-lab-tab";
+import { resolveLabTabForAction } from "./resolve-lab-tab";
 import type { ClickFilterOverlayPayload } from "./click-filter-overlay";
 import { publishTimeLabelFromDays } from "./filter-overlay";
 import {
@@ -109,7 +109,7 @@ async function openFilterPanel(tabId: number, probe: FilterProbe) {
 
 /** background：真实鼠标打开筛选浮层 */
 export async function clickFilterButtonBackground() {
-  const tab = await resolveLabTargetTab();
+  const tab = await resolveLabTabForAction("plugin_lab.click_filter_btn");
   if (!tab.id) throw new Error("target tab has no id");
 
   const tabId = tab.id;
@@ -147,7 +147,7 @@ export async function clickFilterOverlayBackground(payload: ClickFilterOverlayPa
     throw new Error("click_filter_overlay: missing option_label / option_labels / days");
   }
 
-  const tab = await resolveLabTargetTab();
+  const tab = await resolveLabTabForAction("plugin_lab.click_filter_overlay");
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
 

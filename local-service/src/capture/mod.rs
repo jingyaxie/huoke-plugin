@@ -69,6 +69,7 @@ impl CaptureService {
         if is_search_api(url) || is_profile_post_api(url) {
             let videos = parse_search_videos(&body);
             if videos.is_empty() {
+                tracing::debug!("search api captured but parsed 0 videos: {url}");
                 return Ok(());
             }
             for job_id in &running_jobs {

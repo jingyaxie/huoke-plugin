@@ -180,7 +180,8 @@ impl JobConfig {
     }
 
     pub fn filter_publish_days_for_ui(&self) -> i64 {
-        self.publish_days.unwrap_or(7)
+        // unlimited → None → 0，不点发布时间筛选
+        self.publish_days.unwrap_or(0)
     }
 
     pub fn has_reply_presets(&self) -> bool {
@@ -293,6 +294,14 @@ mod tests {
         assert_eq!(job_cfg.search_keyword("团餐"), "深圳 团餐");
         assert!(job_cfg.has_reply_presets());
         assert!(job_cfg.should_run_auto_outreach());
+    }
+
+    #[test]
+    fn unlimited_publish_skips_filter_days() {
+        let cfg = json!({ "publish_time_range": "unlimited" });
+        let job_cfg = JobConfig::from_parts(&cfg, 5, 10, "健身");
+        assert_eq!(job_cfg.publish_days, None);
+        assert_eq!(job_cfg.filter_publish_days_for_ui(), 0);
     }
 
     #[test]

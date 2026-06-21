@@ -207,6 +207,7 @@ pub async fn create_job(
 
     let mut started = None;
     if body.auto_start.unwrap_or(false) {
+        let _ = state.db.supersede_other_running_jobs(&job.id);
         state.capture.clone().spawn_job(job.id.clone());
         started = Some(true);
     }
@@ -264,12 +265,33 @@ pub async fn start_job(
         return Ok(Json(json!({ "job_id": job_id, "status": "completed", "message": "already completed" })));
     }
 
+    state
+        .db
+        .supersede_other_running_jobs(&job_id)
+        .map_err(internal_error)?;
+
     state.capture.clone().spawn_job(job_id.clone());
     Ok(Json(json!({
         "job_id": job_id,
         "status": "running",
         "message": "collect job started — keep Douyin tab active in Chrome"
     })))
+}
+
+pub async fn delete_job(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    match state.db.delete_collect_job(&job_id) {
+        Ok(true) => Ok(Json(json!({ "ok": true, "job_id": job_id, "deleted": true }))),
+        Ok(false) => Err(not_found()),
+        Err(err) if err == "job not found" => Err(not_found()),
+        Err(err) if err.contains("cannot delete running") => Err((
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "运行中的任务无法删除，请等待结束或重启服务后重试" })),
+        )),
+        Err(err) => Err(internal_error(err)),
+    }
 }
 
 type ApiError = (StatusCode, Json<serde_json::Value>);

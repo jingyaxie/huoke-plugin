@@ -1,4 +1,9 @@
 import { findSearchInputMatch, humanClick, randDelay, sleep } from "./search-input";
+import {
+  clearSearchApiCache,
+  enableSearchNetworkHook,
+  type SearchApiItem,
+} from "./search-api";
 
 const SEARCH_BTN_SELECTORS = [
   '[data-e2e="searchbar-button"]',
@@ -27,11 +32,29 @@ function findSearchButton(): HTMLElement | null {
 }
 
 function isSearchResultsPage(url = location.href): boolean {
-  return /\/search\/|\/jingxuan\/search\//i.test(url);
+  return /\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(url);
 }
 
-/** 步骤 7：点击搜索按钮或 Enter 提交搜索 */
-export async function clickSearchButton() {
+export function buildSearchResultPayload(items: SearchApiItem[], captureMethod: "api" | "none") {
+  return {
+    count: items.length,
+    items,
+    results: items,
+    capture_method: captureMethod,
+    search_aweme_ids: items.map((item) => item.aweme_id),
+  };
+}
+
+/** 步骤 7 前置：清空缓存并开启 search API hook */
+export async function prepareSearchCapture() {
+  await clearSearchApiCache();
+  enableSearchNetworkHook();
+  await sleep(150);
+  return { ok: true, message: "search hook ready" };
+}
+
+/** 步骤 7 提交：仅点击搜索，不在 content 内等待接口（避免跳转打断） */
+export async function submitSearchClick() {
   const beforeUrl = location.href;
   const inputMatch = findSearchInputMatch("douyin");
   const button = findSearchButton();
@@ -53,6 +76,7 @@ export async function clickSearchButton() {
       ok: false,
       method: "none",
       url: location.href,
+      on_search_page: false,
       message: "未找到搜索按钮或搜索框",
     };
   }
@@ -68,12 +92,12 @@ export async function clickSearchButton() {
     inputMatch.input.blur();
   }
 
-  const ok = isSearchResultsPage(location.href);
   return {
-    ok,
+    ok: isSearchResultsPage(location.href),
     method: button ? "click_button" : "enter_key",
     selector: button ? SEARCH_BTN_SELECTORS[0] : inputMatch?.selector ?? "",
     url: location.href,
-    message: ok ? "已触发搜索并进入搜索结果页" : "已点击搜索，但未检测到搜索结果页 URL",
+    on_search_page: isSearchResultsPage(location.href),
+    message: isSearchResultsPage(location.href) ? "已触发搜索并进入搜索结果页" : "已点击搜索，等待接口返回",
   };
 }

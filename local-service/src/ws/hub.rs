@@ -8,6 +8,7 @@ use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::protocol::{parse_message, BridgeMessage, MessageType};
 
@@ -17,13 +18,18 @@ pub struct BridgeHub {
 }
 
 struct HubInner {
-    clients: Mutex<Vec<ClientSender>>,
-    client_count: AtomicUsize,
+    clients: Mutex<Vec<BridgeClient>>,
+    active_extension_id: Mutex<Option<String>>,
+    extension_client_count: AtomicUsize,
     events: broadcast::Sender<BridgeMessage>,
     pending: Mutex<HashMap<String, mpsc::Sender<BridgeMessage>>>,
 }
 
-type ClientSender = tokio::sync::mpsc::UnboundedSender<Message>;
+struct BridgeClient {
+    id: String,
+    sender: mpsc::UnboundedSender<Message>,
+    is_extension: bool,
+}
 
 impl BridgeHub {
     pub fn new() -> Self {
@@ -31,7 +37,8 @@ impl BridgeHub {
         Self {
             inner: Arc::new(HubInner {
                 clients: Mutex::new(Vec::new()),
-                client_count: AtomicUsize::new(0),
+                active_extension_id: Mutex::new(None),
+                extension_client_count: AtomicUsize::new(0),
                 events,
                 pending: Mutex::new(HashMap::new()),
             }),
@@ -39,7 +46,21 @@ impl BridgeHub {
     }
 
     pub fn client_count(&self) -> usize {
-        self.inner.client_count.load(Ordering::Relaxed)
+        self.extension_client_count()
+    }
+
+    pub fn total_client_count(&self) -> usize {
+        self.inner
+            .clients
+            .try_lock()
+            .map(|guard| guard.len())
+            .unwrap_or(0)
+    }
+
+    pub fn extension_client_count(&self) -> usize {
+        self.inner
+            .extension_client_count
+            .load(Ordering::Relaxed)
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<BridgeMessage> {
@@ -49,7 +70,7 @@ impl BridgeHub {
     pub async fn broadcast_command(&self, action: &str, payload: serde_json::Value) -> bool {
         let msg = BridgeMessage::new(MessageType::Command, action, payload);
         self.publish(msg.clone());
-        self.send_to_all(Message::Text(serde_json::to_string(&msg).unwrap_or_default()))
+        self.send_to_extensions(Message::Text(serde_json::to_string(&msg).unwrap_or_default()))
             .await
     }
 
@@ -59,8 +80,10 @@ impl BridgeHub {
         payload: serde_json::Value,
         timeout: std::time::Duration,
     ) -> Result<serde_json::Value, String> {
-        if self.client_count() == 0 {
-            return Err("no extension connected".into());
+        if self.extension_client_count() == 0 {
+            return Err(
+                "no extension connected — load extension/dist and ensure badge shows OK".into(),
+            );
         }
 
         let msg = BridgeMessage::new(MessageType::Command, action, payload);
@@ -74,7 +97,7 @@ impl BridgeHub {
 
         self.publish(msg.clone());
         let queued = self
-            .send_to_all(Message::Text(serde_json::to_string(&msg).unwrap_or_default()))
+            .send_to_extensions(Message::Text(serde_json::to_string(&msg).unwrap_or_default()))
             .await;
         if !queued {
             let mut pending = self.inner.pending.lock().await;
@@ -117,46 +140,150 @@ impl BridgeHub {
         let _ = self.inner.events.send(msg);
     }
 
-    async fn register(&self, sender: ClientSender) {
+    async fn register(&self, client: BridgeClient) {
         let mut guard = self.inner.clients.lock().await;
-        guard.push(sender);
-        self.inner.client_count.store(guard.len(), Ordering::Relaxed);
+        guard.push(client);
+        let active = self.inner.active_extension_id.lock().await.clone();
+        self.sync_extension_count(&guard, active.as_deref());
     }
 
-    async fn unregister(&self, sender: &ClientSender) {
-        let mut guard = self.inner.clients.lock().await;
-        guard.retain(|item| !sender.same_channel(item));
-        self.inner.client_count.store(guard.len(), Ordering::Relaxed);
+    fn sync_extension_count(&self, clients: &[BridgeClient], active: Option<&str>) {
+        let count = if active.is_some() && clients.iter().any(|c| c.is_extension) {
+            1
+        } else {
+            0
+        };
+        self.inner
+            .extension_client_count
+            .store(count, Ordering::Relaxed);
     }
 
-    async fn send_to_all(&self, message: Message) -> bool {
-        let guard = self.inner.clients.lock().await;
-        if guard.is_empty() {
-            return false;
+    /// 服务启动后清空连接表（新进程一般为空）。
+    pub fn reset_on_boot(&self) {
+        if let Ok(mut guard) = self.inner.clients.try_lock() {
+            guard.clear();
         }
+        if let Ok(mut active) = self.inner.active_extension_id.try_lock() {
+            *active = None;
+        }
+        self.inner.extension_client_count.store(0, Ordering::Relaxed);
+        info!("bridge hub reset on boot");
+    }
+
+    /// 运行环境重新初始化：取消未完成的命令、刷新连接计数。
+    pub async fn reset_runtime(&self) {
+        let mut pending = self.inner.pending.lock().await;
+        let dropped = pending.len();
+        pending.clear();
+        drop(pending);
+
+        let mut guard = self.inner.clients.lock().await;
+        let extension_count = guard.iter().filter(|c| c.is_extension).count();
+        self.inner
+            .extension_client_count
+            .store(extension_count, Ordering::Relaxed);
+        drop(guard);
+
+        if dropped > 0 {
+            warn!("bridge hub cleared {dropped} pending command(s)");
+        }
+        info!("bridge hub runtime reset (extension_clients={extension_count})");
+    }
+
+    fn kick_client(client: &BridgeClient) {
+        let _ = client.sender.send(Message::Close(None));
+    }
+
+    /// 新插件握手成功后：关闭并移除其它所有 WS，只保留当前这一条。
+    async fn adopt_single_extension(&self, client_id: &str) {
+        let mut guard = self.inner.clients.lock().await;
+        let mut kicked = 0usize;
+
         for client in guard.iter() {
-            let _ = client.send(message.clone());
+            if client.id != client_id {
+                Self::kick_client(client);
+                kicked += 1;
+            }
         }
-        true
+
+        guard.retain(|c| c.id == client_id);
+        if let Some(client) = guard.iter_mut().find(|c| c.id == client_id) {
+            client.is_extension = true;
+        }
+
+        *self.inner.active_extension_id.lock().await = Some(client_id.to_string());
+        self.sync_extension_count(&guard, Some(client_id));
+
+        if kicked > 0 {
+            info!("bridge cleanup: kept extension {client_id}, closed {kicked} stale ws client(s)");
+        }
+    }
+
+    async fn unregister(&self, client_id: &str) {
+        let mut guard = self.inner.clients.lock().await;
+        guard.retain(|item| item.id != client_id);
+        let mut active = self.inner.active_extension_id.lock().await;
+        if active.as_deref() == Some(client_id) {
+            *active = None;
+        }
+        self.sync_extension_count(&guard, active.as_deref());
+    }
+
+    async fn send_to_extensions(&self, message: Message) -> bool {
+        let active_id = self.inner.active_extension_id.lock().await.clone();
+        let Some(active_id) = active_id else {
+            return false;
+        };
+
+        let mut guard = self.inner.clients.lock().await;
+        let Some(client) = guard.iter().find(|c| c.id == active_id && c.is_extension) else {
+            *self.inner.active_extension_id.lock().await = None;
+            self.sync_extension_count(&guard, None);
+            return false;
+        };
+
+        match client.sender.send(message) {
+            Ok(()) => true,
+            Err(_) => {
+                guard.retain(|c| c.id != active_id);
+                *self.inner.active_extension_id.lock().await = None;
+                self.sync_extension_count(&guard, None);
+                false
+            }
+        }
     }
 
     pub async fn handle_socket(self, socket: WebSocket) {
         let (mut ws_tx, mut ws_rx) = socket.split();
         let (client_tx, mut client_rx) = tokio::sync::mpsc::unbounded_channel();
-        self.register(client_tx.clone()).await;
-        info!("extension connected (clients={})", self.client_count());
+        let client_id = Uuid::new_v4().to_string();
+        self.register(BridgeClient {
+            id: client_id.clone(),
+            sender: client_tx.clone(),
+            is_extension: false,
+        })
+        .await;
+        info!(
+            "ws client connected id={client_id} (total={}, extension={})",
+            self.total_client_count(),
+            self.extension_client_count()
+        );
 
         loop {
             tokio::select! {
                 Some(outgoing) = client_rx.recv() => {
+                    let is_close = matches!(&outgoing, Message::Close(_));
                     if ws_tx.send(outgoing).await.is_err() {
+                        break;
+                    }
+                    if is_close {
                         break;
                     }
                 }
                 incoming = ws_rx.next() => {
                     match incoming {
                         Some(Ok(Message::Text(text))) => {
-                            self.handle_text(&text, &client_tx).await;
+                            self.handle_text(&text, &client_id, &client_tx).await;
                         }
                         Some(Ok(Message::Ping(payload))) => {
                             let _ = ws_tx.send(Message::Pong(payload)).await;
@@ -172,11 +299,15 @@ impl BridgeHub {
             }
         }
 
-        self.unregister(&client_tx).await;
-        info!("extension disconnected (clients={})", self.client_count());
+        self.unregister(&client_id).await;
+        info!(
+            "ws client disconnected id={client_id} (total={}, extension={})",
+            self.total_client_count(),
+            self.extension_client_count()
+        );
     }
 
-    async fn handle_text(&self, text: &str, client_tx: &ClientSender) {
+    async fn handle_text(&self, text: &str, client_id: &str, client_tx: &mpsc::UnboundedSender<Message>) {
         let msg = match parse_message(text) {
             Ok(msg) => msg,
             Err(err) => {
@@ -191,6 +322,12 @@ impl BridgeHub {
                 let _ = client_tx.send(Message::Text(serde_json::to_string(&pong).unwrap_or_default()));
             }
             MessageType::Event => {
+                if msg.action == "bridge.connected" {
+                    self.adopt_single_extension(client_id).await;
+                    info!(
+                        "extension ready id={client_id} (active extension only)"
+                    );
+                }
                 info!("event {} platform={:?}", msg.action, msg.platform);
                 self.publish(msg);
             }

@@ -41,14 +41,34 @@ pub fn is_comment_api(url: &str) -> bool {
 }
 
 pub fn extract_aweme_id_from_url(url: &str) -> Option<String> {
-    for (key, value) in url
-        .split('?')
-        .nth(1)?
-        .split('&')
-        .filter_map(|pair| pair.split_once('='))
-    {
-        if key == "aweme_id" && !value.is_empty() {
-            return Some(value.to_string());
+    if let Some(query) = url.split('?').nth(1) {
+        for (key, value) in query.split('&').filter_map(|pair| pair.split_once('=')) {
+            if key == "aweme_id" && !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    parse_aweme_id_from_page_url(url)
+}
+
+/// 从抖音页面 URL 解析 aweme_id（`/video/{id}` 或 `modal_id=`）。
+pub fn parse_aweme_id_from_page_url(url: &str) -> Option<String> {
+    if let Some(pos) = url.find("modal_id=") {
+        let rest = &url[pos + "modal_id=".len()..];
+        let id: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if is_valid_aweme_id(&id) {
+            return Some(id);
+        }
+    }
+    for marker in ["/video/", "/note/"] {
+        let pos = url.find(marker)?;
+        let rest = &url[pos + marker.len()..];
+        let id: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if is_valid_aweme_id(&id) {
+            return Some(id);
         }
     }
     None
@@ -59,6 +79,78 @@ pub fn parse_search_videos(body: &Value) -> Vec<ParsedVideo> {
     let mut seen = std::collections::HashSet::new();
     walk_search_nodes(body, &mut items, &mut seen);
     items
+}
+
+/// 从 `plugin_lab.fetch_search_results` 的 DOM 结果解析视频列表（API hook 未命中时的兜底）。
+pub fn parse_dom_search_results(resp: &Value) -> Vec<ParsedVideo> {
+    let root = resp.get("data").unwrap_or(resp);
+    let items = root
+        .get("items")
+        .or_else(|| root.get("results"))
+        .and_then(|v| v.as_array());
+    let Some(items) = items else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for item in items {
+        let video = if item.is_string() {
+            let aweme_id = item.as_str().unwrap_or("").trim().to_string();
+            if !is_valid_aweme_id(&aweme_id) {
+                continue;
+            }
+            ParsedVideo {
+                aweme_id: aweme_id.clone(),
+                video_url: format!("https://www.douyin.com/video/{aweme_id}"),
+                title: String::new(),
+                author: String::new(),
+                raw_json: None,
+            }
+        } else {
+            let aweme_id = item
+                .get("aweme_id")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .or_else(|| {
+                    item.get("url")
+                        .and_then(|v| v.as_str())
+                        .and_then(parse_aweme_id_from_page_url)
+                })
+                .unwrap_or_default();
+            if !is_valid_aweme_id(&aweme_id) {
+                continue;
+            }
+            ParsedVideo {
+                aweme_id: aweme_id.clone(),
+                video_url: item
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("https://www.douyin.com/video/{aweme_id}")),
+                title: item
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+                author: item
+                    .get("author")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+                raw_json: None,
+            }
+        };
+        if seen.insert(video.aweme_id.clone()) {
+            out.push(video);
+        }
+    }
+    out
 }
 
 fn walk_search_nodes(node: &Value, out: &mut Vec<ParsedVideo>, seen: &mut std::collections::HashSet<String>) {
@@ -238,6 +330,15 @@ mod tests {
     }
 
     #[test]
+    fn parses_aweme_from_video_page_url() {
+        let url = "https://www.douyin.com/video/7123456789012345678";
+        assert_eq!(
+            parse_aweme_id_from_page_url(url).as_deref(),
+            Some("7123456789012345678")
+        );
+    }
+
+    #[test]
     fn parses_comment_list() {
         let body = json!({
             "aweme_id": "7123456789012345678",
@@ -254,5 +355,19 @@ mod tests {
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].comment_id, "123");
         assert_eq!(comments[0].content, "好棒");
+    }
+
+    #[test]
+    fn parses_dom_search_results() {
+        let resp = json!({
+            "items": [
+                { "aweme_id": "7123456789012345678", "title": "健身", "author": "教练", "url": "https://www.douyin.com/video/7123456789012345678" },
+                "7123456789012345679"
+            ]
+        });
+        let videos = parse_dom_search_results(&resp);
+        assert_eq!(videos.len(), 2);
+        assert_eq!(videos[0].aweme_id, "7123456789012345678");
+        assert_eq!(videos[1].aweme_id, "7123456789012345679");
     }
 }

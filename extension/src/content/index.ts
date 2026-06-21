@@ -4,6 +4,7 @@ import { log } from "../shared/logger";
 import { extensionVersion } from "../shared/runtime";
 import { dispatchCommand, getPageInfo } from "./platforms/registry";
 import { dispatchPluginLabCommand, isPluginLabContentAction } from "../plugin-lab/content";
+import { enableSearchNetworkHook, initSearchApiCaptureBridge, ingestNetworkPayload } from "../plugin-lab/search-api";
 
 let injected = false;
 
@@ -18,6 +19,10 @@ async function ensureInjected() {
   (document.head || document.documentElement).appendChild(script);
   injected = true;
   log("injected network hook", src);
+  initSearchApiCaptureBridge();
+  if (/douyin\.com/i.test(location.hostname)) {
+    enableSearchNetworkHook();
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -57,6 +62,7 @@ window.addEventListener("message", (event) => {
     return;
   }
   const payload = event.data.payload;
+  ingestNetworkPayload(payload ?? {});
   chrome.runtime.sendMessage({
     type: CONTENT_MESSAGE,
     event: createMessage({

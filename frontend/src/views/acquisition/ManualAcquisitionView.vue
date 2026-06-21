@@ -12,7 +12,8 @@
       </div>
     </header>
 
-    <el-table v-loading="loading" :data="manualJobs" class="panel-block table-card" empty-text="暂无手动获客任务">
+    <div class="task-list-scroll table-card">
+    <el-table v-loading="loading" :data="manualJobs" empty-text="暂无手动获客任务">
       <el-table-column label="账号名称" min-width="150" show-overflow-tooltip>
         <template #default="{ row }">{{ manualAccountLabel(row) }}</template>
       </el-table-column>
@@ -40,7 +41,7 @@
       <el-table-column label="创建时间" width="160">
         <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openJobDetail(row)">详情</el-button>
           <el-button
@@ -59,9 +60,18 @@
           >
             创建触达
           </el-button>
+          <el-button
+            v-if="canDeleteJob(row.status)"
+            link
+            type="danger"
+            @click="onDeleteCollect(row)"
+          >
+            删除
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
+    </div>
 
     <CreateExtensionManualTaskDialog v-model="createOpen" @created="refreshAll" />
 
@@ -118,10 +128,11 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import CreateExtensionManualTaskDialog from "../../components/CreateExtensionManualTaskDialog.vue";
 import {
   createOutreachTask,
+  deleteCollectJob,
   fetchBridgeStatus,
   listCollectComments,
   listCollectJobs,
@@ -203,6 +214,10 @@ function statusTagType(status) {
   return map[status] || "info";
 }
 
+function canDeleteJob(status) {
+  return ["pending", "failed", "completed"].includes(status);
+}
+
 function formatTime(ts) {
   const num = Number(ts);
   if (!Number.isFinite(num) || num <= 0) return "—";
@@ -238,6 +253,27 @@ async function onStartCollect(row) {
     await refreshAll();
   } catch (err) {
     ElMessage.error(err?.response?.data?.error || err?.message || "启动失败");
+  }
+}
+
+async function onDeleteCollect(row) {
+  const name = row.name || manualAccountLabel(row);
+  try {
+    await ElMessageBox.confirm(`确定删除任务「${name}」？关联的视频和评论数据将一并删除。`, "删除任务", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+  } catch {
+    return;
+  }
+  try {
+    await deleteCollectJob(row.id);
+    ElMessage.success("任务已删除");
+    if (detailJob.value?.id === row.id) detailOpen.value = false;
+    await refreshAll();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.error || err?.message || "删除失败");
   }
 }
 
@@ -329,10 +365,14 @@ onUnmounted(() => {
 .acquisition-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .page-header {
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -355,9 +395,18 @@ onUnmounted(() => {
 }
 
 .table-card {
-  padding: 12px;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 12px 0;
   background: #fff;
   border-radius: 12px;
+  overflow: hidden;
+}
+
+.task-list-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: auto;
 }
 
 .detail-body h4 {

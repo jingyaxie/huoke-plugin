@@ -3,10 +3,11 @@ mod outreach;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::time::sleep;
+use crate::simulate;
 use tracing::{info, warn};
 
 use crate::db::{CapturedVideo, Database, JobStatus};
+use crate::douyin::parser::{parse_aweme_id_from_page_url, parse_dom_search_results, ParsedVideo};
 use crate::filters;
 use crate::job_config::JobConfig;
 use crate::lab_commands::LabCommands;
@@ -84,7 +85,9 @@ impl JobOrchestrator {
 
         lab.enable_network_hook().await?;
         let _ = lab.swipe_search_results(3).await;
-        sleep(Duration::from_secs(6)).await;
+        simulate::pause(Duration::from_secs(3)).await;
+        // 与实验室步骤 8 相同：DOM 抓取搜索结果（实验室验证过的路径）
+        self.ensure_search_videos_captured(job_id, &lab).await?;
 
         self.collect_until_target(job_id, job, cfg).await
     }
@@ -111,17 +114,27 @@ impl JobOrchestrator {
 
         let lab = LabCommands::new(&self.hub);
         lab.open_url(&input_url).await?;
-        sleep(Duration::from_secs(5)).await;
+        simulate::pause(Duration::from_secs(5)).await;
         lab.enable_network_hook().await?;
 
         if cfg.intent == "account_home" {
             let _ = lab.swipe_page_down(4).await;
-            sleep(Duration::from_secs(6)).await;
+            simulate::pause(Duration::from_secs(6)).await;
         } else {
-            sleep(Duration::from_secs(4)).await;
+            simulate::pause(Duration::from_secs(4)).await;
             let _ = lab.open_comment_sidebar().await;
             let _ = lab.scroll_comments(6).await;
-            sleep(Duration::from_secs(3)).await;
+            simulate::pause(Duration::from_secs(3)).await;
+            if let Some(aweme_id) = parse_aweme_id_from_page_url(&input_url) {
+                let video = ParsedVideo {
+                    aweme_id,
+                    video_url: input_url.clone(),
+                    title: String::new(),
+                    author: String::new(),
+                    raw_json: None,
+                };
+                let _ = self.db.upsert_videos(job_id, &[video]);
+            }
         }
 
         self.collect_until_target(job_id, job, cfg).await
@@ -163,7 +176,7 @@ impl JobOrchestrator {
             }
             let lab = LabCommands::new(&self.hub);
             let _ = lab.scroll_comments(2).await;
-            sleep(Duration::from_secs(3)).await;
+            simulate::pause(Duration::from_secs(3)).await;
         }
 
         let count = self.db.count_comments_for_job(job_id)?;
@@ -174,13 +187,45 @@ impl JobOrchestrator {
         Ok(())
     }
 
+    async fn ensure_search_videos_captured(
+        &self,
+        job_id: &str,
+        lab: &LabCommands<'_>,
+    ) -> Result<(), String> {
+        if !self.db.list_videos_for_job(job_id)?.is_empty() {
+            return Ok(());
+        }
+        info!("job {job_id}: fetching search videos via plugin_lab.fetch_search_results (lab step 8)");
+        let resp = lab.fetch_search_results(30).await?;
+        let videos = parse_dom_search_results(&resp);
+        if videos.is_empty() {
+            warn!("job {job_id}: fetch_search_results returned 0 valid videos — run lab step 8 manually to verify page");
+            return Ok(());
+        }
+        let inserted = self.db.upsert_videos(job_id, &videos)?;
+        info!("job {job_id}: DOM fallback stored {inserted} videos");
+        Ok(())
+    }
+
     fn load_videos_for_job(
         &self,
         job_id: &str,
         cfg: &JobConfig,
     ) -> Result<Vec<CapturedVideo>, String> {
         let mut videos = self.db.list_videos_for_job(job_id)?;
+        let raw_count = videos.len();
         videos = filters::filter_videos_by_region(videos, cfg.region_name.as_deref());
+        if videos.is_empty() {
+            if raw_count > 0 {
+                return Err(format!(
+                    "search captured {raw_count} videos but none matched region {:?} — try clearing region or broadening keyword",
+                    cfg.region_name
+                ));
+            }
+            return Err(
+                "search produced no videos — ensure Douyin is logged in, search results visible, and keep the tab active".into(),
+            );
+        }
         if videos.len() > cfg.target_count as usize {
             // still respect video batch limit from form
         }
@@ -194,10 +239,10 @@ impl JobOrchestrator {
     async fn open_and_scroll_video(&self, aweme_id: &str, scroll_rounds: i64) -> Result<(), String> {
         let lab = LabCommands::new(&self.hub);
         lab.open_video(aweme_id, None).await?;
-        sleep(Duration::from_secs(5)).await;
+        simulate::pause(Duration::from_secs(5)).await;
         let _ = lab.open_comment_sidebar().await;
         let _ = lab.scroll_comments(scroll_rounds).await;
-        sleep(Duration::from_secs(4)).await;
+        simulate::pause(Duration::from_secs(4)).await;
         Ok(())
     }
 }

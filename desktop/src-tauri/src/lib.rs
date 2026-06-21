@@ -19,6 +19,7 @@ const DESKTOP_PORT: u16 = 18765;
 const LOCAL_SERVICE_PORT: u16 = 18766;
 const STATIC_HEALTH_URL: &str = "http://127.0.0.1:18765/health";
 const LOCAL_SERVICE_HEALTH_URL: &str = "http://127.0.0.1:18766/health";
+const LOCAL_SERVICE_INIT_URL: &str = "http://127.0.0.1:18766/api/runtime/init";
 const APP_HOME_URL: &str = "http://127.0.0.1:18765/extension-bridge";
 const BACKEND_LOG_CAP: usize = 120;
 
@@ -556,6 +557,30 @@ fn wait_backend_ready(
     }
 }
 
+fn initialize_runtime_env() {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            log::warn!("runtime init client failed: {err}");
+            return;
+        }
+    };
+    match client.post(LOCAL_SERVICE_INIT_URL).send() {
+        Ok(resp) if resp.status().is_success() => {
+            log::info!("runtime environment initialized");
+        }
+        Ok(resp) => {
+            log::warn!("runtime init HTTP {}", resp.status());
+        }
+        Err(err) => {
+            log::warn!("runtime init request failed: {err}");
+        }
+    }
+}
+
 fn stop_backend(state: &ServiceState) {
     let mut guard = state.backend.lock().expect("backend lock");
     if let Some(mut child) = guard.take() {
@@ -679,6 +704,7 @@ fn bootstrap(app: &AppHandle, log_state: Arc<BackendLogState>) -> Result<(), Str
         &log_state,
         &log_hint,
     )?;
+    initialize_runtime_env();
 
     // Do not join log reader threads here: they block until backend stdout/stderr
     // close, which only happens when the process exits — leaving the UI on about:blank.

@@ -23,13 +23,18 @@ pub async fn health() -> Json<HealthResponse> {
 #[derive(Serialize)]
 pub struct BridgeStatusResponse {
     pub connected_clients: usize,
+    pub extension_clients: usize,
     pub ws_path: &'static str,
+    pub extension_ready: bool,
 }
 
 pub async fn bridge_status(State(state): State<AppState>) -> Json<BridgeStatusResponse> {
+    let extension_clients = state.hub.extension_client_count();
     Json(BridgeStatusResponse {
-        connected_clients: state.hub.client_count(),
+        connected_clients: extension_clients,
+        extension_clients,
         ws_path: "/ws",
+        extension_ready: extension_clients > 0,
     })
 }
 
@@ -104,3 +109,4 @@ pub async fn bridge_ping(State(state): State<AppState>) -> Json<serde_json::Valu
 pub mod douyin;
 pub mod outreach;
 pub mod plugin_lab;
+pub mod runtime;

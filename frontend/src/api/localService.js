@@ -20,6 +20,11 @@ export async function fetchBridgeHealth() {
   return data;
 }
 
+/** 非阻塞：重新初始化 local-service 与插件运行环境（Hub、僵尸任务、插件会话） */
+export function initRuntimeEnv() {
+  return localService.post("/api/runtime/init", null, { timeout: 10000 });
+}
+
 export async function fetchBridgeStatus() {
   const { data } = await localService.get("/bridge/status");
   return data;
@@ -57,6 +62,11 @@ export async function listCollectVideos(jobId) {
 
 export async function listCollectComments(jobId, params = {}) {
   const { data } = await localService.get(`/api/douyin/jobs/${jobId}/comments`, { params });
+  return data;
+}
+
+export async function deleteCollectJob(jobId) {
+  const { data } = await localService.post(`/api/douyin/jobs/${jobId}/delete`);
   return data;
 }
 

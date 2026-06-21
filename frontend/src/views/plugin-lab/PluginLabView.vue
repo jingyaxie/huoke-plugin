@@ -9,6 +9,9 @@
       </div>
       <div class="header-actions">
         <el-tag :type="bridgeTagType">{{ bridgeLabel }}</el-tag>
+        <el-tag v-if="pageSnapshot.detected_context" type="info">
+          当前页：{{ contextLabel(pageSnapshot.detected_context) }}
+        </el-tag>
         <el-button @click="refreshStatus" :loading="statusLoading">刷新状态</el-button>
       </div>
     </header>
@@ -46,7 +49,8 @@
           <el-col :xs="24" :sm="12" :md="8">
             <el-form-item label="打开方式">
               <el-checkbox v-model="params.reuseExisting">复用已有窗口</el-checkbox>
-              <span class="field-hint">未勾选时新建独立 Chrome 窗口</span>
+              <el-checkbox v-model="params.waitPageLoad">等待页面加载</el-checkbox>
+              <span class="field-hint">默认只聚焦窗口，不等待抖音 SPA 加载完成</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -213,6 +217,7 @@ import { fetchBridgeStatus, getLocalServiceBaseUrl } from "../../api/localServic
 import {
   KNOWN_FILTER_OPTIONS,
   PLUGIN_LAB_ACTIONS,
+  fetchPluginLabSnapshot,
   runPluginLabAction,
 } from "../../api/pluginLab";
 
@@ -225,13 +230,27 @@ const bridgeStatus = ref({ connected_clients: 0 });
 const runningAction = ref(null);
 const lastActionId = ref("");
 const lastResult = ref(null);
+const lastSearchItems = ref([]);
 const lastError = ref("");
 const actionLog = ref([]);
 const displayRows = ref([]);
+const pageSnapshot = ref({});
+
+const CONTEXT_LABELS = {
+  platform: "平台页",
+  search: "搜索结果",
+  video: "视频/Feed",
+  profile: "用户主页",
+};
+
+function contextLabel(ctx) {
+  return CONTEXT_LABELS[ctx] || ctx || "—";
+}
 
 const params = reactive({
   platform: "douyin",
-  reuseExisting: false,
+  reuseExisting: true,
+  waitPageLoad: false,
   scrollDirection: "down",
   scrollDistance: null,
   filterOption: "一天内",
@@ -270,7 +289,7 @@ function buildPayload(action) {
   if (action.id === "open_browser") {
     payload.platform = params.platform;
     payload.reuse_existing = params.reuseExisting;
-    payload.wait_load = true;
+    if (params.waitPageLoad) payload.wait_load = true;
   }
   if (action.id === "find_search_box" || action.id === "input_search_text") {
     payload.platform = params.platform;
@@ -284,7 +303,11 @@ function buildPayload(action) {
     }
   }
   if (action.needsSearchText) payload.search_text = params.searchText;
-  if (action.needsVideoIndex) payload.video_index = params.videoIndex;
+  if (action.needsVideoIndex) {
+    payload.video_index = params.videoIndex;
+    const cached = lastSearchItems.value[params.videoIndex - 1];
+    if (cached?.rect) payload.rect = cached.rect;
+  }
   if (action.needsReplyText) {
     payload.reply_text = params.replyText;
     payload.comment_index = params.commentIndex;
@@ -351,8 +374,20 @@ async function refreshStatus() {
   statusLoading.value = true;
   try {
     bridgeStatus.value = await fetchBridgeStatus();
+    if (bridgeStatus.value.connected_clients > 0) {
+      void fetchPluginLabSnapshot()
+        .then((snap) => {
+          pageSnapshot.value = snap?.data ?? {};
+        })
+        .catch(() => {
+          pageSnapshot.value = {};
+        });
+    } else {
+      pageSnapshot.value = {};
+    }
   } catch {
     bridgeStatus.value = { connected_clients: 0 };
+    pageSnapshot.value = {};
   } finally {
     statusLoading.value = false;
   }
@@ -374,6 +409,11 @@ async function runAction(action) {
     const resultBody = data?.data ?? data;
     const actionOk = resultBody?.ok !== false;
 
+    const searchItems = resultBody?.items || resultBody?.results;
+    if (Array.isArray(searchItems) && searchItems.length > 0) {
+      lastSearchItems.value = searchItems;
+    }
+
     if (action.returnsData || action.id === "click_filter_overlay") {
       displayRows.value = normalizeDisplayData(action.id, resultBody);
     }
@@ -388,6 +428,13 @@ async function runAction(action) {
 
     appendLog(action, true, data?.message || resultBody?.message || "成功");
     ElMessage.success(`${action.label} 完成`);
+    if (bridgeStatus.value.connected_clients > 0) {
+      void fetchPluginLabSnapshot()
+        .then((snap) => {
+          pageSnapshot.value = snap?.data ?? {};
+        })
+        .catch(() => {});
+    }
   } catch (err) {
     const message =
       err?.response?.data?.error ||

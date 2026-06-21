@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use rand::Rng;
+use crate::simulate;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
@@ -187,7 +188,7 @@ impl<'a> InlineOutreachRunner<'a> {
             return Ok(false);
         }
 
-        sleep(Duration::from_secs(2)).await;
+        simulate::pause(Duration::from_secs(2)).await;
 
         let sent = lab.send_dm_on_profile(text).await?;
         let ok = sent.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -215,7 +216,11 @@ impl<'a> InlineOutreachRunner<'a> {
     }
 
     async fn sleep_interval(&self, min_ms: i64, max_ms: i64) {
-        sleep(Duration::from_millis(jitter_ms(min_ms, max_ms))).await;
+        if simulate::enabled() {
+            simulate::pause(Duration::from_millis(5)).await;
+        } else {
+            sleep(Duration::from_millis(jitter_ms(min_ms, max_ms))).await;
+        }
     }
 }
 

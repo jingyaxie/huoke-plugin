@@ -29,6 +29,11 @@
   ],
   "content_scripts": [
     {
+      "matches": ["https://www.douyin.com/*", "https://*.douyin.com/*"],
+      "js": ["src/content/early-inject.js"],
+      "run_at": "document_start"
+    },
+    {
       "matches": [
         "https://www.douyin.com/*",
         "https://*.douyin.com/*",

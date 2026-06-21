@@ -59,7 +59,7 @@ fn normalize_open_browser_payload(payload: Value) -> Value {
                 .map(|new_tab| !new_tab)
         })
         .unwrap_or(false);
-    let wait_load = payload.get("wait_load").and_then(|v| v.as_bool()).unwrap_or(true);
+    let wait_load = payload.get("wait_load").and_then(|v| v.as_bool()).unwrap_or(false);
 
     json!({
         "platform": platform,
@@ -189,13 +189,17 @@ fn normalize_fetch_search_results_payload(payload: Value) -> Value {
 }
 
 fn normalize_click_search_video_payload(payload: Value) -> Value {
-    json!({
+    let mut out = json!({
         "video_index": payload
             .get("video_index")
             .and_then(|v| v.as_i64())
             .or_else(|| payload.get("index").and_then(|v| v.as_i64()))
             .unwrap_or(1),
-    })
+    });
+    if let Some(rect) = payload.get("rect") {
+        out["rect"] = rect.clone();
+    }
+    out
 }
 
 fn normalize_scroll_collect_comments_payload(payload: Value) -> Value {

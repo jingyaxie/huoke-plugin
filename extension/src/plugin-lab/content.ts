@@ -1,3 +1,4 @@
+import { probeLabReadiness, probeLabPageSnapshot } from "./lab-readiness";
 import { clickFilterButton } from "./click-filter-btn";
 import { clickFilterOverlay, type ClickFilterOverlayPayload } from "./click-filter-overlay";
 import { isPluginLabBackgroundAction } from "./background-actions";
@@ -9,7 +10,7 @@ import {
 import { clickDmButton } from "./click-dm-btn";
 import { probeDmButton, probeDmInput, probeDmSendButton, probeDmSendVerify, typeDmTextFallback } from "./dm-dom";
 import { clickFollowButton } from "./click-follow-btn";
-import { clickSearchButton } from "./click-search-btn";
+import { prepareSearchCapture, submitSearchClick } from "./click-search-btn";
 import {
   clickSearchVideoFallback,
   probeSearchVideoCard,
@@ -33,6 +34,10 @@ import { swipePage, type SwipePagePayload } from "./swipe-page";
 
 export async function dispatchPluginLabCommand(action: string, payload: unknown): Promise<unknown> {
   switch (action) {
+    case "plugin_lab.preflight":
+      return probeLabReadiness((payload ?? {}) as { target_action?: string });
+    case "plugin_lab.page_snapshot":
+      return probeLabPageSnapshot();
     case "plugin_lab.swipe_page":
       return swipePage((payload ?? {}) as SwipePagePayload);
     case "plugin_lab.find_search_box":
@@ -43,8 +48,10 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
       return clickFilterButton();
     case "plugin_lab.click_filter_overlay":
       return clickFilterOverlay((payload ?? {}) as ClickFilterOverlayPayload);
-    case "plugin_lab.click_search_btn":
-      return clickSearchButton();
+    case "plugin_lab.search_prepare":
+      return prepareSearchCapture();
+    case "plugin_lab.search_submit":
+      return submitSearchClick();
     case "plugin_lab.fetch_search_results":
       return fetchSearchResults((payload ?? {}) as FetchSearchResultsPayload);
     case "plugin_lab.click_search_video":

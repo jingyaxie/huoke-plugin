@@ -1,13 +1,22 @@
 import { type BridgeMessage } from "../shared/protocol";
-import { log, error } from "../shared/logger";
-import { extensionVersion } from "../shared/runtime";
+import { log, warn, error } from "../shared/logger";
+import { extensionVersion, extensionBuildId } from "../shared/runtime";
 import { CONTENT_MESSAGE } from "../shared/constants";
 import { routeCommandToTab } from "./command-router";
 import { isPluginLabBackgroundAction, runPluginLabBackgroundCommand } from "../plugin-lab";
+import { clearLabSession } from "../plugin-lab/lab-context";
 
-log("service worker boot", extensionVersion());
+log("service worker boot", extensionVersion(), extensionBuildId());
 
 const OFFSCREEN_URL = "src/offscreen/offscreen.html";
+const PLATFORM_TAB_PATTERNS = [
+  "https://www.douyin.com/*",
+  "https://*.douyin.com/*",
+  "https://www.xiaohongshu.com/*",
+  "https://*.xiaohongshu.com/*",
+  "https://www.kuaishou.com/*",
+  "https://*.kuaishou.com/*",
+];
 const KEEPALIVE_ALARM = "huoke-keepalive";
 const BRIDGE_PORT = "huoke-bridge";
 
@@ -99,6 +108,21 @@ async function bootstrapBridge() {
   }
 }
 
+async function reloadPlatformTabs() {
+  const tabs = await chrome.tabs.query({ url: PLATFORM_TAB_PATTERNS });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      await chrome.tabs.reload(tab.id);
+    } catch (err) {
+      warn("failed to reload platform tab", tab.id, err);
+    }
+  }
+  if (tabs.length > 0) {
+    log("reloaded platform tabs after extension update", tabs.length);
+  }
+}
+
 function forwardToOffscreen(event: BridgeMessage) {
   if (bridgePort) {
     bridgePort.postMessage({ type: "ws-send", event });
@@ -110,6 +134,28 @@ function forwardToOffscreen(event: BridgeMessage) {
 }
 
 async function runCommand(command: BridgeMessage): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  if (command.action === "huoke.extension.reload") {
+    chrome.runtime.reload();
+    return { ok: true, data: { reloaded: true } };
+  }
+
+  if (command.action === "huoke.runtime.init") {
+    try {
+      await clearLabSession();
+      if (bridgePort) {
+        bridgePort.disconnect();
+        bridgePort = null;
+      }
+      await ensureOffscreenDocument();
+      await chrome.runtime.sendMessage({ type: "huoke:offscreen-reconnect" });
+      await queryOffscreenState();
+      return { ok: true, data: { reinitialized: true, lab_session_cleared: true } };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    }
+  }
+
   if (command.action === "huoke.diag.tabs") {
     try {
       const tabs = await chrome.tabs.query({
@@ -252,6 +298,7 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.runtime.onInstalled.addListener(() => {
   ensureAlarmListener();
   setupKeepAliveAlarm();
+  void reloadPlatformTabs();
   void bootstrapBridge();
 });
 

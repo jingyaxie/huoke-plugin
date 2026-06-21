@@ -1,0 +1,80 @@
+{
+  "manifest_version": 3,
+  "name": "Huoke 获客助手",
+  "version": "0.1.2",
+  "description": "Huoke browser execution layer — connects to local Rust service",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Huoke",
+    "default_popup": "src/popup/index.html"
+  },
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "windows",
+    "system.display",
+    "scripting",
+    "alarms",
+    "offscreen",
+    "debugger"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:18766/*",
+    "http://localhost:18766/*",
+    "https://www.douyin.com/*",
+    "https://*.douyin.com/*",
+    "https://www.xiaohongshu.com/*",
+    "https://*.xiaohongshu.com/*",
+    "https://www.kuaishou.com/*",
+    "https://*.kuaishou.com/*"
+  ],
+  "content_scripts": [
+    {
+      "js": [
+        "assets/bootstrap.js-kJnAOcPm.js",
+        "assets/index.ts-loader-Dtkhpc9a.js"
+      ],
+      "matches": [
+        "https://www.douyin.com/*",
+        "https://*.douyin.com/*",
+        "https://www.xiaohongshu.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://www.kuaishou.com/*",
+        "https://*.kuaishou.com/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "https://*.douyin.com/*",
+        "https://*.kuaishou.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://www.douyin.com/*",
+        "https://www.kuaishou.com/*",
+        "https://www.xiaohongshu.com/*"
+      ],
+      "resources": [
+        "src/injected/network-hook.js",
+        "assets/bootstrap.js-kJnAOcPm.js",
+        "assets/bootstrap.js-kJnAOcPm.js.map",
+        "assets/dm-dom-BOK2_-Fi.js",
+        "assets/dm-dom-BOK2_-Fi.js.map",
+        "assets/protocol-BbxW56tX.js",
+        "assets/protocol-BbxW56tX.js.map",
+        "assets/index.ts-DjkE4qN4.js",
+        "assets/index.ts-DjkE4qN4.js.map"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}

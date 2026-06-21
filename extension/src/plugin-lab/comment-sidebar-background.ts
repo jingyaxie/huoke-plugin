@@ -1,4 +1,4 @@
-import { resolveLabTargetTab } from "./resolve-lab-tab";
+import { resolveLabTabForAction } from "./resolve-lab-tab";
 import {
   attachDebugger,
   clickMouse,
@@ -41,7 +41,7 @@ async function probe(tabId: number): Promise<SidebarProbe> {
 
 /** 步骤 10：CDP 真实鼠标打开评论区 */
 export async function clickCommentButtonBackground() {
-  const tab = await resolveLabTargetTab();
+  const tab = await resolveLabTabForAction("plugin_lab.click_comment_btn");
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
 

@@ -1,6 +1,7 @@
 import type { BridgeMessage } from "../shared/protocol";
 import { isPluginLabBackgroundAction } from "../plugin-lab/background-actions";
-import { resolveLabTargetTab } from "../plugin-lab/resolve-lab-tab";
+import { resolveLabTabForAction } from "../plugin-lab/resolve-lab-tab";
+import { ensureLabCommandReady } from "../plugin-lab/lab-preflight";
 import { log, warn } from "../shared/logger";
 import { extensionVersion } from "../shared/runtime";
 
@@ -65,74 +66,98 @@ async function pingContentScript(tabId: number): Promise<{ ok?: boolean; version
   }
 }
 
-export async function ensureContentScript(tabId: number) {
-  const expectedVersion = extensionVersion();
+function pingVersionMatches(pongVersion?: string): boolean {
+  if (!pongVersion) return false;
+  const expected = extensionVersion();
+  return pongVersion === expected || pongVersion.startsWith(`${expected}+`);
+}
 
-  async function waitForReady(maxAttempts = 5): Promise<boolean> {
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const pong = await pingContentScript(tabId);
-      if (pong?.ok && pong.version === expectedVersion) return true;
-      await sleep(attempt === 0 ? 300 : 600);
+async function waitForContentScript(
+  tabId: number,
+  maxAttempts = 5,
+): Promise<{ ok: boolean; pong: { ok?: boolean; version?: string } | null }> {
+  let lastPong: { ok?: boolean; version?: string } | null = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    lastPong = await pingContentScript(tabId);
+    if (lastPong?.ok) {
+      return { ok: true, pong: lastPong };
     }
-    return false;
+    await sleep(attempt === 0 ? 300 : 600);
   }
+  return { ok: false, pong: lastPong };
+}
 
-  if (await waitForReady(3)) return;
-
-  const pong = await pingContentScript(tabId);
-  if (pong?.ok && pong.version !== expectedVersion) {
-    warn("content script stale, reloading tab", tabId, pong.version, "expected", expectedVersion);
-    await chrome.tabs.reload(tabId);
-    await sleep(2500);
-    if (await waitForReady(6)) return;
-  }
-
+async function injectContentScripts(tabId: number): Promise<string | null> {
   const manifest = typeof chrome.runtime.getManifest === "function"
     ? chrome.runtime.getManifest()
     : null;
-  const warEntry = manifest?.web_accessible_resources?.[0];
-  const warResources = Array.isArray(warEntry)
-    ? warEntry
-    : (warEntry && typeof warEntry === "object" && "resources" in warEntry
-        ? warEntry.resources
-        : []);
-  const chunk = warResources.find(
-    (file: string) => /assets\/index\.ts-[^/]+\.js$/.test(file) && !file.endsWith(".map"),
-  );
-  if (chunk) {
-    const chunkUrl = chrome.runtime.getURL(chunk);
-    warn("injecting content chunk into tab", tabId, chunk);
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        func: (url: string) => import(url),
-        args: [chunkUrl],
-      });
-      await sleep(900);
-      if (await waitForReady(5)) return;
-    } catch (err) {
-      warn("content chunk inject failed", err);
-    }
-  }
-
   const files = manifest?.content_scripts?.flatMap((entry) => entry.js ?? []) ?? [];
+  const loader = files.find((file) => file.includes("loader"));
   const bootstrap = files.find((file) => file.includes("bootstrap"));
-  if (bootstrap) {
-    warn("injecting bootstrap into tab", tabId, bootstrap);
+  let lastError: string | null = null;
+
+  for (const file of [loader, bootstrap]) {
+    if (!file) continue;
+    warn("injecting content script into tab", tabId, file);
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
-        files: [bootstrap],
+        files: [file],
       });
       await sleep(900);
-      if (await waitForReady(5)) return;
+      const ready = await waitForContentScript(tabId, 5);
+      if (ready.ok) return null;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`${msg} — reload extension/dist in chrome://extensions`);
+      lastError = err instanceof Error ? err.message : String(err);
+      warn("content script inject failed", file, lastError);
     }
   }
 
-  throw new Error("content script failed to start on douyin tab — reload extension/dist in chrome://extensions");
+  return lastError;
+}
+
+export async function ensureContentScript(tabId: number) {
+  let pong = await pingContentScript(tabId);
+  if (pong?.ok && pingVersionMatches(pong.version)) {
+    return;
+  }
+
+  if (pong?.ok && !pingVersionMatches(pong.version)) {
+    warn(
+      "content script version stale, reloading tab",
+      tabId,
+      pong.version,
+      "expected",
+      extensionVersion(),
+    );
+    await chrome.tabs.reload(tabId);
+    await sleep(2500);
+    const afterReload = await waitForContentScript(tabId, 8);
+    if (afterReload.ok) return;
+    pong = afterReload.pong;
+  }
+
+  if (!pong?.ok) {
+    const injectError = await injectContentScripts(tabId);
+    if (!injectError) return;
+
+    warn("script inject failed, reloading tab", tabId, injectError);
+    await chrome.tabs.reload(tabId);
+    await sleep(3000);
+    const afterReload = await waitForContentScript(tabId, 8);
+    if (afterReload.ok) return;
+    pong = afterReload.pong;
+
+    const retryError = await injectContentScripts(tabId);
+    if (!retryError) return;
+  }
+
+  const detail = pong?.ok
+    ? `ping ok but version=${pong.version ?? "unknown"}`
+    : "content script not responding";
+  throw new Error(
+    `${detail} — open chrome://extensions, click Reload on Huoke, then refresh the douyin tab`,
+  );
 }
 
 async function sendCommandToTab(tabId: number, command: BridgeMessage) {
@@ -144,14 +169,25 @@ async function sendCommandToTab(tabId: number, command: BridgeMessage) {
 }
 
 export async function routeCommandToTab(command: BridgeMessage): Promise<unknown> {
+  const payload = (command.payload ?? {}) as { target_action?: string };
+  const tabAction =
+    command.action === "plugin_lab.preflight" && payload.target_action
+      ? payload.target_action
+      : command.action;
+
   const tab = command.action.startsWith("plugin_lab.") && !isPluginLabBackgroundAction(command.action)
-    ? await resolveLabTargetTab()
+    ? await resolveLabTabForAction(tabAction)
     : await resolveTargetTab(command);
   if (!tab.id) {
     throw new Error("target tab has no id");
   }
 
   log("route command", command.action, "tab", tab.id, tab.url);
+
+  await ensureContentScript(tab.id);
+  if (command.action !== "plugin_lab.preflight") {
+    await ensureLabCommandReady(tab.id, command.action);
+  }
 
   let response: { ok?: boolean; data?: unknown; error?: string } | undefined;
   try {

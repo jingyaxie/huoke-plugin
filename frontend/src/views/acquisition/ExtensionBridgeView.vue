@@ -1,6 +1,7 @@
 <template>
   <div class="extension-bridge-page">
-    <header class="page-header">
+    <div class="page-toolbar">
+      <header class="page-header">
       <div>
         <h1 class="page-title">自动获客</h1>
         <p class="page-subtitle">创建和管理自动获客任务，跟踪抓取进度与评论线索。</p>
@@ -45,16 +46,18 @@
     </el-alert>
 
     <AcquisitionStatsCards :data="dashboard" :loading="loading" class="panel-block" />
+    </div>
 
-    <el-tabs v-model="activeTab" class="panel-block">
+    <el-tabs v-model="activeTab" class="panel-block page-tabs">
       <el-tab-pane label="采集任务" name="collect">
-        <el-card shadow="never">
+        <el-card shadow="never" class="list-card">
           <template #header>
             <div class="card-header">
               <span>关键词采集</span>
               <el-button type="primary" size="small" @click="createCollectOpen = true">+ 创建任务</el-button>
             </div>
           </template>
+          <div class="task-list-scroll">
           <el-table v-loading="loading" :data="collectJobs" empty-text="暂无采集任务">
             <el-table-column label="任务名称" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">{{ jobDisplayName(row) }}</template>
@@ -82,7 +85,7 @@
             <el-table-column label="创建时间" width="160">
               <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="260" fixed="right">
+            <el-table-column label="操作" width="300" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openJobDetail(row)">详情</el-button>
                 <el-button
@@ -101,20 +104,30 @@
                 >
                   创建触达
                 </el-button>
+                <el-button
+                  v-if="canDeleteJob(row.status)"
+                  link
+                  type="danger"
+                  @click="onDeleteCollect(row)"
+                >
+                  删除
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
+          </div>
         </el-card>
       </el-tab-pane>
 
       <el-tab-pane label="评论触达" name="outreach">
-        <el-card shadow="never">
+        <el-card shadow="never" class="list-card">
           <template #header>
             <div class="card-header">
               <span>评论触达任务</span>
               <div class="quota-hint">今日剩余 {{ quota.remaining ?? "—" }} / {{ quota.daily_limit ?? "—" }}</div>
             </div>
           </template>
+          <div class="task-list-scroll">
           <el-table v-loading="loading" :data="outreachTasks" empty-text="暂无触达任务">
             <el-table-column prop="name" label="名称" min-width="140" />
             <el-table-column label="状态" width="100">
@@ -136,6 +149,7 @@
               </template>
             </el-table-column>
           </el-table>
+          </div>
         </el-card>
       </el-tab-pane>
     </el-tabs>
@@ -203,11 +217,12 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import AcquisitionStatsCards from "../../components/AcquisitionStatsCards.vue";
 import CreateExtensionAutoTaskDialog from "../../components/CreateExtensionAutoTaskDialog.vue";
 import {
   createOutreachTask,
+  deleteCollectJob,
   fetchBridgeStatus,
   fetchReplyQuota,
   listCollectComments,
@@ -327,6 +342,10 @@ function statusTagType(status) {
   return map[status] || "info";
 }
 
+function canDeleteJob(status) {
+  return ["pending", "failed", "completed"].includes(status);
+}
+
 function formatTime(ts) {
   const num = Number(ts);
   if (!Number.isFinite(num) || num <= 0) return "—";
@@ -405,6 +424,27 @@ async function onStartCollect(row) {
     await refreshAll();
   } catch (err) {
     ElMessage.error(err?.response?.data?.error || err?.message || "启动失败");
+  }
+}
+
+async function onDeleteCollect(row) {
+  const name = jobDisplayName(row);
+  try {
+    await ElMessageBox.confirm(`确定删除任务「${name}」？关联的视频和评论数据将一并删除。`, "删除任务", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+  } catch {
+    return;
+  }
+  try {
+    await deleteCollectJob(row.id);
+    ElMessage.success("任务已删除");
+    if (detailJob.value?.id === row.id) detailOpen.value = false;
+    await refreshAll();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.error || err?.message || "删除失败");
   }
 }
 
@@ -523,7 +563,58 @@ onUnmounted(() => {
 .extension-bridge-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.page-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page-tabs :deep(.el-tabs__header) {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+}
+
+.page-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+}
+
+.page-tabs :deep(.el-tab-pane) {
+  height: 100%;
+}
+
+.list-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.list-card :deep(.el-card__body) {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
+.task-list-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 0 16px 16px;
 }
 
 .page-header {

@@ -1,93 +1,81 @@
-const CARD_SELECTORS = [
-  '[data-e2e="search-card-video"]',
-  "div.search-result-card",
-  '[class*="search-result-card"]',
-  '[class*="discover-video-card"]',
-] as const;
-
-const LINK_SELECTORS = [
-  'a[href*="/video/"]',
-  '[data-e2e="search-card-video"] a',
-] as const;
-
-function parseAwemeId(href: string): string | null {
-  const match = href.match(/\/video\/(\d+)/);
-  return match?.[1] ?? null;
-}
-
-function nodeText(node: Element): string {
-  return (node.textContent ?? "").replace(/\s+/g, " ").trim();
-}
-
-function collectCards(): HTMLElement[] {
-  const seen = new Set<HTMLElement>();
-  const cards: HTMLElement[] = [];
-
-  for (const selector of CARD_SELECTORS) {
-    const nodes = document.querySelectorAll(selector);
-    for (let i = 0; i < nodes.length && cards.length < 40; i += 1) {
-      const node = nodes[i] as HTMLElement;
-      const rect = node.getBoundingClientRect();
-      if (rect.width < 80 || rect.height < 80) continue;
-      if (seen.has(node)) continue;
-      seen.add(node);
-      cards.push(node);
-    }
-  }
-
-  if (cards.length > 0) return cards;
-
-  for (const selector of LINK_SELECTORS) {
-    const links = document.querySelectorAll(selector);
-    for (let i = 0; i < links.length && cards.length < 40; i += 1) {
-      const link = links[i] as HTMLElement;
-      const rect = link.getBoundingClientRect();
-      if (rect.width < 40 || rect.height < 40) continue;
-      if (seen.has(link)) continue;
-      seen.add(link);
-      cards.push(link);
-    }
-  }
-
-  return cards;
-}
+import {
+  buildCardUrl,
+  collectSearchResultCards,
+  findVideoLink,
+  isFeedOverlayOpen,
+  isSearchResultsPage,
+  pickCardAuthor,
+  pickCardTitle,
+  pickSearchCardClickTarget,
+  resolveCardAwemeId,
+  scrollCardIntoView,
+  serializeCardRect,
+  waitForSearchResultCards,
+} from "./search-results-dom";
+import { getLastSearchApiResults, waitForSearchApiResults } from "./search-api";
 
 export interface FetchSearchResultsPayload {
   limit?: number;
 }
 
-/** 步骤 8：从 DOM 抓取当前可见搜索结果 */
+/** 步骤 8：优先用步骤 7 缓存的 search/single 接口结果，否则 DOM 抓取 */
 export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}) {
   const limit = Math.max(1, Math.min(Number(payload.limit ?? 20), 50));
-  const cards = collectCards();
+
+  let apiItems = (await getLastSearchApiResults()) ?? [];
+  if (!apiItems.length) {
+    apiItems = await waitForSearchApiResults({ timeoutMs: 2500, minItems: 1 });
+  }
+  if (apiItems.length > 0) {
+    const items = apiItems.slice(0, limit);
+    return {
+      ok: true,
+      count: items.length,
+      items,
+      results: items,
+      url: location.href,
+      on_search_page: isSearchResultsPage(),
+      capture_method: "api",
+      dom_link_count: 0,
+      poster_count: 0,
+      feed_overlay_open: isFeedOverlayOpen(),
+      message: `已从 search/single 接口获取 ${items.length} 条结果`,
+    };
+  }
+
+  const onSearchPage = isSearchResultsPage();
+  const cards = onSearchPage ? await waitForSearchResultCards() : collectSearchResultCards();
+
   const items: Array<{
     index: number;
     title: string;
     author: string;
-    url: string;
+    url: string | null;
     aweme_id: string | null;
+    click_by: "dom_rect";
+    rect: { top: number; left: number; width: number; height: number };
   }> = [];
 
   for (let i = 0; i < cards.length && items.length < limit; i += 1) {
     const card = cards[i];
-    const link =
-      (card.matches('a[href*="/video/"]') ? card : card.querySelector('a[href*="/video/"]')) as
-        | HTMLAnchorElement
-        | null;
-    const href = link?.href ?? "";
-    const awemeId = parseAwemeId(href);
-    const titleNode =
-      card.querySelector('[class*="title"], [class*="desc"], span, p') ?? card;
-    const authorNode = card.querySelector('[class*="author"], [class*="name"], a[href*="/user/"]');
+    const link = findVideoLink(card);
+    const awemeId = resolveCardAwemeId(card);
+    const clickTarget = pickSearchCardClickTarget(card);
 
     items.push({
       index: items.length + 1,
-      title: nodeText(titleNode).slice(0, 120) || `视频 ${items.length + 1}`,
-      author: authorNode ? nodeText(authorNode).slice(0, 40) : "—",
-      url: href,
+      title: pickCardTitle(card) || `搜索结果 ${items.length + 1}`,
+      author: pickCardAuthor(card),
+      url: awemeId ? buildCardUrl(awemeId, link) : null,
       aweme_id: awemeId,
+      click_by: "dom_rect",
+      rect: serializeCardRect(clickTarget),
     });
   }
+
+  const linkCount = document.querySelectorAll('a[href*="/video/"], a[href*="modal_id="]').length;
+  const posterCount = cards.length;
+  const feedOpen = isFeedOverlayOpen();
 
   return {
     ok: items.length > 0,
@@ -95,9 +83,18 @@ export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}
     items,
     results: items,
     url: location.href,
+    on_search_page: onSearchPage,
+    capture_method: "dom",
+    dom_link_count: linkCount,
+    poster_count: posterCount,
+    feed_overlay_open: feedOpen,
     message:
       items.length > 0
-        ? `已抓取 ${items.length} 条搜索结果`
-        : "未找到搜索结果卡片，请先完成搜索",
+        ? `已抓取 ${items.length} 条搜索结果（按序号+坐标点击，无需 aweme_id）`
+        : feedOpen && onSearchPage
+          ? "未找到搜索结果卡片：当前为视频浮层，请先关闭视频详情或返回搜索列表"
+          : onSearchPage
+            ? `未找到搜索结果卡片（已在搜索页，海报 ${posterCount} 个、视频链接 ${linkCount} 个；请确认「视频」筛选已选且列表已加载）`
+            : `未找到搜索结果卡片，当前不在搜索结果页（${location.href}），请先执行步骤 7 或手动进入搜索页`,
   };
 }

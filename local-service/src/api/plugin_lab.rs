@@ -21,7 +21,7 @@ pub struct PluginLabStatusResponse {
 pub async fn status(State(state): State<AppState>) -> Json<PluginLabStatusResponse> {
     Json(PluginLabStatusResponse {
         ok: true,
-        connected_clients: state.hub.client_count(),
+        connected_clients: state.hub.extension_client_count(),
         supported_actions: plugin_lab::supported_actions(),
     })
 }
@@ -56,7 +56,7 @@ pub async fn run_action(
         )
     })?;
 
-    if state.hub.client_count() == 0 {
+    if state.hub.extension_client_count() == 0 {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(PluginLabActionResponse {
@@ -97,6 +97,125 @@ pub async fn run_action(
             Json(PluginLabActionResponse {
                 ok: false,
                 action: action_id,
+                message: None,
+                data: None,
+                error: Some(err),
+            }),
+        )),
+    }
+}
+
+pub async fn readiness(
+    State(state): State<AppState>,
+    Path(action_id): Path<String>,
+) -> Result<Json<PluginLabActionResponse>, (StatusCode, Json<PluginLabActionResponse>)> {
+    let bridge_action = plugin_lab::bridge_action_for(&action_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(PluginLabActionResponse {
+                ok: false,
+                action: action_id.clone(),
+                message: None,
+                data: None,
+                error: Some(format!("unsupported plugin-lab action: {action_id}")),
+            }),
+        )
+    })?;
+
+    if state.hub.extension_client_count() == 0 {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(PluginLabActionResponse {
+                ok: false,
+                action: action_id.clone(),
+                message: None,
+                data: None,
+                error: Some("no extension connected — load extension/dist and ensure badge shows OK".into()),
+            }),
+        ));
+    }
+
+    match state
+        .hub
+        .request_command(
+            "plugin_lab.preflight",
+            serde_json::json!({ "target_action": bridge_action }),
+            Duration::from_secs(8),
+        )
+        .await
+    {
+        Ok(data) => {
+            let can_execute = data
+                .get("can_execute")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let message = data
+                .get("message")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let error_msg = if can_execute {
+                None
+            } else {
+                Some(
+                    message
+                        .clone()
+                        .unwrap_or_else(|| "当前界面无法执行".into()),
+                )
+            };
+            Ok(Json(PluginLabActionResponse {
+                ok: can_execute,
+                action: action_id,
+                message,
+                data: Some(data),
+                error: error_msg,
+            }))
+        }
+        Err(err) => Err((
+            StatusCode::BAD_GATEWAY,
+            Json(PluginLabActionResponse {
+                ok: false,
+                action: action_id,
+                message: None,
+                data: None,
+                error: Some(err),
+            }),
+        )),
+    }
+}
+
+pub async fn snapshot(
+    State(state): State<AppState>,
+) -> Result<Json<PluginLabActionResponse>, (StatusCode, Json<PluginLabActionResponse>)> {
+    if state.hub.extension_client_count() == 0 {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(PluginLabActionResponse {
+                ok: false,
+                action: "page_snapshot".into(),
+                message: None,
+                data: None,
+                error: Some("no extension connected".into()),
+            }),
+        ));
+    }
+
+    match state
+        .hub
+        .request_command("plugin_lab.page_snapshot", serde_json::json!({}), Duration::from_secs(8))
+        .await
+    {
+        Ok(data) => Ok(Json(PluginLabActionResponse {
+            ok: true,
+            action: "page_snapshot".into(),
+            message: None,
+            data: Some(data),
+            error: None,
+        })),
+        Err(err) => Err((
+            StatusCode::BAD_GATEWAY,
+            Json(PluginLabActionResponse {
+                ok: false,
+                action: "page_snapshot".into(),
                 message: None,
                 data: None,
                 error: Some(err),

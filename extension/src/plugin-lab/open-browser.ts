@@ -1,4 +1,5 @@
 import type { PlatformId } from "../shared/protocol";
+import { pinLabSession } from "./resolve-lab-tab";
 
 const PLATFORM_URLS: Record<PlatformId, string> = {
   douyin: "https://www.douyin.com",
@@ -74,21 +75,21 @@ async function focusTab(tab: chrome.tabs.Tab) {
   await chrome.tabs.update(tab.id, { active: true });
 }
 
-async function waitForTabLoad(tabId: number, timeoutMs = 20_000): Promise<void> {
+async function waitForTabLoad(tabId: number, timeoutMs = 8_000): Promise<boolean> {
   const tab = await chrome.tabs.get(tabId);
-  if (tab.status === "complete") return;
+  if (tab.status === "complete") return true;
 
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error("tab load timeout"));
+      resolve(false);
     }, timeoutMs);
 
     function listener(updatedId: number, info: chrome.tabs.TabChangeInfo) {
       if (updatedId !== tabId || info.status !== "complete") return;
       clearTimeout(timer);
       chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
+      resolve(true);
     }
 
     chrome.tabs.onUpdated.addListener(listener);
@@ -163,29 +164,35 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
   const platform = resolvePlatform(payload.platform);
   const url = resolveTargetUrl(payload, platform);
   const reuseExisting = shouldReuseExisting(payload);
-  const waitLoad = payload.wait_load !== false;
+  const waitLoad = payload.wait_load === true;
+  const customUrl = String(payload.url ?? "").trim();
 
   if (reuseExisting) {
     const existing = await findExistingPlatformTab(platform);
-    if (existing) {
+    if (existing?.id) {
       let bounds: WindowBounds | undefined;
       if (existing.windowId !== undefined) {
         bounds = await applyLeftHalfLayout(existing.windowId);
       }
       await focusTab(existing);
-      if (existing.id && waitLoad) {
-        try {
+
+      const navigated = customUrl && existing.url !== customUrl;
+      if (navigated) {
+        await chrome.tabs.update(existing.id, { url: customUrl });
+        if (waitLoad) {
           await waitForTabLoad(existing.id);
-        } catch {
-          // ignore load timeout when reusing window
         }
       }
-      const refreshed = existing.id ? await chrome.tabs.get(existing.id) : existing;
+
+      const refreshed = await chrome.tabs.get(existing.id);
+      await pinLabSession(refreshed, platform);
       return buildResult(platform, refreshed, {
         opened: false,
         newWindow: false,
         bounds,
-        message: `已聚焦已有 ${platform} 窗口（左侧半屏）`,
+        message: navigated
+          ? `已聚焦 ${platform} 并打开 ${customUrl}`
+          : `已聚焦已有 ${platform} 窗口（左侧半屏）`,
       });
     }
   }
@@ -207,14 +214,11 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
   }
 
   if (waitLoad) {
-    try {
-      await waitForTabLoad(tab.id);
-    } catch {
-      // page may still be loading; return window info anyway
-    }
+    await waitForTabLoad(tab.id);
   }
 
   const refreshed = await chrome.tabs.get(tab.id);
+  await pinLabSession(refreshed, platform);
   return buildResult(platform, refreshed, {
     opened: true,
     newWindow: true,

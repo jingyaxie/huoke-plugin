@@ -62,7 +62,7 @@
         </div>
       </header>
 
-      <main class="content">
+      <main class="content" :class="{ 'content--fill': fillContent }">
         <router-view />
       </main>
     </div>
@@ -147,6 +147,8 @@ const breadcrumbTitle = computed(() => {
   const meta = route.meta?.title || getRouteMeta(route.path)?.title;
   return meta || "AI获客";
 });
+
+const fillContent = computed(() => route.meta.fillContent === true);
 
 function isActive(path) {
   return route.path === path || route.path.startsWith(`${path}/`);
@@ -474,6 +476,17 @@ watch(() => route.path, () => {
   min-height: 0;
   overflow: auto;
   padding: 28px 32px;
+}
+
+.content--fill {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.content--fill > * {
+  flex: 1;
+  min-height: 0;
 }
 
 @media (max-width: 900px) {

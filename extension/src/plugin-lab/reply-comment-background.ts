@@ -1,4 +1,4 @@
-import { resolveLabTargetTab } from "./resolve-lab-tab";
+import { resolveLabTabForAction } from "./resolve-lab-tab";
 import {
   attachDebugger,
   clickMouse,
@@ -46,7 +46,7 @@ export async function replyCommentBackground(payload: Record<string, unknown> = 
   const commentId = String(payload.comment_id ?? "").trim();
   const commentText = String(payload.comment_text ?? "").trim();
   const scrollRounds = Math.max(1, Math.min(Number(payload.scroll_rounds ?? 12), 24));
-  const tab = await resolveLabTargetTab();
+  const tab = await resolveLabTabForAction("plugin_lab.reply_comment");
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
 

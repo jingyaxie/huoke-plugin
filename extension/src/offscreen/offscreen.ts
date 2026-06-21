@@ -1,6 +1,6 @@
 import { DEFAULT_WS_URL, createMessage, type BridgeMessage } from "../shared/protocol";
 import { log, warn, error } from "../shared/logger";
-import { extensionVersion } from "../shared/runtime";
+import { extensionVersion, extensionBuildId } from "../shared/runtime";
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
@@ -107,12 +107,31 @@ async function runCommandViaPort(command: BridgeMessage): Promise<{ ok: boolean;
   return { ok: false, error: "command failed" };
 }
 
+function closeSocket() {
+  clearHeartbeat();
+  if (!socket) return;
+  try {
+    socket.onclose = null;
+    socket.onerror = null;
+    socket.onmessage = null;
+    socket.onopen = null;
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+      socket.close(1000, "reconnect");
+    }
+  } catch {
+    /* ignore */
+  }
+  socket = null;
+  notifyState();
+}
+
 function connect(url = DEFAULT_WS_URL) {
   try {
     wsUrl = url;
-    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    if (socket?.readyState === WebSocket.OPEN && socket.url === url) {
       return;
     }
+    closeSocket();
 
     socket = new WebSocket(url);
     notifyState();
@@ -128,7 +147,7 @@ function connect(url = DEFAULT_WS_URL) {
         createMessage({
           type: "event",
           action: "bridge.connected",
-          payload: { extensionVersion: extensionVersion() },
+          payload: { extensionVersion: extensionVersion(), buildId: extensionBuildId() },
         }),
       );
     });
@@ -187,6 +206,7 @@ function connect(url = DEFAULT_WS_URL) {
 
     socket.addEventListener("close", () => {
       clearHeartbeat();
+      socket = null;
       notifyState();
       scheduleReconnect();
     });
@@ -215,8 +235,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "huoke:offscreen-reconnect") {
-    socket?.close();
-    socket = null;
+    closeSocket();
     connect(wsUrl);
     sendResponse({ ok: true });
     return true;

@@ -11,6 +11,9 @@
     "build:mac": "bash scripts/build-desktop-mac.sh",
     "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-win.ps1",
     "test:collect": "bash scripts/test-douyin-collect.sh",
-    "test:extension": "bash scripts/test-douyin-extension-cases.sh"
+    "test:extension": "bash scripts/test-douyin-extension-cases.sh",
+    "simulate": "bash scripts/simulate-tasks.sh",
+    "simulate:detailed": "bash scripts/simulate-detailed.sh",
+    "auto:keyword": "bash scripts/auto-run-keyword.sh"
   }
 }

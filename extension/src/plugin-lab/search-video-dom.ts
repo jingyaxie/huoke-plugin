@@ -1,9 +1,10 @@
-const CARD_SELECTORS = [
-  '[data-e2e="search-card-video"]',
-  "div.search-result-card",
-  '[class*="search-result-card"]',
-  'a[href*="/video/"]',
-] as const;
+import {
+  collectSearchResultCards,
+  isFeedOverlayOpen,
+  pickSearchCardClickTarget,
+  scrollCardIntoView,
+  serializeCardRect,
+} from "./search-results-dom";
 
 export interface DomPoint {
   x: number;
@@ -17,88 +18,88 @@ export interface DomRect {
   height: number;
 }
 
-function centerOf(rect: DOMRect): DomPoint {
+function centerOf(rect: DomRect): DomPoint {
   return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 }
 
-function serializeRect(rect: DOMRect): DomRect {
-  return {
-    top: Math.round(rect.top),
-    left: Math.round(rect.left),
-    width: Math.round(rect.width),
-    height: Math.round(rect.height),
-  };
+function isValidRect(rect?: DomRect | null): rect is DomRect {
+  return Boolean(rect && rect.width >= 24 && rect.height >= 24);
 }
 
-function collectClickableCards(): HTMLElement[] {
-  const seen = new Set<HTMLElement>();
-  const out: HTMLElement[] = [];
-
-  for (const selector of CARD_SELECTORS) {
-    const nodes = document.querySelectorAll(selector);
-    for (let i = 0; i < nodes.length && out.length < 50; i += 1) {
-      const node = nodes[i] as HTMLElement;
-      const rect = node.getBoundingClientRect();
-      if (rect.width < 60 || rect.height < 60 || rect.top < 60) continue;
-      if (seen.has(node)) continue;
-      seen.add(node);
-      out.push(node);
-    }
-  }
-
-  out.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-  return out;
-}
-
-function isFeedOpen(): boolean {
-  const selectors = [
-    '[data-e2e="feed-active-video"]',
-    '[data-e2e="feed-comment-icon"]',
-    '[data-e2e="comment-icon"]',
-    '[data-e2e="detail-tab-comment"]',
-  ];
-  for (const selector of selectors) {
-    const el = document.querySelector(selector);
-    if (!el) continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.width >= 10 && rect.height >= 10) return true;
-  }
-  return false;
-}
-
-/** 供 background 探测搜索结果视频点击坐标 */
-export function probeSearchVideoCard(payload: { video_index?: number; index?: number } = {}) {
+/** 供 background 探测搜索结果视频点击坐标（按序号，不依赖 aweme_id） */
+export function probeSearchVideoCard(payload: {
+  video_index?: number;
+  index?: number;
+  rect?: DomRect;
+  status_only?: boolean;
+} = {}) {
   const index = Math.max(1, Number(payload.video_index ?? payload.index ?? 1));
-  const cards = collectClickableCards();
+  const url = location.href;
+  const feedOpen = isFeedOverlayOpen(url);
 
-  if (cards.length === 0) {
+  if (payload.status_only) {
     return {
-      ok: false,
+      ok: true,
       video_index: index,
-      available: 0,
-      feed_open: isFeedOpen(),
-      url: location.href,
-      message: "未找到搜索结果视频卡片",
+      feed_open: feedOpen,
+      url,
+      message: feedOpen ? "Feed 已打开" : "等待 Feed",
     };
   }
 
-  const targetIndex = Math.min(index, cards.length);
-  const target = cards[targetIndex - 1];
-  const clickTarget =
-    (target.matches('a[href*="/video/"]')
-      ? target
-      : (target.querySelector('a[href*="/video/"]') as HTMLElement | null)) ?? target;
-  const rect = clickTarget.getBoundingClientRect();
+  if (feedOpen) {
+    return {
+      ok: true,
+      video_index: index,
+      available: 0,
+      feed_open: true,
+      click_by: "already_open",
+      url,
+      message: "视频 Feed 已打开",
+    };
+  }
+
+  if (isValidRect(payload.rect)) {
+    return {
+      ok: true,
+      video_index: index,
+      available: 0,
+      center: centerOf(payload.rect),
+      rect: payload.rect,
+      feed_open: false,
+      click_by: "cached_rect",
+      url,
+      message: `使用步骤 8 缓存的第 ${index} 个卡片坐标`,
+    };
+  }
+
+  const cards = collectSearchResultCards();
+  if (cards.length > 0) {
+    const targetIndex = Math.min(index, cards.length);
+    const target = cards[targetIndex - 1];
+    scrollCardIntoView(target);
+    const clickTarget = pickSearchCardClickTarget(target);
+    const rect = serializeCardRect(clickTarget);
+    return {
+      ok: true,
+      video_index: targetIndex,
+      available: cards.length,
+      center: centerOf(rect),
+      rect,
+      feed_open: false,
+      click_by: "dom_index",
+      url,
+      message: `找到第 ${targetIndex} 个视频卡片（DOM 坐标点击）`,
+    };
+  }
 
   return {
-    ok: true,
-    video_index: targetIndex,
-    available: cards.length,
-    center: centerOf(rect),
-    rect: serializeRect(rect),
-    feed_open: isFeedOpen(),
-    url: location.href,
-    message: `找到第 ${targetIndex} 个视频卡片`,
+    ok: false,
+    video_index: index,
+    available: 0,
+    feed_open: feedOpen,
+    url,
+    message: "未找到搜索结果视频卡片",
   };
 }
 

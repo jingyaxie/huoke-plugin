@@ -8,9 +8,12 @@ import { clickCommentButtonBackground } from "./comment-sidebar-background";
 import { clickDmButtonBackground, inputDmTextBackground, sendDmBackground } from "./dm-background";
 import { replyCommentBackground } from "./reply-comment-background";
 import { clickSearchVideoBackground } from "./search-video-background";
+import { clickSearchButtonBackground } from "./click-search-background";
 import { isPluginLabBackgroundAction } from "./background-actions";
 
 export { isPluginLabBackgroundAction } from "./background-actions";
+export { resolveLabTabForAction, resolveLabTargetTab, pinLabSession } from "./resolve-lab-tab";
+export { contextRequirementForAction, contextLabel, detectPageContext } from "./lab-context";
 
 export async function runPluginLabBackgroundCommand(command: BridgeMessage): Promise<unknown> {
   switch (command.action) {
@@ -20,6 +23,8 @@ export async function runPluginLabBackgroundCommand(command: BridgeMessage): Pro
       return clickFilterButtonBackground();
     case "plugin_lab.click_filter_overlay":
       return clickFilterOverlayBackground((command.payload ?? {}) as Record<string, unknown>);
+    case "plugin_lab.click_search_btn":
+      return clickSearchButtonBackground();
     case "plugin_lab.click_search_video":
       return clickSearchVideoBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_comment_btn":

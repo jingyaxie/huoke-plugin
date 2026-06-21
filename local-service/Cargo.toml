@@ -17,3 +17,8 @@ tower-http = { version = "0.5", features = ["cors"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
+tokio-tungstenite = "0.24"
+
+[[bin]]
+name = "mock-extension"
+path = "src/bin/mock_extension.rs"

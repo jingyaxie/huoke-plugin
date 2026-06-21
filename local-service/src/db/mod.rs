@@ -430,6 +430,58 @@ impl Database {
         rows.map(|row| row.map_err(|e| e.to_string())).collect()
     }
 
+    /// 服务重启后，内存里的编排任务已不存在，需把 DB 中残留的 running 标记为失败。
+    pub fn fail_stale_running_jobs(&self, reason: &str) -> Result<usize, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let n = conn
+            .execute(
+                "UPDATE collect_jobs SET status = 'failed', error_message = ?1, updated_at = ?2 WHERE status = 'running'",
+                params![reason, Self::now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n)
+    }
+
+    /// 启动新任务前，结束其它仍在 running 的采集任务（单 Chrome 标签页同时只能跑一个）。
+    pub fn supersede_other_running_jobs(&self, keep_job_id: &str) -> Result<usize, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let n = conn
+            .execute(
+                "UPDATE collect_jobs SET status = 'failed', error_message = '已被新任务取代', updated_at = ?1 WHERE status = 'running' AND id != ?2",
+                params![Self::now_ms(), keep_job_id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n)
+    }
+
+    pub fn delete_collect_job(&self, job_id: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM collect_jobs WHERE id = ?1",
+                params![job_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "job not found".to_string())?;
+        if status == JobStatus::Running.as_str() {
+            return Err("cannot delete running job".into());
+        }
+        conn.execute(
+            "DELETE FROM captured_comments WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM captured_videos WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        let n = conn
+            .execute("DELETE FROM collect_jobs WHERE id = ?1", params![job_id])
+            .map_err(|e| e.to_string())?;
+        Ok(n > 0)
+    }
+
     pub fn upsert_videos(
         &self,
         job_id: &str,

@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tokio::time::sleep;
 
 use crate::plugin_lab;
+use crate::simulate;
 use crate::ws::BridgeHub;
 
 /// 任务编排统一走插件实验室已验证步骤（`plugin_lab.*`），不再调用 legacy `douyin.*` UI 命令。
@@ -28,9 +28,10 @@ impl<'a> LabCommands<'a> {
     }
 
     pub async fn run_keyword_search(&self, keyword: &str, publish_days: i64) -> Result<Value, String> {
+        // 与插件实验室单步流程一致：1 打开 → 3~7 搜索 →（可选）4~5 筛选
         self.action("open_browser", json!({ "platform": "douyin", "reuse_existing": true }))
             .await?;
-        sleep(Duration::from_secs(2)).await;
+        simulate::pause(Duration::from_secs(2)).await;
 
         self.action("find_search_box", json!({ "platform": "douyin" }))
             .await?;
@@ -41,28 +42,43 @@ impl<'a> LabCommands<'a> {
         )
         .await?;
 
-        sleep(Duration::from_millis(400)).await;
+        simulate::pause(Duration::from_millis(400)).await;
+
+        // hook 必须在点击搜索之前开启，否则首屏 search API 抓不到
+        self.enable_network_hook().await?;
 
         let submit = self.action("click_search_btn", json!({})).await?;
         if !Self::lab_ok(&submit) {
             return Ok(submit);
         }
 
-        sleep(Duration::from_secs(4)).await;
+        // 等待进入 jingxuan/search 结果页（与实验室手动操作间隔一致）
+        simulate::pause(Duration::from_secs(5)).await;
+
+        // 导航后 hook 状态会重置，再 enable 一次
+        self.enable_network_hook().await?;
 
         if publish_days > 0 {
             let _ = self.action("click_filter_btn", json!({})).await;
-            sleep(Duration::from_millis(500)).await;
+            simulate::pause(Duration::from_millis(500)).await;
             let _ = self
                 .action(
                     "click_filter_overlay",
                     json!({ "days": publish_days, "open_if_closed": true }),
                 )
                 .await;
-            sleep(Duration::from_secs(2)).await;
+            simulate::pause(Duration::from_secs(2)).await;
         }
 
         Ok(json!({ "ok": true, "keyword": keyword, "days": publish_days }))
+    }
+
+    pub async fn fetch_search_results(&self, limit: i64) -> Result<Value, String> {
+        self.action(
+            "fetch_search_results",
+            json!({ "limit": limit.clamp(1, 50) }),
+        )
+        .await
     }
 
     pub async fn swipe_search_results(&self, rounds: i64) -> Result<(), String> {
@@ -73,7 +89,7 @@ impl<'a> LabCommands<'a> {
                     json!({ "direction": "down", "distance": 900, "segments": 3 }),
                 )
                 .await;
-            sleep(Duration::from_millis(800)).await;
+            simulate::pause(Duration::from_millis(800)).await;
         }
         Ok(())
     }
@@ -117,7 +133,7 @@ impl<'a> LabCommands<'a> {
                     json!({ "direction": "down", "distance": 800, "segments": 2 }),
                 )
                 .await;
-            sleep(Duration::from_millis(700)).await;
+            simulate::pause(Duration::from_millis(700)).await;
         }
         Ok(())
     }
@@ -129,11 +145,11 @@ impl<'a> LabCommands<'a> {
     ) -> Result<(), String> {
         for attempt in 0..2 {
             self.open_video(aweme_id, video_url).await?;
-            sleep(Duration::from_secs(4)).await;
+            simulate::pause(Duration::from_secs(4)).await;
 
             let sidebar = self.open_comment_sidebar().await?;
             if Self::lab_ok(&sidebar) {
-                sleep(Duration::from_secs(2)).await;
+                simulate::pause(Duration::from_secs(2)).await;
                 return Ok(());
             }
 
@@ -143,7 +159,7 @@ impl<'a> LabCommands<'a> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             if attempt == 0 && (err.contains("navigat") || err.contains("load")) {
-                sleep(Duration::from_secs(4)).await;
+                simulate::pause(Duration::from_secs(4)).await;
                 continue;
             }
             return Err(format!("failed to open comment sidebar: {err}"));
@@ -180,7 +196,7 @@ impl<'a> LabCommands<'a> {
             return Ok(typed);
         }
 
-        sleep(Duration::from_millis(500)).await;
+        simulate::pause(Duration::from_millis(500)).await;
 
         let sent = self.action("send_comment", json!({})).await?;
         Ok(sent)
@@ -222,7 +238,7 @@ impl<'a> LabCommands<'a> {
             return Ok(opened);
         }
 
-        sleep(Duration::from_secs(2)).await;
+        simulate::pause(Duration::from_secs(2)).await;
         self.action("click_follow_btn", json!({})).await
     }
 
@@ -232,7 +248,7 @@ impl<'a> LabCommands<'a> {
             return Ok(dm_open);
         }
 
-        sleep(Duration::from_millis(800)).await;
+        simulate::pause(Duration::from_millis(800)).await;
 
         let typed = self
             .action("input_dm_text", json!({ "dm_text": text }))
@@ -241,7 +257,7 @@ impl<'a> LabCommands<'a> {
             return Ok(typed);
         }
 
-        sleep(Duration::from_millis(500)).await;
+        simulate::pause(Duration::from_millis(500)).await;
         self.action("send_dm", json!({ "dm_text": text })).await
     }
 
