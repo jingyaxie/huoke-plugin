@@ -51,9 +51,10 @@
     if (!shouldCapture(url)) return;
     const isSearchApi =
       /general\/search\/single|general\/search\/stream|search\/item|search\/single/i.test(url);
+    const isCommentApi = /\/comment\/list/i.test(url);
     const key = `${meta.method || "GET"}:${url}`;
-    if (!isSearchApi && seen.has(key)) return;
-    if (!isSearchApi) seen.add(key);
+    if (!isSearchApi && !isCommentApi && seen.has(key)) return;
+    if (!isSearchApi && !isCommentApi) seen.add(key);
     emit({ ...meta, url });
   }
 

@@ -12,6 +12,7 @@ pub fn bridge_action_for(action_id: &str) -> Option<&'static str> {
         "click_search_btn" => Some("plugin_lab.click_search_btn"),
         "fetch_search_results" => Some("plugin_lab.fetch_search_results"),
         "click_search_video" => Some("plugin_lab.click_search_video"),
+        "prepare_search_for_video" => Some("plugin_lab.prepare_search_video"),
         "click_comment_btn" => Some("plugin_lab.click_comment_btn"),
         "scroll_and_collect_comments" => Some("plugin_lab.scroll_and_collect_comments"),
         "reply_comment" => Some("plugin_lab.reply_comment"),
@@ -80,6 +81,7 @@ pub fn supported_actions() -> &'static [&'static str] {
         "click_search_btn",
         "fetch_search_results",
         "click_search_video",
+        "prepare_search_for_video",
         "click_comment_btn",
         "scroll_and_collect_comments",
         "reply_comment",
@@ -199,13 +201,19 @@ fn normalize_click_search_video_payload(payload: Value) -> Value {
     if let Some(rect) = payload.get("rect") {
         out["rect"] = rect.clone();
     }
+    if let Some(id) = payload.get("aweme_id").and_then(|v| v.as_str()) {
+        if !id.trim().is_empty() {
+            out["aweme_id"] = Value::from(id);
+        }
+    }
     out
 }
 
 fn normalize_scroll_collect_comments_payload(payload: Value) -> Value {
     json!({
-        "scroll_rounds": payload.get("scroll_rounds").and_then(|v| v.as_i64()).unwrap_or(4),
-        "max_comments": payload.get("max_comments").and_then(|v| v.as_i64()).unwrap_or(30),
+        "scroll_rounds": payload.get("scroll_rounds").and_then(|v| v.as_i64()).unwrap_or(12),
+        "max_comments": payload.get("max_comments").and_then(|v| v.as_i64()).unwrap_or(80),
+        "comment_days": payload.get("comment_days").and_then(|v| v.as_i64()).unwrap_or(0),
     })
 }
 

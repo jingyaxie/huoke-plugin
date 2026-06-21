@@ -1,4 +1,5 @@
 import { findSearchInputMatch, humanClick, randDelay, sleep } from "./search-input";
+import { rememberSearchResultsUrl } from "./search-feed-open";
 import {
   clearSearchApiCache,
   enableSearchNetworkHook,
@@ -36,7 +37,7 @@ function isSearchResultsPage(url = location.href): boolean {
 }
 
 export function buildSearchResultPayload(
-  items: Array<{ aweme_id?: string | null; index?: number } & Record<string, unknown>>,
+  items: ReadonlyArray<{ aweme_id?: string | null; index?: number }>,
   captureMethod: "api" | "dom" | "none",
 ) {
   return {
@@ -95,6 +96,10 @@ export async function submitSearchClick() {
 
   if (inputMatch?.input) {
     inputMatch.input.blur();
+  }
+
+  if (isSearchResultsPage(location.href)) {
+    rememberSearchResultsUrl(location.href);
   }
 
   return {

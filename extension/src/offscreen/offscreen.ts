@@ -6,6 +6,7 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const HEARTBEAT_MS = 15000;
 const BRIDGE_PORT = "huoke-bridge";
+const OUTBOUND_QUEUE_MAX = 128;
 
 let socket: WebSocket | null = null;
 let reconnectAttempt = 0;
@@ -14,6 +15,9 @@ let wsUrl = DEFAULT_WS_URL;
 let bridgePort: chrome.runtime.Port | null = null;
 let requestSeq = 0;
 let lastWsError = "";
+let reconnectTimer: number | null = null;
+let intentionalClose = false;
+const outboundQueue: BridgeMessage[] = [];
 
 function connectionState(): "connected" | "connecting" | "disconnected" {
   if (!socket) return "disconnected";
@@ -51,19 +55,55 @@ function startHeartbeat() {
   }, HEARTBEAT_MS) as unknown as number;
 }
 
-function sendWs(message: BridgeMessage) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    warn("ws not open, drop message", message.action);
+function flushOutboundQueue() {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  while (outboundQueue.length > 0) {
+    const message = outboundQueue.shift();
+    if (!message) break;
+    socket.send(JSON.stringify(message));
+  }
+}
+
+function enqueueOrSendWs(message: BridgeMessage) {
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message));
     return;
   }
-  socket.send(JSON.stringify(message));
+  if (outboundQueue.length >= OUTBOUND_QUEUE_MAX) {
+    outboundQueue.shift();
+  }
+  outboundQueue.push(message);
+  const state = socket?.readyState;
+  if (state !== WebSocket.CONNECTING && state !== WebSocket.OPEN) {
+    connect(wsUrl);
+  }
+}
+
+function sendWs(message: BridgeMessage) {
+  enqueueOrSendWs(message);
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
 }
 
 function scheduleReconnect() {
+  if (intentionalClose || reconnectTimer !== null) return;
   const delay = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempt, RECONNECT_MAX_MS);
   reconnectAttempt += 1;
-  warn(`reconnect in ${delay}ms (attempt ${reconnectAttempt})`);
-  setTimeout(() => connect(wsUrl), delay);
+  // 用 log 而非 warn，避免 Chrome 扩展页把正常重连标成「错误」
+  if (reconnectAttempt >= 5) {
+    warn(`ws 重连第 ${reconnectAttempt} 次（${delay}ms 后）— 请确认 local-service 已启动（端口 18766）`);
+  } else {
+    log(`ws 重连第 ${reconnectAttempt} 次（${delay}ms 后）`);
+  }
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect(wsUrl);
+  }, delay) as unknown as number;
 }
 
 function ensureBridgePort(): chrome.runtime.Port {
@@ -107,9 +147,11 @@ async function runCommandViaPort(command: BridgeMessage): Promise<{ ok: boolean;
   return { ok: false, error: "command failed" };
 }
 
-function closeSocket() {
+function closeSocket(opts?: { intentional?: boolean }) {
   clearHeartbeat();
+  clearReconnectTimer();
   if (!socket) return;
+  intentionalClose = Boolean(opts?.intentional);
   try {
     socket.onclose = null;
     socket.onerror = null;
@@ -128,7 +170,12 @@ function closeSocket() {
 function connect(url = DEFAULT_WS_URL) {
   try {
     wsUrl = url;
-    if (socket?.readyState === WebSocket.OPEN && socket.url === url) {
+    const state = socket?.readyState;
+    if (state === WebSocket.OPEN && socket?.url === url) {
+      return;
+    }
+    // 正在连接时不要打断，否则会造成 connect → close → reconnect 循环
+    if (state === WebSocket.CONNECTING) {
       return;
     }
     closeSocket();
@@ -138,6 +185,7 @@ function connect(url = DEFAULT_WS_URL) {
 
     socket.addEventListener("open", () => {
       reconnectAttempt = 0;
+      clearReconnectTimer();
       lastWsError = "";
       log("offscreen connected to local-service", url);
       ensureBridgePort();
@@ -150,6 +198,7 @@ function connect(url = DEFAULT_WS_URL) {
           payload: { extensionVersion: extensionVersion(), buildId: extensionBuildId() },
         }),
       );
+      flushOutboundQueue();
     });
 
     socket.addEventListener("message", async (event) => {
@@ -204,10 +253,23 @@ function connect(url = DEFAULT_WS_URL) {
       }
     });
 
-    socket.addEventListener("close", () => {
+    socket.addEventListener("close", (event) => {
       clearHeartbeat();
       socket = null;
       notifyState();
+      if (intentionalClose) {
+        intentionalClose = false;
+        return;
+      }
+      // 服务端因「另一个插件实例上线」踢掉本连接 — 不要重连，否则会互相抢占
+      if (event.code === 4000) {
+        lastWsError = "已有其它插件实例连接 local-service，本 offscreen 已停止重连";
+        warn(lastWsError);
+        return;
+      }
+      if (event.code === 1000 && event.reason === "reconnect") {
+        return;
+      }
       scheduleReconnect();
     });
 
@@ -235,7 +297,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "huoke:offscreen-reconnect") {
-    closeSocket();
+    closeSocket({ intentional: true });
+    reconnectAttempt = 0;
     connect(wsUrl);
     sendResponse({ ok: true });
     return true;

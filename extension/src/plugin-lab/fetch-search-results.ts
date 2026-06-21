@@ -12,6 +12,7 @@ import {
   serializeCardRect,
   waitForSearchResultCards,
 } from "./search-results-dom";
+import { rememberSearchResultsUrl } from "./search-feed-open";
 import { getLastSearchApiResults, waitForSearchApiResults } from "./search-api";
 
 export interface FetchSearchResultsPayload {
@@ -44,6 +45,7 @@ export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}
   }
 
   const onSearchPage = isSearchResultsPage();
+  if (onSearchPage) rememberSearchResultsUrl();
   const cards = onSearchPage ? await waitForSearchResultCards() : collectSearchResultCards();
 
   const items: Array<{

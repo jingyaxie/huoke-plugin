@@ -60,6 +60,11 @@ export async function closeVideoDetail() {
     await sleep(randDelay(500, 800));
   }
 
+  if (feedDetailOpen() && /modal_id=/.test(location.href)) {
+    history.back();
+    await sleep(randDelay(500, 800));
+  }
+
   const ok = !feedDetailOpen();
   return {
     ok,

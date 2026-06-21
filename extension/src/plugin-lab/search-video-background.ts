@@ -18,85 +18,205 @@ interface VideoProbe {
   video_index?: number;
   available?: number;
   feed_open?: boolean;
+  is_search_feed?: boolean;
+  is_standalone_video?: boolean;
+  aweme_id?: string;
   url?: string;
   message?: string;
-  already_open?: boolean;
+  click_by?: string;
+}
+
+interface ClickResult {
+  ok?: boolean;
+  feed_open?: boolean;
+  is_search_feed?: boolean;
+  mode?: string;
+  video_index?: number;
+  available?: number;
+  url?: string;
+  message?: string;
+  attempt?: number;
+  aweme_id?: string;
 }
 
 async function probeVideo(
   tabId: number,
   payload: Record<string, unknown>,
-  options?: { skipPreflight?: boolean },
 ): Promise<VideoProbe> {
   return (await sendContentPluginLabCommand(
     tabId,
     "plugin_lab.search_video_probe",
     payload,
-    options,
+    { skipPreflight: true },
   )) as VideoProbe;
 }
 
-/** 步骤 9：CDP 真实鼠标点击搜索结果视频 */
+async function prepareSearchPage(tabId: number): Promise<{ ok?: boolean; card_count?: number; message?: string }> {
+  return (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.prepare_search_video",
+    {},
+    { skipPreflight: true },
+  )) as { ok?: boolean; card_count?: number; message?: string };
+}
+
+async function domOpenFeed(
+  tabId: number,
+  payload: Record<string, unknown>,
+): Promise<ClickResult> {
+  return (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.search_video_dom_click",
+    payload,
+    { skipPreflight: true },
+  )) as ClickResult;
+}
+
+async function waitSearchFeedOpen(tabId: number, videoIndex: number, maxPolls = 28): Promise<boolean> {
+  for (let i = 0; i < maxPolls; i += 1) {
+    await sleep(160 + i * 35);
+    const status = await probeVideo(tabId, { video_index: videoIndex, status_only: true });
+    if (status.is_search_feed) return true;
+    if (status.is_standalone_video) return false;
+  }
+  const status = await probeVideo(tabId, { video_index: videoIndex, status_only: true });
+  return Boolean(status.is_search_feed);
+}
+
+async function cdpClickAt(tabId: number, x: number, y: number): Promise<void> {
+  await attachDebugger(tabId);
+  try {
+    await moveMouse(tabId, x, y);
+    await sleep(randDelay(100, 180));
+    await clickMouse(tabId, x, y);
+  } finally {
+    await detachDebugger(tabId);
+  }
+}
+
+function searchFeedSuccess(result: ClickResult): boolean {
+  return Boolean(result.ok && result.is_search_feed);
+}
+
+/** 步骤 9：优先 modal_id 打开搜索 Feed 浮层，CDP/DOM 兜底，拒绝 /video/ 独立详情页 */
 export async function clickSearchVideoBackground(payload: Record<string, unknown> = {}) {
   const tab = await resolveLabTabForAction("plugin_lab.click_search_video");
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
   const videoIndex = Math.max(1, Number(payload.video_index ?? payload.index ?? 1));
 
-  let probe = await probeVideo(tabId, payload, { skipPreflight: true });
-  if (!probe.ok || !probe.center) {
-    return {
-      ok: false,
-      mode: "cdp_real_mouse",
-      url: probe.url ?? tab.url,
-      message: probe.message ?? "未找到搜索结果视频",
-    };
-  }
+  let lastMessage = "未打开搜索 Feed 浮层";
+  let lastUrl = tab.url ?? "";
+  let awemeHint = String(payload.aweme_id ?? payload.aweme_hint ?? "").trim();
 
-  if (probe.feed_open) {
-    return {
-      ok: true,
-      already_open: true,
-      mode: "cdp_real_mouse",
-      video_index: probe.video_index ?? videoIndex,
-      url: probe.url ?? tab.url,
-      message: "视频 Feed 已打开",
-    };
-  }
-
-  await attachDebugger(tabId);
-  try {
-    await moveMouse(tabId, probe.center.x, probe.center.y);
-    await sleep(randDelay(120, 200));
-    await clickMouse(tabId, probe.center.x, probe.center.y);
-
-    for (let i = 0; i < 5; i += 1) {
-      await sleep(180 + i * 40);
-      const status = await probeVideo(
-        tabId,
-        { video_index: videoIndex, status_only: true },
-        { skipPreflight: true },
-      );
-      if (status.feed_open) {
-        probe = { ...probe, ...status, feed_open: true };
-        break;
-      }
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const prep = await prepareSearchPage(tabId);
+    if (!prep.ok) {
+      lastMessage = prep.message ?? "搜索列表未就绪";
+      await sleep(500 + attempt * 200);
+      continue;
     }
-  } finally {
-    await detachDebugger(tabId);
+
+    const probeAweme = await probeVideo(tabId, { ...payload, video_index: videoIndex, aweme_id: awemeHint });
+    if (!awemeHint && probeAweme.aweme_id) awemeHint = probeAweme.aweme_id;
+
+    if (probeAweme.is_search_feed) {
+      return {
+        ok: true,
+        feed_open: true,
+        is_search_feed: true,
+        mode: "already_open",
+        video_index: videoIndex,
+        aweme_id: awemeHint || probeAweme.aweme_id,
+        url: probeAweme.url ?? lastUrl,
+        attempt,
+        message: "搜索 Feed 浮层已打开",
+      };
+    }
+
+    if (awemeHint) {
+      const modalResult = await domOpenFeed(tabId, {
+        ...payload,
+        video_index: videoIndex,
+        aweme_id: awemeHint,
+        strategy: "modal_only",
+      });
+      lastUrl = modalResult.url ?? lastUrl;
+      if (searchFeedSuccess(modalResult)) {
+        return { ...modalResult, attempt, aweme_id: awemeHint };
+      }
+      lastMessage = modalResult.message ?? lastMessage;
+    }
+
+    if (probeAweme.is_standalone_video && awemeHint) {
+      const recovered = await domOpenFeed(tabId, {
+        ...payload,
+        video_index: videoIndex,
+        aweme_id: awemeHint,
+        strategy: "modal_only",
+      });
+      if (searchFeedSuccess(recovered)) {
+        return { ...recovered, attempt, mode: "modal_recover", aweme_id: awemeHint };
+      }
+      lastMessage = recovered.message ?? "误入独立详情页且 modal 恢复失败";
+      continue;
+    }
+
+    const probe = await probeVideo(tabId, { ...payload, video_index: videoIndex, aweme_id: awemeHint });
+    lastUrl = probe.url ?? lastUrl;
+    if (!awemeHint && probe.aweme_id) awemeHint = probe.aweme_id;
+
+    if (probe.ok && probe.center) {
+      const { x, y } = probe.center;
+      await cdpClickAt(tabId, x, y);
+      if (await waitSearchFeedOpen(tabId, videoIndex)) {
+        return {
+          ok: true,
+          clicked: true,
+          feed_open: true,
+          is_search_feed: true,
+          mode: "cdp_real_mouse",
+          click_by: probe.click_by ?? "cdp",
+          video_index: probe.video_index ?? videoIndex,
+          available: probe.available,
+          aweme_id: awemeHint || probe.aweme_id,
+          url: lastUrl,
+          attempt,
+          message: `已点击第 ${probe.video_index ?? videoIndex} 个搜索结果并打开 Feed 浮层（CDP）`,
+        };
+      }
+      lastMessage = "CDP 点击后未进入搜索 Feed 浮层";
+    } else {
+      lastMessage = probe.message ?? "未找到搜索结果视频卡片";
+    }
+
+    const domFallback = await domOpenFeed(tabId, {
+      ...payload,
+      video_index: videoIndex,
+      aweme_id: awemeHint,
+      strategy: "full",
+    });
+    lastUrl = domFallback.url ?? lastUrl;
+    if (searchFeedSuccess(domFallback)) {
+      return {
+        ...domFallback,
+        attempt,
+        aweme_id: awemeHint || domFallback.aweme_id,
+      };
+    }
+
+    lastMessage = domFallback.message ?? lastMessage;
+    await sleep(700 + attempt * 300);
   }
 
-  const feedOpen = Boolean(probe.feed_open);
   return {
-    ok: true,
-    clicked: true,
-    feed_open: feedOpen,
-    mode: "cdp_real_mouse",
-    video_index: probe.video_index ?? videoIndex,
-    available: probe.available,
-    url: probe.url ?? tab.url,
-    message: feedOpen
-      ? `已点击第 ${probe.video_index ?? videoIndex} 个搜索结果视频并打开 Feed`
-      : `已点击第 ${probe.video_index ?? videoIndex} 个视频卡片`,
+    ok: false,
+    feed_open: false,
+    is_search_feed: false,
+    mode: "multi_strategy",
+    video_index: videoIndex,
+    aweme_id: awemeHint,
+    url: lastUrl,
+    message: lastMessage,
   };
 }

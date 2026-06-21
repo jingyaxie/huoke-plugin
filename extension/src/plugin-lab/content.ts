@@ -13,6 +13,8 @@ import { clickFollowButton } from "./click-follow-btn";
 import { prepareSearchCapture, submitSearchClick } from "./click-search-btn";
 import {
   clickSearchVideoFallback,
+  clickSearchVideoInContent,
+  prepareSearchForVideoClick,
   probeSearchVideoCard,
 } from "./search-video-dom";
 import { closeVideoDetail } from "./close-video-detail";
@@ -54,6 +56,16 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
       return submitSearchClick();
     case "plugin_lab.fetch_search_results":
       return fetchSearchResults((payload ?? {}) as FetchSearchResultsPayload);
+    case "plugin_lab.prepare_search_video":
+      return prepareSearchForVideoClick();
+    case "plugin_lab.search_video_dom_click":
+      return clickSearchVideoInContent((payload ?? {}) as {
+        video_index?: number;
+        index?: number;
+        aweme_id?: string;
+        aweme_hint?: string;
+        strategy?: "modal_only" | "full";
+      });
     case "plugin_lab.click_search_video":
       return clickSearchVideoFallback((payload ?? {}) as { video_index?: number; index?: number });
     case "plugin_lab.search_video_probe":

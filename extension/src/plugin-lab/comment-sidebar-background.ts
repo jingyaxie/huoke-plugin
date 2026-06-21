@@ -17,6 +17,7 @@ interface SidebarProbe {
   sidebar_active?: boolean;
   feed_open?: boolean;
   is_search_feed?: boolean;
+  is_standalone_video?: boolean;
   comment_item_count?: number;
   has_visible_comments?: boolean;
   has_comments_header?: boolean;
@@ -47,11 +48,22 @@ export async function clickCommentButtonBackground() {
 
   let status = await probe(tabId);
 
+  if (status.is_standalone_video) {
+    return {
+      ok: false,
+      mode: "cdp_real_mouse",
+      is_standalone_video: true,
+      url: status.url ?? tab.url,
+      message: "误入独立视频详情页，请先通过 modal_id 打开搜索 Feed 浮层",
+    };
+  }
+
   if (sidebarOpen(status)) {
     return {
       ok: true,
       already_open: true,
       mode: "cdp_real_mouse",
+      is_search_feed: status.is_search_feed,
       comment_item_count: status.comment_item_count ?? 0,
       has_comments_header: status.has_comments_header,
       url: status.url ?? tab.url,
@@ -59,13 +71,27 @@ export async function clickCommentButtonBackground() {
     };
   }
 
-  if (!status.feed_open) {
+  if (!status.is_search_feed && !status.feed_open) {
     return {
       ok: false,
       mode: "cdp_real_mouse",
       feed_open: false,
+      is_search_feed: false,
       url: status.url ?? tab.url,
-      message: "视频 Feed 未打开，请先执行步骤 9 点击搜索结果视频",
+      message: "搜索 Feed 浮层未打开，请先执行步骤 9 打开搜索结果视频",
+    };
+  }
+
+  // 搜索 Feed 浮层：右侧评论栏常已展开
+  if (status.is_search_feed && (status.has_visible_comments || status.has_comments_header)) {
+    return {
+      ok: true,
+      already_open: true,
+      mode: "cdp_real_mouse",
+      is_search_feed: true,
+      comment_item_count: status.comment_item_count ?? 0,
+      url: status.url ?? tab.url,
+      message: "搜索 Feed 右侧评论栏已可见",
     };
   }
 

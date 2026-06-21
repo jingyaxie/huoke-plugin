@@ -311,14 +311,18 @@ export function pickCardAuthor(card: HTMLElement): string {
   return text && !isLikelyStatText(text) ? text : "—";
 }
 
-/** 点击目标：优先封面图/卡片中心，不依赖 aweme 链接 */
+/** 点击目标：优先封面图/卡片本体，避免点到 a[href=/video/] 误入独立详情页 */
 export function pickSearchCardClickTarget(card: HTMLElement): HTMLElement {
   const img = card.querySelector(
-    'img[class*="cover"], img[class*="video"], img[class*="poster"], img',
+    'img[class*="cover"], img[class*="video"], img[class*="poster"], img[class*="card"], img.discover-video-card-img, img',
   ) as HTMLElement | null;
   if (img && img.getBoundingClientRect().width >= 40) return img;
-  const link = findVideoLink(card);
-  if (link) return link;
+
+  const poster = card.querySelector(
+    '[class*="discover-video-card"], [class*="videoImage"], [class*="cover"]',
+  ) as HTMLElement | null;
+  if (poster && poster.getBoundingClientRect().width >= 40) return poster;
+
   return card;
 }
 
@@ -342,17 +346,20 @@ export function serializeCardRect(card: HTMLElement): {
 }
 
 export function isFeedOverlayOpen(url = location.href): boolean {
-  if (/modal_id=\d{8,22}/i.test(url)) return true;
+  // 兼容旧调用：搜索 Feed 浮层才算「可采评论的 Feed」
+  if (/modal_id=\d{8,22}/i.test(url) && !/\/video\/\d/i.test(url)) {
+    return feedOverlayVisibleStrict();
+  }
+  return feedOverlayVisibleStrict();
+}
 
+function feedOverlayVisibleStrict(): boolean {
   const selectors = [
     '[data-e2e="feed-active-video"]',
     '[data-e2e="feed-comment-icon"]',
     '[data-e2e="comment-icon"]',
     '[data-e2e="detail-tab-comment"]',
     '[data-e2e="browse-comment-icon"]',
-    '[data-e2e="video-player-container"]',
-    '[class*="xgplayer"]',
-    '[class*="videoPlayer"]',
   ];
   for (const selector of selectors) {
     const el = document.querySelector(selector);

@@ -376,6 +376,119 @@ fn normalize_comment(item: &Value, parent_comment_id: Option<String>) -> Option<
     })
 }
 
+/// 从 `scroll_and_collect_comments` DOM 结果解析评论（任务入库兜底）。
+pub fn parse_dom_scroll_comments(resp: &Value) -> Vec<ParsedComment> {
+    let items = resp
+        .get("comments")
+        .or_else(|| resp.get("items"))
+        .and_then(|v| v.as_array());
+    let Some(items) = items else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (idx, item) in items.iter().enumerate() {
+        let Some(map) = item.as_object() else {
+            continue;
+        };
+        let content = map
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if content.is_empty() || content == "—" {
+            continue;
+        }
+        let author = map
+            .get("author")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let comment_id = map
+            .get("comment_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                format!(
+                    "dom_{:08x}",
+                    stable_hash(&format!("{author}|{}", &content[..content.len().min(80)]))
+                )
+            });
+        if !seen.insert(comment_id.clone()) {
+            continue;
+        }
+        let user_url = map
+            .get("user_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let (user_id, sec_uid) = parse_user_ids_from_url(user_url);
+        out.push(ParsedComment {
+            comment_id,
+            parent_comment_id: None,
+            content,
+            username: author,
+            user_id,
+            sec_uid,
+            digg_count: 0,
+            create_time: map.get("create_time").and_then(|v| v.as_i64()),
+            raw_json: serde_json::to_string(item).ok(),
+        });
+        if idx + 1 >= 300 {
+            break;
+        }
+    }
+    out
+}
+
+fn stable_hash(text: &str) -> u32 {
+    let mut hash = 0_u32;
+    for b in text.bytes() {
+        hash = hash.wrapping_mul(31).wrapping_add(u32::from(b));
+    }
+    hash
+}
+
+fn parse_user_ids_from_url(url: &str) -> (String, String) {
+    let mut user_id = String::new();
+    let mut sec_uid = String::new();
+    if let Some(query) = url.split('?').nth(1) {
+        for pair in query.split('&') {
+            if let Some((key, value)) = pair.split_once('=') {
+                match key {
+                    "uid" | "user_id" => user_id = value.to_string(),
+                    "sec_uid" => sec_uid = value.to_string(),
+                    _ => {}
+                }
+            }
+        }
+    }
+    (user_id, sec_uid)
+}
+
+pub fn resolve_aweme_id_for_video(
+    aweme_id: &str,
+    video_url: &str,
+    page_url: Option<&str>,
+) -> String {
+    if !is_dom_poster_aweme_id(aweme_id) && is_valid_aweme_id(aweme_id) {
+        return aweme_id.to_string();
+    }
+    if let Some(id) = page_url.and_then(parse_aweme_id_from_page_url) {
+        return id;
+    }
+    if !video_url.is_empty() {
+        if let Some(id) = parse_aweme_id_from_page_url(video_url) {
+            return id;
+        }
+    }
+    aweme_id.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,5 +574,23 @@ mod tests {
         let payload = dom_poster_click_payload(videos[0].raw_json.as_deref());
         assert_eq!(payload["video_index"], 1);
         assert_eq!(payload["rect"]["top"], 100);
+    }
+
+    #[test]
+    fn parses_dom_scroll_comments() {
+        let resp = json!({
+            "comments": [
+                {
+                    "content": "求带",
+                    "author": "用户A",
+                    "comment_id": "c1",
+                    "create_time": 1710000000
+                }
+            ]
+        });
+        let comments = parse_dom_scroll_comments(&resp);
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].content, "求带");
+        assert_eq!(comments[0].comment_id, "c1");
     }
 }

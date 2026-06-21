@@ -1,3 +1,5 @@
+import { isSearchFeedOverlay, isStandaloneVideoPage } from "./search-feed-open";
+
 const FEED_SCOPED_ICON_SELECTORS = [
   '[data-e2e="feed-active-video"] [data-e2e="feed-comment-icon"]',
   '[data-e2e="feed-active-video"] [data-e2e="comment-icon"]',
@@ -127,14 +129,6 @@ export function isFeedOverlayOpen(): boolean {
   return false;
 }
 
-export function isSearchFeedOverlay(): boolean {
-  const url = location.href.toLowerCase();
-  if (/\/video\/\d+/.test(url)) return false;
-  const onSearch = url.includes("/search/") || url.includes("/jingxuan/search/");
-  if (!onSearch && !url.includes("modal_id=")) return false;
-  return isFeedOverlayOpen();
-}
-
 function pushIconTarget(
   out: IconTarget[],
   el: HTMLElement,
@@ -209,7 +203,8 @@ function findVideoPlayerCenter(): DomPoint | null {
 export function probeCommentSidebar() {
   const icons = collectCommentIconTargets();
   const commentCount = countVisibleCommentItems();
-  const feedOpen = isFeedOverlayOpen();
+  const searchFeed = isSearchFeedOverlay();
+  const standalone = isStandaloneVideoPage();
   const sidebarActive = isCommentSidebarActive();
   const hasHeader = findAllCommentsHeader() !== null;
 
@@ -217,23 +212,28 @@ export function probeCommentSidebar() {
     ok: true,
     active: sidebarActive,
     sidebar_active: sidebarActive,
-    feed_open: feedOpen,
-    is_search_feed: isSearchFeedOverlay(),
+    feed_open: searchFeed,
+    is_search_feed: searchFeed,
+    is_standalone_video: standalone,
     comment_item_count: commentCount,
     has_visible_comments: commentCount > 0,
     has_comments_header: hasHeader,
     icon_targets: icons,
     video_player_center: findVideoPlayerCenter(),
     url: location.href,
-    message: sidebarActive
-      ? hasHeader && commentCount === 0
-        ? "评论区已打开（可见「全部评论」标题）"
-        : `评论区已打开（${commentCount} 条可见评论）`
-      : feedOpen
-        ? icons.length
-          ? `Feed 已打开，找到 ${icons.length} 个评论入口`
-          : "Feed 已打开，但未找到评论入口"
-        : "视频 Feed 未打开，请先执行步骤 9",
+    message: standalone
+      ? "当前在独立视频详情页，评论在视频下方，需先恢复搜索 Feed 浮层"
+      : sidebarActive
+        ? hasHeader && commentCount === 0
+          ? "评论区已打开（可见「全部评论」标题）"
+          : `评论区已打开（${commentCount} 条可见评论）`
+        : searchFeed
+          ? icons.length
+            ? `搜索 Feed 已打开，找到 ${icons.length} 个评论入口`
+            : searchFeed && commentCount > 0
+              ? "搜索 Feed 右侧评论栏已可见"
+              : "搜索 Feed 已打开，但未找到评论入口"
+          : "搜索 Feed 浮层未打开，请先执行步骤 9",
   };
 }
 

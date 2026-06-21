@@ -191,11 +191,27 @@ impl BridgeHub {
     }
 
     fn kick_client(client: &BridgeClient) {
-        let _ = client.sender.send(Message::Close(None));
+        let frame = axum::extract::ws::CloseFrame {
+            code: 4000,
+            reason: "replaced".into(),
+        };
+        let _ = client.sender.send(Message::Close(Some(frame)));
     }
 
     /// 新插件握手成功后：关闭并移除其它所有 WS，只保留当前这一条。
     async fn adopt_single_extension(&self, client_id: &str) {
+        {
+            let active = self.inner.active_extension_id.lock().await;
+            if active.as_deref() == Some(client_id) {
+                let mut guard = self.inner.clients.lock().await;
+                if let Some(client) = guard.iter_mut().find(|c| c.id == client_id) {
+                    client.is_extension = true;
+                }
+                self.sync_extension_count(&guard, Some(client_id));
+                return;
+            }
+        }
+
         let mut guard = self.inner.clients.lock().await;
         let mut kicked = 0usize;
 

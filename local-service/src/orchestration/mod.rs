@@ -8,8 +8,9 @@ use tracing::{info, warn};
 
 use crate::db::{CapturedVideo, Database, JobStatus};
 use crate::douyin::parser::{
-    dom_poster_click_payload, is_dom_poster_aweme_id, parse_aweme_id_from_page_url,
-    parse_dom_search_results, ParsedVideo,
+    dom_poster_index, is_dom_poster_aweme_id, parse_aweme_id_from_page_url,
+    parse_dom_scroll_comments, parse_dom_search_results, resolve_aweme_id_for_video,
+    ParsedVideo,
 };
 use crate::filters;
 use crate::job_config::JobConfig;
@@ -91,8 +92,6 @@ impl JobOrchestrator {
         }
 
         lab.enable_network_hook().await?;
-        let _ = lab.swipe_search_results(3).await;
-        simulate::pause(Duration::from_secs(3)).await;
         self.ensure_search_videos_captured(job_id, &lab, Some(&search_result))
             .await?;
 
@@ -130,7 +129,7 @@ impl JobOrchestrator {
         } else {
             simulate::pause(Duration::from_secs(4)).await;
             let _ = lab.open_comment_sidebar().await;
-            let _ = lab.scroll_comments(6).await;
+            let _ = lab.scroll_comments(6, 80, cfg.comment_days).await;
             simulate::pause(Duration::from_secs(3)).await;
             if let Some(aweme_id) = parse_aweme_id_from_page_url(&input_url) {
                 let video = ParsedVideo {
@@ -160,8 +159,14 @@ impl JobOrchestrator {
             );
         }
 
-        let scroll_rounds = scroll_rounds_for_target(cfg.target_count, job.max_comments_per_video);
+        let scroll_rounds =
+            scroll_rounds_for_video(job.max_comments_per_video, cfg.comment_days);
         let mut pass = 0_u32;
+        let mut opened_videos = 0_u32;
+
+        let lab = LabCommands::new(&self.hub);
+        let _ = lab.prepare_search_for_video().await;
+        simulate::pause(Duration::from_millis(500)).await;
 
         while self.db.count_comments_for_job(job_id)? < cfg.target_count && pass < 3 {
             pass += 1;
@@ -175,18 +180,43 @@ impl JobOrchestrator {
                     videos.len(),
                     video.aweme_id
                 );
-                self.open_and_scroll_video(video, scroll_rounds).await?;
+                match self
+                    .open_and_scroll_video(job_id, video, scroll_rounds, cfg, job)
+                    .await
+                {
+                    Ok(()) => {
+                        opened_videos += 1;
+                    }
+                    Err(err) => {
+                        warn!(
+                            "job {job_id}: skip video {} ({}) — {}",
+                            index + 1,
+                            video.aweme_id,
+                            err
+                        );
+                        let _ = lab.prepare_search_for_video().await;
+                        simulate::pause(Duration::from_millis(600)).await;
+                    }
+                }
             }
             if self.db.count_comments_for_job(job_id)? >= cfg.target_count {
                 break;
             }
             let lab = LabCommands::new(&self.hub);
-            let _ = lab.scroll_comments(2).await;
+            let _ = lab
+                .scroll_comments(4, job.max_comments_per_video, cfg.comment_days)
+                .await;
             simulate::pause(Duration::from_secs(3)).await;
         }
 
         let count = self.db.count_comments_for_job(job_id)?;
         if count == 0 {
+            if opened_videos == 0 {
+                return Err(
+                    "failed to open any search result video — keep Douyin tab focused on search results"
+                        .into(),
+                );
+            }
             return Err("no comments captured — check login state and filters".into());
         }
         info!("job {job_id}: captured {count} comments (target {})", cfg.target_count);
@@ -199,10 +229,6 @@ impl JobOrchestrator {
         lab: &LabCommands<'_>,
         search_resp: Option<&serde_json::Value>,
     ) -> Result<(), String> {
-        if !self.db.list_videos_for_job(job_id)?.is_empty() {
-            return Ok(());
-        }
-
         let mut videos = search_resp
             .map(parse_dom_search_results)
             .unwrap_or_default();
@@ -214,13 +240,21 @@ impl JobOrchestrator {
         } else {
             "step7"
         };
+
         if videos.is_empty() {
+            if !self.db.list_videos_for_job(job_id)?.is_empty() {
+                warn!(
+                    "job {job_id}: search returned no parsable videos, reusing cached list"
+                );
+                return Ok(());
+            }
             return Err(
                 "search produced no videos — run plugin lab step 7/8 on the Douyin tab to verify results"
                     .into(),
             );
         }
-        let inserted = self.db.upsert_videos(job_id, &videos)?;
+
+        let inserted = self.db.replace_videos_for_job(job_id, &videos)?;
         info!(
             "job {job_id}: stored {inserted} search videos from {source} (dom_poster={})",
             videos.iter().filter(|v| is_dom_poster_aweme_id(&v.aweme_id)).count()
@@ -262,25 +296,35 @@ impl JobOrchestrator {
 
     async fn open_and_scroll_video(
         &self,
+        job_id: &str,
         video: &CapturedVideo,
         scroll_rounds: i64,
+        cfg: &JobConfig,
+        job: &crate::db::CollectJob,
     ) -> Result<(), String> {
         let lab = LabCommands::new(&self.hub);
         if is_dom_poster_aweme_id(&video.aweme_id) {
-            let payload = dom_poster_click_payload(video.raw_json.as_deref());
-            let index = payload
-                .get("video_index")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(1);
-            let rect = payload.get("rect").cloned();
-            let clicked = lab.click_search_video(index, rect).await?;
-            if !clicked.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let index = dom_poster_index(&video.aweme_id).unwrap_or(1);
+            let aweme_hint = parse_aweme_id_from_page_url(&video.video_url);
+            let clicked = lab.click_search_video(index, None, aweme_hint.as_deref()).await?;
+            let ok = clicked.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            let feed_open = clicked
+                .get("is_search_feed")
+                .and_then(|v| v.as_bool())
+                .or_else(|| clicked.get("feed_open").and_then(|v| v.as_bool()))
+                .unwrap_or(false);
+            if !ok || !feed_open {
                 let msg = clicked
                     .get("message")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("click_search_video failed");
+                    .unwrap_or("video feed did not open after click");
                 return Err(msg.to_string());
             }
+            info!(
+                "job {job_id}: opened search video #{index} mode={:?} attempt={:?}",
+                clicked.get("mode").and_then(|v| v.as_str()),
+                clicked.get("attempt").and_then(|v| v.as_u64())
+            );
         } else {
             lab.open_video(
                 &video.aweme_id,
@@ -288,22 +332,73 @@ impl JobOrchestrator {
             )
             .await?;
         }
-        simulate::pause(Duration::from_secs(5)).await;
-        let _ = lab.open_comment_sidebar().await;
-        let _ = lab.scroll_comments(scroll_rounds).await;
         simulate::pause(Duration::from_secs(4)).await;
+
+        let sidebar = lab.open_comment_sidebar().await?;
+        if !sidebar.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let msg = sidebar
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("failed to open comment sidebar");
+            warn!("job {job_id}: {msg}");
+        }
+        simulate::pause(Duration::from_millis(800)).await;
+
+        let scroll_resp = lab
+            .scroll_comments(
+                scroll_rounds,
+                job.max_comments_per_video,
+                cfg.comment_days,
+            )
+            .await?;
+        let page_url = scroll_resp
+            .get("url")
+            .and_then(|v| v.as_str());
+        let aweme_id = resolve_aweme_id_for_video(
+            &video.aweme_id,
+            &video.video_url,
+            page_url,
+        );
+        let dom_comments = parse_dom_scroll_comments(&scroll_resp);
+        if !dom_comments.is_empty() {
+            let inserted = self.db.upsert_comments(job_id, &aweme_id, &dom_comments)?;
+            info!(
+                "job {job_id}: stored {inserted} DOM comments for aweme {aweme_id} (stopped={:?})",
+                scroll_resp.get("stopped_reason").and_then(|v| v.as_str())
+            );
+        } else {
+            warn!(
+                "job {job_id}: scroll returned 0 DOM comments for aweme {} — {:?}",
+                aweme_id,
+                scroll_resp.get("message").and_then(|v| v.as_str())
+            );
+        }
+
+        simulate::pause(Duration::from_secs(2)).await;
         if is_dom_poster_aweme_id(&video.aweme_id) {
-            let _ = lab.close_video_detail().await;
+            let closed = lab.close_video_detail().await?;
+            if !closed.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
+                warn!(
+                    "job {job_id}: close_video_detail may have failed — {:?}",
+                    closed.get("message").and_then(|v| v.as_str())
+                );
+            }
+            let _ = lab.prepare_search_for_video().await;
             simulate::pause(Duration::from_millis(800)).await;
         }
         Ok(())
     }
 }
 
-fn scroll_rounds_for_target(target_count: i64, max_per_video: i64) -> i64 {
-    let per = max_per_video.clamp(5, 30);
-    let need = (target_count / per.max(1)).clamp(1, 8);
-    need
+fn scroll_rounds_for_video(max_per_video: i64, comment_days: i64) -> i64 {
+    let per = max_per_video.clamp(10, 300);
+    let load_rounds = (per / 8).clamp(4, 40);
+    let days_rounds = if comment_days > 0 {
+        (comment_days * 2).clamp(6, 60)
+    } else {
+        20
+    };
+    load_rounds.max(days_rounds).clamp(4, 60)
 }
 
 pub fn spawn_job(db: Database, hub: BridgeHub, default_daily_quota: i64, job_id: String) {

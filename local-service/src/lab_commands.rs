@@ -77,14 +77,22 @@ impl<'a> LabCommands<'a> {
         self.action("close_video_detail", json!({})).await
     }
 
+    pub async fn prepare_search_for_video(&self) -> Result<Value, String> {
+        self.action("prepare_search_for_video", json!({})).await
+    }
+
     pub async fn click_search_video(
         &self,
         video_index: i64,
         rect: Option<Value>,
+        aweme_id: Option<&str>,
     ) -> Result<Value, String> {
         let mut payload = json!({ "video_index": video_index.max(1) });
         if let Some(rect) = rect {
             payload["rect"] = rect;
+        }
+        if let Some(id) = aweme_id.filter(|s| !s.trim().is_empty()) {
+            payload["aweme_id"] = json!(id);
         }
         self.action("click_search_video", payload).await
     }
@@ -130,12 +138,18 @@ impl<'a> LabCommands<'a> {
         self.action("click_comment_btn", json!({})).await
     }
 
-    pub async fn scroll_comments(&self, rounds: i64) -> Result<Value, String> {
+    pub async fn scroll_comments(
+        &self,
+        rounds: i64,
+        max_comments: i64,
+        comment_days: i64,
+    ) -> Result<Value, String> {
         self.action(
             "scroll_and_collect_comments",
             json!({
-                "scroll_rounds": rounds.clamp(1, 12),
-                "max_comments": 80,
+                "scroll_rounds": rounds.clamp(1, 60),
+                "max_comments": max_comments.clamp(10, 300),
+                "comment_days": comment_days.max(0),
             }),
         )
         .await
@@ -297,7 +311,7 @@ fn action_timeout(action_id: &str) -> Duration {
         "input_search_text" | "scroll_and_collect_comments" | "click_search_btn" => {
             Duration::from_secs(120)
         }
-        "click_search_video" => Duration::from_secs(60),
+        "click_search_video" => Duration::from_secs(90),
         "reply_comment" | "input_dm_text" => Duration::from_secs(60),
         "open_browser" => Duration::from_secs(45),
         _ => Duration::from_secs(45),

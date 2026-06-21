@@ -482,6 +482,21 @@ impl Database {
         Ok(n > 0)
     }
 
+    pub fn replace_videos_for_job(
+        &self,
+        job_id: &str,
+        videos: &[crate::douyin::parser::ParsedVideo],
+    ) -> Result<usize, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM captured_videos WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        drop(conn);
+        self.upsert_videos(job_id, videos)
+    }
+
     pub fn upsert_videos(
         &self,
         job_id: &str,
