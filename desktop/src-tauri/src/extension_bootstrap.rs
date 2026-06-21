@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::win_process;
 
-const DOUYIN_HOME: &str = "https://www.douyin.com/";
 const BRIDGE_STATUS: &str = "http://127.0.0.1:18766/bridge/status";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -163,7 +162,6 @@ pub fn launch_chrome_with_extension(
         &format!("--load-extension={}", extension_dir.display()),
         "--no-first-run",
         "--no-default-browser-check",
-        DOUYIN_HOME,
     ]);
 
     #[cfg(windows)]
@@ -430,28 +428,6 @@ fn version_older_than(actual: &str, expected: &str) -> bool {
     )
 }
 
-pub fn bootstrap_extension(bundle_dir: &Path, data_dir: &Path) -> Result<ExtensionSetupStatus, String> {
-    fs::create_dir_all(data_dir).map_err(|err| err.to_string())?;
-    sync_bundle_info(bundle_dir, data_dir)?;
-    let extension_dir = ensure_extension_installed(bundle_dir, data_dir)?;
-    let profile_dir = chrome_profile_dir(data_dir);
-
-    if bridge_client_count() > 0 {
-        return Ok(build_setup_status(bundle_dir, data_dir, None));
-    }
-
-    if let Some(chrome) = find_chrome_executable() {
-        launch_chrome_with_extension(&chrome, &extension_dir, &profile_dir)?;
-        for _ in 0..20 {
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            if bridge_client_count() > 0 {
-                break;
-            }
-        }
-    }
-
-    Ok(build_setup_status(bundle_dir, data_dir, None))
-}
 
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
     if !src.is_dir() {

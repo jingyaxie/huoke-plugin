@@ -15,7 +15,8 @@
       {
         "label": "main",
         "title": "盈小蚁",
-        "url": "about:blank",
+        "url": "/splash.html",
+        "backgroundColor": "#060818",
         "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15",
         "width": 1440,
         "height": 900,

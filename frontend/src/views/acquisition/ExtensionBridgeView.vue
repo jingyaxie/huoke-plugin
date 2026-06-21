@@ -372,7 +372,8 @@ async function onDeleteCollect(row) {
 
 onMounted(async () => {
   desktopMode.value = await isDesktopMode();
-  await Promise.all([refreshAll(), refreshExtensionSetup()]);
+  void refreshAll();
+  void refreshExtensionSetup();
   pollTimer = window.setInterval(() => {
     refreshAll();
     refreshExtensionSetup();

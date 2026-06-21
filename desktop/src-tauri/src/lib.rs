@@ -7,10 +7,10 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+use tauri::window::Color;
 
 mod extension_bootstrap;
 mod port_reclaim;
-mod splash_screen;
 mod static_server;
 mod win_process;
 
@@ -407,100 +407,12 @@ fn drain_log_readers(handles: Vec<JoinHandle<()>>) {
     }
 }
 
-fn verify_desktop_frontend(
-    client: &reqwest::blocking::Client,
-    log_hint: &str,
-) -> Result<(), String> {
-    let resp = client
+fn verify_static_frontend_route(client: &reqwest::blocking::Client) -> bool {
+    client
         .get(APP_HOME_URL)
         .send()
-        .map_err(|err| err.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!(
-            "获客界面不可用 (HTTP {})。请查看日志: {}",
-            resp.status(),
-            log_hint
-        ));
-    }
-    let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    if !content_type.contains("text/html") {
-        return Err(format!(
-            "端口 {} 未托管桌面前端（可能连到了开发 API 或其它服务）。\n\
-             请关闭占用该端口的进程后重开应用。",
-            DESKTOP_PORT
-        ));
-    }
-
-    let body = resp.text().map_err(|err| err.to_string())?;
-    let asset_path = extract_module_asset_path(&body).ok_or_else(|| {
-        format!(
-            "前端 index.html 未包含可加载的 JS 资源，可能打包不完整。\n请重新安装应用。\n日志: {log_hint}"
-        )
-    })?;
-    let asset_url = format!("http://127.0.0.1:{}{asset_path}", DESKTOP_PORT);
-    let asset_resp = client
-        .get(&asset_url)
-        .send()
-        .map_err(|err| format!("前端 JS 资源请求失败: {err}"))?;
-    if !asset_resp.status().is_success() {
-        return Err(format!(
-            "前端 JS 加载失败 (HTTP {})：{asset_path}\n\
-             常见原因：安装包前端资源不完整或版本不匹配。请重新打包安装。\n日志: {log_hint}",
-            asset_resp.status()
-        ));
-    }
-    let asset_type = asset_resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    if asset_type.contains("text/html") {
-        return Err(format!(
-            "前端 JS 资源返回了 HTML 而不是脚本：{asset_path}\n\
-             说明静态资源路由异常或资源缺失。请重新安装应用。\n日志: {log_hint}"
-        ));
-    }
-    Ok(())
-}
-
-fn extract_quoted_attr(part: &str, attr: &str) -> Option<String> {
-    let prefix = format!("{attr}=\"");
-    let rest = part.strip_prefix(&prefix)?;
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
-}
-
-fn extract_module_asset_path(html: &str) -> Option<String> {
-    for token in html.split('<') {
-        let lower = token.to_ascii_lowercase();
-        if !lower.contains("script") {
-            continue;
-        }
-        if !lower.contains("type=\"module\"") && !lower.contains("type='module'") {
-            continue;
-        }
-        for part in token.split_whitespace() {
-            let normalized = part.trim();
-            if let Some(src) = extract_quoted_attr(normalized, "src") {
-                if src.starts_with("/assets/") {
-                    return Some(src);
-                }
-            }
-            if let Some(src) = normalized
-                .strip_prefix("src='")
-                .and_then(|value| value.split('\'').next())
-            {
-                if src.starts_with("/assets/") {
-                    return Some(src.to_string());
-                }
-            }
-        }
-    }
-    None
+        .map(|resp| resp.status().is_success())
+        .unwrap_or(false)
 }
 
 fn format_backend_failure(base: &str, log_state: &BackendLogState) -> String {
@@ -545,7 +457,7 @@ fn wait_backend_ready(
             .map(|resp| resp.status().is_success())
             .unwrap_or(false);
 
-        if static_ok && local_ok && verify_desktop_frontend(&client, log_hint).is_ok() {
+        if static_ok && local_ok && verify_static_frontend_route(&client) {
             return Ok(());
         }
 
@@ -643,10 +555,10 @@ fn navigate_html_page(window: &tauri::WebviewWindow, html: &str) -> Result<(), S
         .map_err(|err| format!("navigate failed: {err}"))
 }
 
-fn show_startup_loading(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = navigate_html_page(&window, splash_screen::STARTUP_SPLASH_HTML);
-    }
+const SPLASH_BACKGROUND: Color = Color(6, 8, 24, 255);
+
+fn apply_splash_window_theme(window: &tauri::WebviewWindow) {
+    let _ = window.set_background_color(Some(SPLASH_BACKGROUND));
 }
 
 fn focus_main_window(app: &AppHandle) {
@@ -689,11 +601,6 @@ fn open_app_home(app: &AppHandle) -> Result<(), String> {
 }
 
 fn bootstrap(app: &AppHandle, log_state: Arc<BackendLogState>) -> Result<(), String> {
-    with_main_thread(app, |app| {
-        show_startup_loading(app);
-        Ok(())
-    })?;
-
     let root = repo_root(app)?;
     let log_file = resolve_app_log_file(app)?;
     let log_hint = display_path(&log_file);
@@ -710,7 +617,6 @@ fn bootstrap(app: &AppHandle, log_state: Arc<BackendLogState>) -> Result<(), Str
         &log_state,
         &log_hint,
     )?;
-    initialize_runtime_env();
 
     // Do not join log reader threads here: they block until backend stdout/stderr
     // close, which only happens when the process exits — leaving the UI on about:blank.
@@ -730,25 +636,23 @@ fn bootstrap(app: &AppHandle, log_state: Arc<BackendLogState>) -> Result<(), Str
     with_main_thread(app, open_app_home)?;
     log::info!("Huoke thin desktop ready at {APP_HOME_URL}");
 
-    let extension_status = match extension_bootstrap::bootstrap_extension(&bundle_dir, &data_dir) {
-        Ok(status) => {
-            log::info!(
-                "extension bootstrap: installed={} chrome={} connected={}",
-                status.extension_installed,
-                status.chrome_found,
-                status.bridge_connected
-            );
-            status
-        }
-        Err(err) => {
-            log::warn!("extension bootstrap failed: {err}");
-            extension_bootstrap::build_setup_status(&bundle_dir, &data_dir, Some(&err))
-        }
-    };
+    thread::spawn(initialize_runtime_env);
 
-    if !extension_status.bridge_connected && !extension_status.chrome_found {
-        log::warn!("Chrome not found — user must install Chrome to use automation");
-    }
+    let bundle_dir_bg = bundle_dir.clone();
+    let data_dir_bg = data_dir.clone();
+    thread::spawn(move || {
+        let status =
+            extension_bootstrap::build_setup_status(&bundle_dir_bg, &data_dir_bg, None);
+        log::info!(
+            "extension status (deferred): installed={} chrome={} connected={}",
+            status.extension_installed,
+            status.chrome_found,
+            status.bridge_connected
+        );
+        if !status.bridge_connected && !status.chrome_found {
+            log::warn!("Chrome not found — user must install Chrome to use automation");
+        }
+    });
 
     Ok(())
 }
@@ -868,8 +772,10 @@ pub fn run() {
             open_extension_folder,
         ])
         .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                apply_splash_window_theme(&window);
+            }
             focus_main_window(app.handle());
-            show_startup_loading(app.handle());
 
             let handle = app.handle().clone();
             let log_state = {
