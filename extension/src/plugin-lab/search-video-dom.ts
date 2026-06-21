@@ -68,8 +68,18 @@ async function ensureSearchListReady(): Promise<void> {
 }
 
 /** 打开下一个视频前：关闭浮层、滚到列表顶部、等待卡片出现 */
-export async function prepareSearchForVideoClick() {
-  await ensureSearchListReady();
+export async function prepareSearchForVideoClick(payload: { skip_restore?: boolean } = {}) {
+  if (!payload.skip_restore) {
+    await ensureSearchListReady();
+  } else if (!isSearchResultsPage()) {
+    return {
+      ok: false,
+      card_count: 0,
+      on_search_page: false,
+      url: location.href,
+      message: `不在搜索结果页（${location.href}）`,
+    };
+  }
 
   if (!isSearchResultsPage()) {
     return {

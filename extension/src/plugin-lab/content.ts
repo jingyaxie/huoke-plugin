@@ -44,6 +44,7 @@ import { scrollAndCollectComments, type ScrollCollectCommentsPayload } from "./s
 import { sendComment } from "./send-comment";
 import { sendDm } from "./send-dm";
 import { swipePage, type SwipePagePayload } from "./swipe-page";
+import { probeSearchContextDom } from "./search-context-probe";
 
 export async function dispatchPluginLabCommand(action: string, payload: unknown): Promise<unknown> {
   const platform = detectPlatformFromUrl(location.href);
@@ -61,6 +62,8 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
       return probeLabReadiness((payload ?? {}) as { target_action?: string });
     case "plugin_lab.page_snapshot":
       return probeLabPageSnapshot();
+    case "plugin_lab.search_context_dom_probe":
+      return probeSearchContextDom();
     case "plugin_lab.swipe_page":
       return swipePage((payload ?? {}) as SwipePagePayload);
     case "plugin_lab.find_search_box":
@@ -78,7 +81,7 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
     case "plugin_lab.fetch_search_results":
       return fetchSearchResults((payload ?? {}) as FetchSearchResultsPayload);
     case "plugin_lab.prepare_search_video":
-      return prepareSearchForVideoClick();
+      return prepareSearchForVideoClick((payload ?? {}) as { skip_restore?: boolean });
     case "plugin_lab.search_video_dom_click":
       return clickSearchVideoInContent((payload ?? {}) as {
         video_index?: number;

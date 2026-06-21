@@ -31,12 +31,18 @@ pub struct BridgeMessage {
 
 impl BridgeMessage {
     pub fn new(msg_type: MessageType, action: impl Into<String>, payload: Value) -> Self {
+        let platform = payload
+            .get("platform")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
         Self {
             v: PROTOCOL_VERSION,
             msg_type,
             id: Uuid::new_v4().to_string(),
             ts: chrono_now_ms(),
-            platform: None,
+            platform,
             action: action.into(),
             payload,
         }

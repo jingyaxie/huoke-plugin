@@ -10,6 +10,7 @@ import { replyCommentBackground } from "./reply-comment-background";
 import { clickSearchVideoBackground } from "./search-video-background";
 import { clickProfileVideoBackground } from "./profile-video-background";
 import { clickSearchButtonBackground } from "./click-search-background";
+import { probeSearchContextBackground } from "./search-context-background";
 import { isPluginLabBackgroundAction } from "./background-actions";
 
 export { isPluginLabBackgroundAction } from "./background-actions";
@@ -25,7 +26,7 @@ export async function runPluginLabBackgroundCommand(command: BridgeMessage): Pro
     case "plugin_lab.click_filter_overlay":
       return clickFilterOverlayBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_search_btn":
-      return clickSearchButtonBackground();
+      return clickSearchButtonBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_search_video":
       return clickSearchVideoBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_profile_video":
@@ -40,6 +41,8 @@ export async function runPluginLabBackgroundCommand(command: BridgeMessage): Pro
       return inputDmTextBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.send_dm":
       return sendDmBackground((command.payload ?? {}) as Record<string, unknown>);
+    case "plugin_lab.search_context_probe":
+      return probeSearchContextBackground((command.payload ?? {}) as Record<string, unknown>);
     default:
       throw new Error(`unsupported plugin_lab background action: ${command.action}`);
   }

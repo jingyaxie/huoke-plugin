@@ -27,6 +27,7 @@ pub fn bridge_action_for(action_id: &str) -> Option<&'static str> {
         "input_dm_text" => Some("plugin_lab.input_dm_text"),
         "send_dm" => Some("plugin_lab.send_dm"),
         "close_video_detail" => Some("plugin_lab.close_video_detail"),
+        "search_context_probe" => Some("plugin_lab.search_context_probe"),
         _ => None,
     }
 }
@@ -65,7 +66,7 @@ fn normalize_open_browser_payload(payload: Value) -> Value {
                 .and_then(|v| v.as_bool())
                 .map(|new_tab| !new_tab)
         })
-        .unwrap_or(false);
+        .unwrap_or(true);
     let wait_load = payload.get("wait_load").and_then(|v| v.as_bool()).unwrap_or(false);
     let reset_to_start = payload
         .get("reset_to_start")
@@ -107,6 +108,7 @@ pub fn supported_actions() -> &'static [&'static str] {
         "input_dm_text",
         "send_dm",
         "close_video_detail",
+        "search_context_probe",
     ]
 }
 
@@ -206,6 +208,11 @@ fn normalize_fetch_search_results_payload(payload: Value) -> Value {
     if let Some(ms) = payload.get("api_timeout_ms").and_then(|v| v.as_i64()) {
         out["api_timeout_ms"] = json!(ms);
     }
+    if let Some(platform) = payload.get("platform").and_then(|v| v.as_str()) {
+        if !platform.trim().is_empty() {
+            out["platform"] = json!(platform);
+        }
+    }
     out
 }
 
@@ -223,6 +230,11 @@ fn normalize_click_search_video_payload(payload: Value) -> Value {
     if let Some(id) = payload.get("aweme_id").and_then(|v| v.as_str()) {
         if !id.trim().is_empty() {
             out["aweme_id"] = Value::from(id);
+        }
+    }
+    if let Some(platform) = payload.get("platform").and_then(|v| v.as_str()) {
+        if !platform.trim().is_empty() {
+            out["platform"] = json!(platform);
         }
     }
     out

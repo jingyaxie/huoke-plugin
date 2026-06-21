@@ -1,4 +1,5 @@
 import { findSearchInputMatch, humanClick, isVisible, randDelay, sleep } from "../../search-input";
+import { rememberPlatformSearchUrl, restorePlatformSearchList } from "../../search-session";
 import { buildSearchResultPayload } from "../shared/content-item";
 import {
   clearKsSearchApiCache,
@@ -113,6 +114,9 @@ export async function ksSubmitSearchClick() {
 
   const onSearchPage = isKsSearchResultsPage(location.href);
   const cardCount = collectKsVideoCards().length;
+  if (onSearchPage || cardCount > 0) {
+    await rememberPlatformSearchUrl(location.href, "kuaishou");
+  }
   return {
     ok: ready || onSearchPage || cardCount > 0,
     method,
@@ -151,6 +155,7 @@ export async function ksFetchSearchResults(payload: { limit?: number; api_timeou
   items = items.slice(0, limit);
 
   if (items.length > 0) {
+    await rememberPlatformSearchUrl(location.href, "kuaishou");
     return {
       ok: true,
       ...buildSearchResultPayload(items, "api"),
@@ -291,6 +296,51 @@ export function ksProbeCommentSidebar() {
   };
 }
 
+async function ksPrepareSearchForVideo(payload: { skip_restore?: boolean } = {}) {
+  let restored: { restored?: boolean } = { restored: false };
+  if (!payload.skip_restore) {
+    if (videoDetailReady() || isKsVideoPage()) {
+      await ksCloseVideoDetail();
+      await sleep(randDelay(400, 650));
+    }
+    const restoredResult = await restorePlatformSearchList("kuaishou");
+    restored = restoredResult;
+    if (!isKsSearchResultsPage(location.href)) {
+      return {
+        ok: false,
+        on_search_page: false,
+        card_count: 0,
+        url: location.href,
+        message: restoredResult.message,
+      };
+    }
+  } else if (!isKsSearchResultsPage(location.href)) {
+    return {
+      ok: false,
+      on_search_page: false,
+      card_count: 0,
+      url: location.href,
+      message: `不在搜索结果页（${location.href}）`,
+    };
+  }
+  await rememberPlatformSearchUrl(location.href, "kuaishou");
+  window.scrollTo({ top: 0, behavior: "auto" });
+  await sleep(randDelay(350, 550));
+  const cards = collectKsVideoCards();
+  const onSearch = isKsSearchResultsPage(location.href);
+  return {
+    ok: onSearch,
+    on_search_page: onSearch,
+    card_count: cards.length,
+    url: location.href,
+    restored: restored.restored,
+    message:
+      cards.length > 0
+        ? `搜索列表就绪（${cards.length} 条视频）`
+        : "已在搜索结果页，但暂无可见视频卡片",
+  };
+}
+
 export async function ksCloseVideoDetail() {
   if (!videoDetailReady() && !isKsVideoPage()) {
     return { ok: true, already_closed: true, message: "视频详情未打开" };
@@ -389,7 +439,7 @@ export async function dispatchKuaishouLabCommand(
     case "plugin_lab.fetch_search_results":
       return ksFetchSearchResults((payload ?? {}) as { limit?: number; api_timeout_ms?: number });
     case "plugin_lab.prepare_search_video":
-      return { ok: true, on_search_page: isKsSearchResultsPage(), card_count: collectKsVideoCards().length };
+      return ksPrepareSearchForVideo((payload ?? {}) as { skip_restore?: boolean });
     case "plugin_lab.click_search_video":
     case "plugin_lab.search_video_dom_click":
       return ksClickSearchVideo((payload ?? {}) as { video_index?: number; index?: number });

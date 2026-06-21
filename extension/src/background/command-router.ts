@@ -18,8 +18,16 @@ async function focusTab(tab: chrome.tabs.Tab) {
   await chrome.tabs.update(tab.id, { active: true });
 }
 
-async function resolveNetworkHookTab(): Promise<chrome.tabs.Tab> {
-  const session = await readLabSession();
+function resolveCommandPlatform(command: BridgeMessage): string {
+  if (command.platform) return normalizePlatformId(command.platform);
+  const payloadPlatform = (command.payload as { platform?: string } | undefined)?.platform;
+  if (payloadPlatform) return normalizePlatformId(payloadPlatform);
+  return "douyin";
+}
+
+async function resolveNetworkHookTab(platform?: string): Promise<chrome.tabs.Tab> {
+  const normalized = platform ? normalizePlatformId(platform) : undefined;
+  const session = normalized ? await readLabSession(normalized) : await readLabSession();
   if (session?.tabId) {
     try {
       const tab = await chrome.tabs.get(session.tabId);
@@ -31,37 +39,72 @@ async function resolveNetworkHookTab(): Promise<chrome.tabs.Tab> {
       // pinned tab closed — fall through
     }
   }
-  return resolveLabTargetTab();
+  return resolveLabTargetTab(normalized ? { platform: normalized } : {});
 }
 
-function resolveCommandPlatform(command: BridgeMessage): string {
-  if (command.platform) return normalizePlatformId(command.platform);
-  const payloadPlatform = (command.payload as { platform?: string } | undefined)?.platform;
-  if (payloadPlatform) return normalizePlatformId(payloadPlatform);
-  return "douyin";
+async function resolvePinnedOrWorkTab(platform: string): Promise<chrome.tabs.Tab | null> {
+  const session = await readLabSession(platform);
+  if (session?.tabId) {
+    try {
+      const tab = await chrome.tabs.get(session.tabId);
+      if (
+        tab.id &&
+        isPlatformUrl(tab.url) &&
+        detectPlatformFromUrl(tab.url) === platform
+      ) {
+        await focusTab(tab);
+        return tab;
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  if (session?.windowId !== undefined && session.windowId >= 0) {
+    try {
+      const win = await chrome.windows.get(session.windowId, { populate: true });
+      const match =
+        win.tabs?.find(
+          (tab) =>
+            tab.active &&
+            tab.url &&
+            isPlatformUrl(tab.url) &&
+            detectPlatformFromUrl(tab.url) === platform,
+        ) ??
+        win.tabs?.find(
+          (tab) =>
+            tab.url &&
+            isPlatformUrl(tab.url) &&
+            detectPlatformFromUrl(tab.url) === platform,
+        );
+      if (match?.id) {
+        await focusTab(match);
+        return match;
+      }
+    } catch {
+      // work window closed
+    }
+  }
+
+  return null;
 }
 
 async function resolveTargetTab(command: BridgeMessage): Promise<chrome.tabs.Tab> {
   const platform = resolveCommandPlatform(command);
   const adapter = getPluginLabAdapter(platform);
+
+  const pinned = await resolvePinnedOrWorkTab(platform);
+  if (pinned) return pinned;
+
   const tabPatterns = tabQueryPatternsForPlatform(platform);
-
-  const lastFocused = await chrome.windows.getLastFocused({ populate: true });
-  const activeInFocused = lastFocused.tabs?.find((tab) => tab.active);
-  if (activeInFocused?.id && detectPlatformFromUrl(activeInFocused.url) === platform) {
-    return activeInFocused;
-  }
-
   const platformTabs = await chrome.tabs.query({ url: tabPatterns });
   if (platformTabs.length === 0) {
     throw new Error(`no ${adapter.label} tab open — run open_browser with platform=${platform} first`);
   }
 
-  const preferred = [...platformTabs].sort(
-    (a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0),
-  )[0];
-  await focusTab(preferred);
-  return preferred;
+  throw new Error(
+    `no ${adapter.label} work window — run open_browser with platform=${platform} first`,
+  );
 }
 
 async function pingContentScript(tabId: number): Promise<{ ok?: boolean; version?: string } | null> {
@@ -182,9 +225,9 @@ export async function routeCommandToTab(command: BridgeMessage): Promise<unknown
       : command.action;
 
   const tab = command.action.startsWith("network.hook.")
-    ? await resolveNetworkHookTab()
+    ? await resolveNetworkHookTab(resolveCommandPlatform(command))
     : command.action.startsWith("plugin_lab.") && !isPluginLabBackgroundAction(command.action)
-      ? await resolveLabTabForAction(tabAction)
+      ? await resolveLabTabForAction(tabAction, resolveCommandPlatform(command))
       : await resolveTargetTab(command);
   if (!tab.id) {
     throw new Error("target tab has no id");

@@ -1,17 +1,37 @@
 /** 插件实验室命令所需的页面上下文 */
 import { isPlatformUrl, PLATFORM_HOSTS } from "./platform-hosts";
-import { getPluginLabAdapter, getPluginLabAdapterForUrl } from "./platforms/registry";
+import { getPluginLabAdapter, getPluginLabAdapterForUrl, normalizePlatformId } from "./platforms/registry";
 
 export type LabPageContext = "platform" | "search" | "video" | "profile";
 
 export interface LabSession {
   tabId: number;
+  windowId: number;
   platform: string;
   pinnedAt: number;
   lastUrl?: string;
+  /** 搜索结果页 URL，用于关闭详情后恢复列表（比 tab sessionStorage 更稳） */
+  searchUrl?: string;
+  /** 视频播放独立窗口（列表页保持不动） */
+  detailTabId?: number;
+  detailWindowId?: number;
 }
 
+/** @deprecated 旧版全局 session，读取时自动迁移到按平台 key */
 export const LAB_SESSION_KEY = "huoke:lab-session";
+
+const PLATFORM_IDS = ["douyin", "xiaohongshu", "kuaishou"] as const;
+
+function labSessionKey(platform: string): string {
+  return `huoke:lab-session:${normalizePlatformId(platform)}`;
+}
+
+function allLabSessionKeys(): string[] {
+  return [
+    LAB_SESSION_KEY,
+    ...PLATFORM_IDS.map((platform) => labSessionKey(platform)),
+  ];
+}
 
 /** 每个 plugin_lab 命令需要的最低页面上下文（strict = 找不到匹配标签则报错） */
 const ACTION_CONTEXT: Record<string, { context: LabPageContext; strict?: boolean }> = {
@@ -24,7 +44,7 @@ const ACTION_CONTEXT: Record<string, { context: LabPageContext; strict?: boolean
   "plugin_lab.filter_probe": { context: "search" },
   "plugin_lab.filter_find_option": { context: "search" },
   "plugin_lab.fetch_search_results": { context: "search", strict: true },
-  "plugin_lab.prepare_search_video": { context: "search", strict: true },
+  "plugin_lab.prepare_search_video": { context: "search", strict: false },
   "plugin_lab.search_video_dom_click": { context: "search", strict: true },
   "plugin_lab.swipe_page": { context: "platform" },
   "plugin_lab.click_search_video": { context: "search", strict: true },
@@ -56,6 +76,7 @@ const ACTION_CONTEXT: Record<string, { context: LabPageContext; strict?: boolean
   "plugin_lab.send_dm": { context: "profile", strict: true },
   "plugin_lab.preflight": { context: "platform" },
   "plugin_lab.page_snapshot": { context: "platform" },
+  "plugin_lab.search_context_probe": { context: "platform" },
 };
 
 const CONTEXT_LABEL: Record<LabPageContext, string> = {
@@ -114,12 +135,39 @@ export function contextLabel(context: LabPageContext): string {
   return CONTEXT_LABEL[context];
 }
 
-export async function readLabSession(): Promise<LabSession | null> {
+async function readStoredSession(key: string): Promise<LabSession | null> {
+  const stored = await chrome.storage.session.get(key);
+  const session = stored[key] as LabSession | undefined;
+  if (!session?.tabId) return null;
+  return {
+    ...session,
+    platform: normalizePlatformId(session.platform),
+    windowId: session.windowId ?? -1,
+  };
+}
+
+/** 读取指定平台的工作区 session；未传 platform 时返回最近 pin 的一个 */
+export async function readLabSession(platform?: string): Promise<LabSession | null> {
   try {
-    const stored = await chrome.storage.session.get(LAB_SESSION_KEY);
-    const session = stored[LAB_SESSION_KEY] as LabSession | undefined;
-    if (!session?.tabId) return null;
-    return session;
+    if (platform) {
+      const normalized = normalizePlatformId(platform);
+      const keyed = await readStoredSession(labSessionKey(normalized));
+      if (keyed) return keyed;
+
+      const legacy = await readStoredSession(LAB_SESSION_KEY);
+      if (legacy && legacy.platform === normalized) return legacy;
+      return null;
+    }
+
+    let latest: LabSession | null = null;
+    for (const id of PLATFORM_IDS) {
+      const session = await readLabSession(id);
+      if (!session) continue;
+      if (!latest || session.pinnedAt > latest.pinnedAt) latest = session;
+    }
+    if (latest) return latest;
+
+    return readStoredSession(LAB_SESSION_KEY);
   } catch {
     return null;
   }
@@ -127,26 +175,143 @@ export async function readLabSession(): Promise<LabSession | null> {
 
 export async function pinLabSession(tab: chrome.tabs.Tab, platform = "douyin"): Promise<void> {
   if (!tab.id) return;
+  const normalized = normalizePlatformId(platform);
+  const existing = await readLabSession(normalized);
   const session: LabSession = {
     tabId: tab.id,
-    platform,
+    windowId: tab.windowId ?? -1,
+    platform: normalized,
     pinnedAt: Date.now(),
     lastUrl: tab.url,
+    searchUrl: existing?.searchUrl,
   };
-  await chrome.storage.session.set({ [LAB_SESSION_KEY]: session });
-}
-
-export async function touchLabSession(tabId: number, url?: string): Promise<void> {
-  const session = await readLabSession();
-  if (!session || session.tabId !== tabId) return;
   await chrome.storage.session.set({
-    [LAB_SESSION_KEY]: {
-      ...session,
-      lastUrl: url ?? session.lastUrl,
-    },
+    [labSessionKey(normalized)]: session,
   });
 }
 
-export async function clearLabSession(): Promise<void> {
-  await chrome.storage.session.remove(LAB_SESSION_KEY);
+/** 记录当前平台的搜索结果页 URL（扩展 session 级，页面 reload 后仍可恢复） */
+export async function rememberLabSearchUrl(platform: string, url: string): Promise<void> {
+  try {
+    const normalized = normalizePlatformId(platform);
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    const searchUrl = trimmed.split("#")[0];
+    const existing = await readLabSession(normalized);
+    if (existing?.tabId) {
+      await chrome.storage.session.set({
+        [labSessionKey(normalized)]: { ...existing, searchUrl },
+      });
+      return;
+    }
+    await chrome.storage.session.set({
+      [`huoke:lab-search-url:${normalized}`]: searchUrl,
+    });
+  } catch {
+    // content 某些 iframe 上下文可能无法写 session storage
+  }
+}
+
+export async function readLabSearchUrl(platform: string): Promise<string> {
+  try {
+    const normalized = normalizePlatformId(platform);
+    const session = await readLabSession(normalized);
+    const fromSession = session?.searchUrl?.trim();
+    if (fromSession) return fromSession;
+    const stored = await chrome.storage.session.get(`huoke:lab-search-url:${normalized}`);
+    const fallback = stored[`huoke:lab-search-url:${normalized}`];
+    return typeof fallback === "string" ? fallback.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+export async function touchLabSession(
+  tabId: number,
+  url?: string,
+  platform?: string,
+): Promise<void> {
+  const candidates = platform
+    ? [await readLabSession(platform)]
+    : await Promise.all(PLATFORM_IDS.map((id) => readLabSession(id)));
+
+  for (const session of candidates) {
+    if (!session || session.tabId !== tabId) continue;
+    await chrome.storage.session.set({
+      [labSessionKey(session.platform)]: {
+        ...session,
+        lastUrl: url ?? session.lastUrl,
+      },
+    });
+    return;
+  }
+}
+
+export async function clearLabSession(platform?: string): Promise<void> {
+  if (platform) {
+    await chrome.storage.session.remove(labSessionKey(platform));
+    return;
+  }
+  await chrome.storage.session.remove(allLabSessionKeys());
+}
+
+export async function pinDetailSession(
+  platform: string,
+  detailTabId: number,
+  detailWindowId: number,
+): Promise<void> {
+  const normalized = normalizePlatformId(platform);
+  const existing = await readLabSession(normalized);
+  if (!existing?.tabId) return;
+  await chrome.storage.session.set({
+    [labSessionKey(normalized)]: { ...existing, detailTabId, detailWindowId },
+  });
+}
+
+export async function clearDetailSession(platform: string): Promise<void> {
+  const normalized = normalizePlatformId(platform);
+  const existing = await readLabSession(normalized);
+  if (!existing) return;
+  const next: LabSession = {
+    tabId: existing.tabId,
+    windowId: existing.windowId,
+    platform: existing.platform,
+    pinnedAt: existing.pinnedAt,
+    lastUrl: existing.lastUrl,
+    searchUrl: existing.searchUrl,
+  };
+  await chrome.storage.session.set({ [labSessionKey(normalized)]: next });
+}
+
+export async function readDetailTabId(platform?: string): Promise<number | undefined> {
+  const session = platform ? await readLabSession(platform) : await readLabSession();
+  return session?.detailTabId;
+}
+
+/** 仅返回已注册工作区内的平台标签，避免 hijack 用户日常浏览标签 */
+export async function filterWorkWindowTabs(
+  tabs: chrome.tabs.Tab[],
+  platformHint?: string,
+): Promise<chrome.tabs.Tab[]> {
+  const platforms = platformHint
+    ? [normalizePlatformId(platformHint)]
+    : [...PLATFORM_IDS];
+
+  const allowedTabIds = new Set<number>();
+  const allowedWindowIds = new Set<number>();
+
+  for (const platform of platforms) {
+    const session = await readLabSession(platform);
+    if (!session) continue;
+    allowedTabIds.add(session.tabId);
+    if (session.windowId >= 0) allowedWindowIds.add(session.windowId);
+  }
+
+  if (allowedTabIds.size === 0 && allowedWindowIds.size === 0) return [];
+
+  return tabs.filter(
+    (tab) =>
+      (tab.id !== undefined && allowedTabIds.has(tab.id)) ||
+      (tab.windowId !== undefined && allowedWindowIds.has(tab.windowId)),
+  );
 }

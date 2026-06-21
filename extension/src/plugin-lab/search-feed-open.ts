@@ -1,4 +1,5 @@
 import { humanClick, humanPace, randDelay, sleep } from "./search-input";
+import { rememberPlatformSearchUrl } from "./search-session";
 import {
   collectSearchResultCards,
   extractAwemeFromCard,
@@ -64,6 +65,7 @@ export function rememberSearchResultsUrl(url = location.href): void {
   } catch {
     // ignore quota / private mode
   }
+  void rememberPlatformSearchUrl(url, "douyin");
 }
 
 export function readStoredSearchResultsUrl(): string {

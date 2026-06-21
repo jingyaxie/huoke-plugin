@@ -1,4 +1,6 @@
 import { buildSearchUrl } from "../content/platforms/kuaishou/search";
+import { detectPlatformFromUrl } from "./platform-hosts";
+import { normalizePlatformId } from "./platforms/registry";
 import { resolveLabTabForAction } from "./resolve-lab-tab";
 import { sendContentPluginLabCommand } from "./tab-command";
 import {
@@ -7,7 +9,6 @@ import {
 import { buildSearchResultPayload } from "./click-search-btn";
 import { withSearchNetworkCapture } from "./search-network-debugger";
 import { pollPlatformSearchCache } from "./platform-lab-helpers";
-import { detectPlatformFromUrl } from "./platform-hosts";
 
 async function waitForTabLoad(tabId: number, timeoutMs = 8_000): Promise<void> {
   try {
@@ -44,8 +45,12 @@ async function navigateKuaishouSearch(tabId: number, keyword: string): Promise<b
   return true;
 }
 
-export async function clickSearchButtonBackground() {
-  const tab = await resolveLabTabForAction("plugin_lab.click_search_btn");
+export async function clickSearchButtonBackground(payload: Record<string, unknown> = {}) {
+  const platformHint = String(payload.platform ?? "").trim();
+  const tab = await resolveLabTabForAction(
+    "plugin_lab.click_search_btn",
+    platformHint || undefined,
+  );
   if (!tab.id) {
     throw new Error("lab tab has no id");
   }
@@ -61,9 +66,15 @@ export async function clickSearchButtonBackground() {
       { skipPreflight: true },
     )) as Record<string, unknown>;
 
-    const platform = detectPlatformFromUrl(tab.url);
-    const keyword = String(clickResult.keyword ?? "").trim();
-    if (platform === "kuaishou" && keyword && !clickResult.ok) {
+    const platform = normalizePlatformId(
+      platformHint || detectPlatformFromUrl(tab.url) || "douyin",
+    );
+    const keyword = String(
+      clickResult.keyword ?? payload.search_text ?? payload.keyword ?? "",
+    ).trim();
+    const submitUrl = String(clickResult.url ?? tab.url ?? "");
+    const onKsSearchUrl = /\/search\/|searchKey=/i.test(submitUrl);
+    if (platform === "kuaishou" && keyword && !onKsSearchUrl) {
       await navigateKuaishouSearch(tabId, keyword);
     }
 

@@ -1,5 +1,12 @@
 import { humanPace } from "./search-input";
+import { readLabSearchUrl, rememberLabSearchUrl } from "./lab-context";
 import { resolveLabTabForAction } from "./resolve-lab-tab";
+import { detectPlatformFromUrl } from "./platform-hosts";
+import { normalizePlatformId } from "./platforms/registry";
+import {
+  openVideoInDetailWindow,
+  resolveSearchVideoUrl,
+} from "./detail-window";
 import { isNonDouyinDetailPlatform } from "./platform-lab-helpers";
 import {
   attachDebugger,
@@ -125,12 +132,33 @@ function searchFeedSuccess(result: ClickResult): boolean {
   return Boolean(result.ok && result.is_search_feed);
 }
 
-/** 步骤 9：抖音优先 modal Feed；小红书/快手直接 DOM 打开详情页 */
+/** 步骤 9：优先在独立窗口打开视频，列表页保持不变 */
 export async function clickSearchVideoBackground(payload: Record<string, unknown> = {}) {
-  const tab = await resolveLabTabForAction("plugin_lab.click_search_video");
+  const platformHint = String(payload.platform ?? "").trim();
+  const tab = await resolveLabTabForAction(
+    "plugin_lab.click_search_video",
+    platformHint || undefined,
+  );
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
   const videoIndex = Math.max(1, Number(payload.video_index ?? payload.index ?? 1));
+  const useDetailWindow = payload.use_detail_window !== false;
+
+  if (useDetailWindow) {
+    const resolved = await resolveSearchVideoUrl(tabId, videoIndex, payload);
+    if (resolved.url) {
+      const platform = normalizePlatformId(
+        platformHint || detectPlatformFromUrl(tab.url) || "douyin",
+      );
+      return openVideoInDetailWindow({
+        platform,
+        url: resolved.url,
+        listTabId: tabId,
+        aweme_id: resolved.aweme_id,
+        video_index: videoIndex,
+      });
+    }
+  }
 
   if (isNonDouyinDetailPlatform(tab.url)) {
     await prepareSearchPage(tabId);
@@ -291,4 +319,66 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
     url: lastUrl,
     message: lastMessage,
   };
+}
+
+function isLikelySearchUrl(platform: string, url?: string | null): boolean {
+  if (!url) return false;
+  if (platform === "douyin") return /\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(url);
+  if (platform === "xiaohongshu") {
+    return /search_result/i.test(url) || /\/explore\/?(?:\?|$)/i.test(url.split("#")[0]);
+  }
+  if (platform === "kuaishou") return /\/search\/|searchKey=/i.test(url);
+  return false;
+}
+
+export async function prepareSearchForVideoBackground(payload: Record<string, unknown> = {}) {
+  const platform = String(payload.platform ?? "douyin");
+  const tab = await resolveLabTabForAction("plugin_lab.prepare_search_video", platform);
+  if (!tab.id) throw new Error("lab tab has no id");
+  const tabId = tab.id;
+
+  try {
+    await sendContentPluginLabCommand(tabId, "plugin_lab.close_video_detail", payload, {
+      skipPreflight: true,
+    });
+  } catch {
+    // already closed
+  }
+  await sleep(400);
+
+  let current = await chrome.tabs.get(tabId);
+  if (isLikelySearchUrl(platform, current.url) && current.url) {
+    await rememberLabSearchUrl(platform, current.url);
+  }
+
+  let storedSearch = await readLabSearchUrl(platform);
+  if (!storedSearch && platform === "kuaishou") {
+    const keyword = String(payload.search_key ?? payload.keyword ?? "").trim();
+    if (keyword) {
+      storedSearch = `https://www.kuaishou.com/search/video?searchKey=${encodeURIComponent(keyword)}`;
+    }
+  }
+
+  if (storedSearch && !isLikelySearchUrl(platform, current.url)) {
+    await chrome.tabs.update(tabId, { url: storedSearch });
+    await waitForTabLoad(tabId, 12_000);
+    await sleep(800);
+  } else if (!isLikelySearchUrl(platform, current.url)) {
+    await chrome.tabs.goBack(tabId).catch(() => undefined);
+    await waitForTabLoad(tabId, 8_000);
+    await sleep(600);
+    current = await chrome.tabs.get(tabId);
+    if (!isLikelySearchUrl(platform, current.url) && storedSearch) {
+      await chrome.tabs.update(tabId, { url: storedSearch });
+      await waitForTabLoad(tabId, 12_000);
+      await sleep(800);
+    }
+  }
+
+  return sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.prepare_search_video",
+    { ...payload, skip_restore: true },
+    { skipPreflight: true },
+  );
 }

@@ -3,13 +3,17 @@ import {
   contextMatchesUrl,
   contextRequirementForAction,
   detectPageContext,
+  filterWorkWindowTabs,
   isPlatformUrl,
   pinLabSession,
   readLabSession,
+  readDetailTabId,
   scoreTabForContext,
   touchLabSession,
   type LabPageContext,
 } from "./lab-context";
+import { normalizePlatformId } from "./platforms/registry";
+import { detectPlatformFromUrl } from "./platform-hosts";
 
 const PLATFORM_TAB_PATTERNS = [
   "https://www.douyin.com/*",
@@ -22,6 +26,7 @@ const PLATFORM_TAB_PATTERNS = [
 
 export interface ResolveLabTabOptions {
   action?: string;
+  platform?: string;
   /** @deprecated 使用 action 映射的上下文 */
   preferSearchPage?: boolean;
 }
@@ -32,9 +37,30 @@ async function focusTab(tab: chrome.tabs.Tab) {
   await chrome.tabs.update(tab.id, { active: true });
 }
 
-async function listPlatformTabs(): Promise<chrome.tabs.Tab[]> {
+async function resolveSessionTab(platform?: string): Promise<chrome.tabs.Tab | undefined> {
+  const session = platform ? await readLabSession(platform) : await readLabSession();
+  if (!session?.tabId) return undefined;
+  try {
+    const tab = await chrome.tabs.get(session.tabId);
+    if (!tab.id || !isPlatformUrl(tab.url)) return undefined;
+    if (platform && detectPlatformFromUrl(tab.url) !== normalizePlatformId(platform)) return undefined;
+    await focusTab(tab);
+    return tab;
+  } catch {
+    return undefined;
+  }
+}
+
+async function listPlatformTabs(platformHint?: string): Promise<chrome.tabs.Tab[]> {
   const tabs = await chrome.tabs.query({ url: PLATFORM_TAB_PATTERNS });
-  return tabs.filter((tab) => isPlatformUrl(tab.url));
+  const platformTabs = tabs.filter((tab) => isPlatformUrl(tab.url));
+  const workTabs = await filterWorkWindowTabs(platformTabs, platformHint);
+  if (workTabs.length > 0) return workTabs;
+
+  const sessionTab = await resolveSessionTab(platformHint);
+  if (sessionTab) return [sessionTab];
+
+  return [];
 }
 
 function resolveRequiredContext(options: ResolveLabTabOptions): {
@@ -74,15 +100,33 @@ async function pickBestTab(
   required: LabPageContext,
   strict: boolean,
   action?: string,
+  platformHint?: string,
 ): Promise<chrome.tabs.Tab> {
-  const session = await readLabSession();
+  const normalizedPlatform = platformHint ? normalizePlatformId(platformHint) : undefined;
+  let session = normalizedPlatform ? await readLabSession(normalizedPlatform) : null;
+
+  if (!session) {
+    for (const tab of tabs) {
+      if (!tab.id) continue;
+      for (const platform of ["douyin", "xiaohongshu", "kuaishou"] as const) {
+        const candidate = await readLabSession(platform);
+        if (candidate?.tabId === tab.id) {
+          session = candidate;
+          break;
+        }
+      }
+      if (session) break;
+    }
+  }
+
   const sessionTabId = session?.tabId;
+  const sessionPlatform = session?.platform ?? normalizedPlatform ?? null;
 
   let best: chrome.tabs.Tab | null = null;
   let bestScore = Number.NEGATIVE_INFINITY;
 
   for (const tab of tabs) {
-    const score = scoreTabForContext(tab, required, sessionTabId, session?.platform);
+    const score = scoreTabForContext(tab, required, sessionTabId, sessionPlatform);
     if (score > bestScore) {
       bestScore = score;
       best = tab;
@@ -98,13 +142,26 @@ async function pickBestTab(
     throw new Error(buildContextMismatchError(action, required, tabs));
   }
 
-  if (strict && !contextMatchesUrl(required, best.url, session?.platform)) {
+  if (strict && !contextMatchesUrl(required, best.url, sessionPlatform)) {
     throw new Error(buildContextMismatchError(action, required, tabs));
   }
 
   await focusTab(best);
-  await touchLabSession(best.id, best.url);
+  await touchLabSession(best.id, best.url, sessionPlatform ?? undefined);
   return best;
+}
+
+async function resolveDetailTab(platform?: string): Promise<chrome.tabs.Tab | undefined> {
+  const detailTabId = await readDetailTabId(platform);
+  if (!detailTabId) return undefined;
+  try {
+    const tab = await chrome.tabs.get(detailTabId);
+    if (!tab.id || !isPlatformUrl(tab.url)) return undefined;
+    if (platform && detectPlatformFromUrl(tab.url) !== normalizePlatformId(platform)) return undefined;
+    return tab;
+  } catch {
+    return undefined;
+  }
 }
 
 /** 根据命令所需页面上下文，选择并聚焦正确的平台标签 */
@@ -112,16 +169,30 @@ export async function resolveLabTargetTab(
   options: ResolveLabTabOptions = {},
 ): Promise<chrome.tabs.Tab> {
   const { context, strict } = resolveRequiredContext(options);
-  const tabs = await listPlatformTabs();
-  if (tabs.length === 0) {
-    throw new Error("no platform tab open — run step 1 open_browser first");
+
+  if (context === "video") {
+    const detailTab = await resolveDetailTab(options.platform);
+    if (detailTab?.id) {
+      await focusTab(detailTab);
+      return detailTab;
+    }
   }
-  return pickBestTab(tabs, context, strict, options.action);
+
+  const tabs = await listPlatformTabs(options.platform);
+  if (tabs.length === 0) {
+    throw new Error(
+      "no platform work window — run open_browser first (creates a dedicated left-half window)",
+    );
+  }
+  return pickBestTab(tabs, context, strict, options.action, options.platform);
 }
 
 /** 单入口：按 plugin_lab action 解析目标标签 */
-export async function resolveLabTabForAction(action: string): Promise<chrome.tabs.Tab> {
-  return resolveLabTargetTab({ action });
+export async function resolveLabTabForAction(
+  action: string,
+  platform?: string,
+): Promise<chrome.tabs.Tab> {
+  return resolveLabTargetTab({ action, platform });
 }
 
 export { pinLabSession };

@@ -23,7 +23,7 @@ export interface OpenBrowserPayload {
   url?: string;
   /** @deprecated use reuse_existing */
   new_tab?: boolean;
-  /** 为 true 时聚焦已有平台窗口，否则新建独立 Chrome 窗口 */
+  /** 为 true 时聚焦已有平台工作窗；默认 true。显式传 false 才新建独立窗口 */
   reuse_existing?: boolean;
   wait_load?: boolean;
   /** 任务开始时若不在合法起始页，则导航到平台首页 */
@@ -80,9 +80,9 @@ function resolveTargetUrl(payload: OpenBrowserPayload, platform: PlatformId): st
 }
 
 function shouldReuseExisting(payload: OpenBrowserPayload): boolean {
-  if (payload.reuse_existing === true) return true;
-  if (payload.new_tab === false) return true;
-  return false;
+  if (payload.reuse_existing === false) return false;
+  if (payload.new_tab === true) return false;
+  return true;
 }
 
 function needsJobStartReset(url: string | undefined, platform: PlatformId): boolean {
@@ -192,9 +192,8 @@ async function waitForTabLoad(tabId: number, timeoutMs = 5_000): Promise<void> {
 }
 
 async function resolvePinnedSessionTab(platform: PlatformId): Promise<chrome.tabs.Tab | undefined> {
-  const session = await readLabSession();
+  const session = await readLabSession(platform);
   if (!session?.tabId) return undefined;
-  if (session.platform && session.platform !== platform) return undefined;
   try {
     const tab = await chrome.tabs.get(session.tabId);
     if (!tab.id || !isPlatformUrl(tab.url)) return undefined;
@@ -205,11 +204,32 @@ async function resolvePinnedSessionTab(platform: PlatformId): Promise<chrome.tab
   }
 }
 
+async function findWorkWindowTab(platform: PlatformId): Promise<chrome.tabs.Tab | undefined> {
+  const session = await readLabSession(platform);
+  if (session?.windowId !== undefined && session.windowId >= 0) {
+    try {
+      const win = await chrome.windows.get(session.windowId, { populate: true });
+      const matches = (win.tabs ?? []).filter(
+        (tab) =>
+          tab.url &&
+          isPlatformUrl(tab.url) &&
+          detectPlatformFromUrl(tab.url) === platform,
+      );
+      if (matches.length > 0) {
+        return matches.find((tab) => tab.active) ?? matches[0];
+      }
+    } catch {
+      // work window closed
+    }
+  }
+  return undefined;
+}
+
+/** 仅复用已注册的平台工作窗标签，不占用用户日常浏览窗口 */
 async function findExistingPlatformTab(platform: PlatformId): Promise<chrome.tabs.Tab | undefined> {
-  const patterns = PLATFORM_TAB_PATTERNS[platform];
-  const existing = await chrome.tabs.query({ url: patterns });
-  if (existing.length === 0) return undefined;
-  return [...existing].sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
+  const pinned = await resolvePinnedSessionTab(platform);
+  if (pinned) return pinned;
+  return findWorkWindowTab(platform);
 }
 
 async function resolveLeftHalfBounds(): Promise<WindowBounds> {

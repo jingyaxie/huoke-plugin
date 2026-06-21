@@ -12,6 +12,7 @@
     "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-win.ps1",
     "test:collect": "bash scripts/test-douyin-collect.sh",
     "test:lab-task": "bash scripts/test-lab-task-smoke.sh",
+    "test:search-return": "node scripts/test-search-return-smoke.mjs",
     "test:extension": "bash scripts/test-douyin-extension-cases.sh",
     "simulate": "bash scripts/simulate-tasks.sh",
     "simulate:detailed": "bash scripts/simulate-detailed.sh",

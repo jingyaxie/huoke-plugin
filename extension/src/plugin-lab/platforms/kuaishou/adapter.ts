@@ -11,7 +11,7 @@ import type { PluginLabPlatformAdapter } from "../types";
 
 const PAGE_CONTEXT = {
   hostPatterns: [/\.kuaishou\.com$/i, /^https:\/\/www\.kuaishou\.com/i],
-  searchUrlRe: /\/search\/|search\.kuaishou\.com/i,
+  searchUrlRe: /\/search\/|search\.kuaishou\.com|searchKey=/i,
   videoUrlRe: /\/short-video\/|\/fw\/photo\//i,
   profileUrlRe: /\/profile\//i,
 } as const;

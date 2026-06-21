@@ -47,7 +47,7 @@ export function loadPluginLabParams(platform = "douyin") {
   const saved = store[platform] || {};
   return applyPlatformLabDefaults(platform, {
     platform,
-    reuseExisting: false,
+    reuseExisting: true,
     waitPageLoad: false,
     scrollDirection: "down",
     ...saved,

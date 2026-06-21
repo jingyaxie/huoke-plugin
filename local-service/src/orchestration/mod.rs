@@ -164,11 +164,10 @@ impl JobOrchestrator {
         let lab = LabCommands::new(&self.hub, &job.platform);
         let adapter = crate::platforms::get_platform_adapter(&job.platform);
         let open_url = adapter.normalize_manual_open_url(&input_url, &cfg.intent);
-        // 与自动获客一致：左侧半屏独立窗口，避免 hijack 用户日常抖音标签
-        lab.open_url_in_new_window(&open_url).await?;
+        // 复用平台工作窗（左侧半屏），与关键词任务一致；无工作窗时 open_browser 会新建
+        lab.open_url(&open_url).await?;
         self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
         lab.enable_network_hook().await?;
-        lab.open_url(&open_url).await?;
         self.wait_if_not_paused(job_id, Duration::from_secs(4)).await?;
 
         if cfg.intent == "account_home" {
@@ -475,12 +474,16 @@ impl JobOrchestrator {
             let aweme_hint = parse_aweme_id_from_page_url(&video.video_url);
             let clicked = lab.click_search_video(index, None, aweme_hint.as_deref()).await?;
             let ok = clicked.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            let detail_window = clicked
+                .get("detail_window")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let feed_open = clicked
                 .get("is_search_feed")
                 .and_then(|v| v.as_bool())
                 .or_else(|| clicked.get("feed_open").and_then(|v| v.as_bool()))
                 .unwrap_or(false);
-            if !ok || !feed_open {
+            if !ok || (!feed_open && !detail_window) {
                 let msg = clicked
                     .get("message")
                     .and_then(|v| v.as_str())
@@ -493,6 +496,7 @@ impl JobOrchestrator {
                 clicked.get("attempt").and_then(|v| v.as_u64())
             );
         } else {
+            // 优先用 DB 中的 video_url 直达详情，避免依赖搜索结果页 DOM 索引
             lab.open_video(
                 &video.aweme_id,
                 (!video.video_url.is_empty()).then_some(video.video_url.as_str()),
@@ -589,15 +593,15 @@ impl JobOrchestrator {
                 .or_else(|| job.input_url.clone());
             let _ = lab.back_to_profile(profile_url.as_deref()).await;
             self.wait_human_if_not_paused(job_id, 1200, 2200).await?;
-        } else if is_dom_poster_aweme_id(&video.aweme_id) {
+        } else if cfg.intent != "account_home" {
             let closed = lab.close_video_detail().await?;
-            if !closed.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
-                warn!(
-                    "job {job_id}: close_video_detail may have failed — {:?}",
-                    closed.get("message").and_then(|v| v.as_str())
-                );
+            let detail_window_closed = closed
+                .get("detail_window_closed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !detail_window_closed {
+                let _ = lab.prepare_search_for_video().await;
             }
-            let _ = lab.prepare_search_for_video().await;
             self.wait_human_if_not_paused(job_id, 1200, 2200).await?;
         }
         Ok(())

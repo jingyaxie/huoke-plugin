@@ -4,6 +4,8 @@ import { extensionVersion, extensionBuildId } from "../shared/runtime";
 import { CONTENT_MESSAGE } from "../shared/constants";
 import { routeCommandToTab } from "./command-router";
 import { isPluginLabBackgroundAction, runPluginLabBackgroundCommand } from "../plugin-lab";
+import { prepareSearchForVideoBackground } from "../plugin-lab/search-video-background";
+import { closeVideoDetailBackground } from "../plugin-lab/detail-window";
 import { clearLabSession } from "../plugin-lab/lab-context";
 
 log("service worker boot", extensionVersion(), extensionBuildId());
@@ -193,6 +195,31 @@ async function runCommand(command: BridgeMessage): Promise<{ ok: boolean; data?:
         });
       }
       return { ok: true, data: { count: tabs.length, tabs: rows } };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    }
+  }
+
+  if (
+    command.action === "plugin_lab.close_video_detail"
+  ) {
+    try {
+      const data = await closeVideoDetailBackground((command.payload ?? {}) as Record<string, unknown>);
+      return { ok: true, data };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    }
+  }
+
+  if (
+    command.action === "plugin_lab.prepare_search_video" &&
+    !(command.payload as { skip_restore?: boolean } | undefined)?.skip_restore
+  ) {
+    try {
+      const data = await prepareSearchForVideoBackground((command.payload ?? {}) as Record<string, unknown>);
+      return { ok: true, data };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { ok: false, error: msg };

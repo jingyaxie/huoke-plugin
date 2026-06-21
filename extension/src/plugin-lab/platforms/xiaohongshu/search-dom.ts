@@ -3,7 +3,14 @@ import { NOTE_DETAIL_MARKERS, NOTE_ID_RE, NOTE_LINK_SELECTORS } from "./constant
 import type { PlatformSearchItem } from "../shared/content-item";
 
 export function isXhsSearchResultsPage(url = location.href): boolean {
-  return /search_result/i.test(url);
+  if (/search_result/i.test(url)) return true;
+  try {
+    const path = new URL(url).pathname.replace(/\/+$/, "") || "/";
+    if (path === "/explore" && collectXhsNoteCards().length >= 2) return true;
+  } catch {
+    // ignore
+  }
+  return false;
 }
 
 export function isXhsNotePage(url = location.href): boolean {

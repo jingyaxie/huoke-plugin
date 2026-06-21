@@ -181,9 +181,6 @@ export async function runLabAutoFlow(platform, buildPayload, actions = PLUGIN_LA
 
     try {
       const payload = buildPayload(action);
-      if (actionId === "open_browser") {
-        payload.reuse_existing = false;
-      }
       const data = await runPluginLabAction(actionId, payload);
       const body = data?.data ?? data;
       const ok = body?.ok !== false && data?.ok !== false;

@@ -56,7 +56,7 @@ function buildPayload(actionId, platform) {
   switch (actionId) {
     case "open_browser":
       payload.platform = platform;
-      payload.reuse_existing = false;
+      payload.reuse_existing = true;
       payload.wait_load = true;
       break;
     case "swipe_page":

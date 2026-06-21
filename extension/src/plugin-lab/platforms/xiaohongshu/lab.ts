@@ -1,4 +1,5 @@
 import { findSearchInputMatch, humanClick, isVisible, randDelay, sleep } from "../../search-input";
+import { rememberPlatformSearchUrl, restorePlatformSearchList } from "../../search-session";
 import { buildSearchResultPayload } from "../shared/content-item";
 import {
   clearXhsSearchApiCache,
@@ -87,12 +88,60 @@ export async function xhsSubmitSearchClick() {
     await sleep(250);
   }
 
+  if (isXhsSearchResultsPage(location.href)) {
+    await rememberPlatformSearchUrl(location.href, "xiaohongshu");
+  }
+
   return {
     ok: isXhsSearchResultsPage(location.href) || collectXhsNoteCards().length > 0,
     method: button ? "click_button" : "enter_key",
     url: location.href,
     on_search_page: isXhsSearchResultsPage(location.href),
     message: isXhsSearchResultsPage(location.href) ? "已进入小红书搜索结果页" : "已触发搜索，等待结果加载",
+  };
+}
+
+async function xhsPrepareSearchForVideo(payload: { skip_restore?: boolean } = {}) {
+  let restored: { restored?: boolean } = { restored: false };
+  if (!payload.skip_restore) {
+    if (noteDetailReady() || isXhsNotePage()) {
+      await xhsCloseNoteDetail();
+      await sleep(randDelay(400, 650));
+    }
+    const restoredResult = await restorePlatformSearchList("xiaohongshu");
+    restored = restoredResult;
+    if (!isXhsSearchResultsPage(location.href)) {
+      return {
+        ok: false,
+        on_search_page: false,
+        card_count: 0,
+        url: location.href,
+        message: restoredResult.message,
+      };
+    }
+  } else if (!isXhsSearchResultsPage(location.href)) {
+    return {
+      ok: false,
+      on_search_page: false,
+      card_count: 0,
+      url: location.href,
+      message: `不在搜索结果页（${location.href}）`,
+    };
+  }
+  await rememberPlatformSearchUrl(location.href, "xiaohongshu");
+  window.scrollTo({ top: 0, behavior: "auto" });
+  await sleep(randDelay(350, 550));
+  const cards = collectXhsNoteCards();
+  return {
+    ok: cards.length > 0,
+    on_search_page: true,
+    card_count: cards.length,
+    url: location.href,
+    restored: restored.restored,
+    message:
+      cards.length > 0
+        ? `搜索列表就绪（${cards.length} 条笔记）`
+        : "已在搜索结果页，但暂无可见笔记卡片",
   };
 }
 
@@ -108,6 +157,7 @@ export async function xhsFetchSearchResults(payload: { limit?: number; api_timeo
   items = items.slice(0, limit);
 
   if (items.length > 0) {
+    await rememberPlatformSearchUrl(location.href, "xiaohongshu");
     return {
       ok: true,
       ...buildSearchResultPayload(items, "api"),
@@ -381,7 +431,7 @@ export async function dispatchXiaohongshuLabCommand(
     case "plugin_lab.fetch_search_results":
       return xhsFetchSearchResults((payload ?? {}) as { limit?: number; api_timeout_ms?: number });
     case "plugin_lab.prepare_search_video":
-      return { ok: true, on_search_page: isXhsSearchResultsPage(), card_count: collectXhsNoteCards().length };
+      return xhsPrepareSearchForVideo((payload ?? {}) as { skip_restore?: boolean });
     case "plugin_lab.click_search_video":
     case "plugin_lab.search_video_dom_click":
       return xhsClickSearchNote((payload ?? {}) as { video_index?: number; index?: number });

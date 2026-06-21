@@ -36,7 +36,7 @@ impl<'a> LabCommands<'a> {
                 .hub
                 .request_command(
                     "network.hook.enable",
-                    json!({ "patterns": patterns }),
+                    json!({ "patterns": patterns, "platform": self.platform }),
                     Duration::from_secs(45),
                 )
                 .await
@@ -193,9 +193,9 @@ impl<'a> LabCommands<'a> {
         self.open_browser_url(url, true).await
     }
 
-    /// 手动获客：在屏幕左侧半屏新建独立 Chrome 窗口，不复用日常浏览标签
+    /// 手动获客：复用平台工作窗；仅当显式需要隔离时使用 force_new
     pub async fn open_url_in_new_window(&self, url: &str) -> Result<Value, String> {
-        self.open_browser_url(url, false).await
+        self.open_browser_url(url, true).await
     }
 
     async fn open_browser_url(&self, url: &str, reuse_existing: bool) -> Result<Value, String> {
