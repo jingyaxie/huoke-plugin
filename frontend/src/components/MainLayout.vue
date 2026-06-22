@@ -63,8 +63,14 @@
         </div>
         <div class="top-user">
           <span>你好，{{ displayName }}</span>
-          <button v-if="portalEnabled && portalLoggedIn" type="button" class="logout-btn" @click="handlePortalLogout">
-            退出云端
+          <button
+            v-if="portalEnabled && portalLoggedIn"
+            type="button"
+            class="logout-btn"
+            :disabled="portalLogoutLoading"
+            @click="handlePortalLogout"
+          >
+            {{ portalLogoutLoading ? "退出中..." : "退出云端" }}
           </button>
         </div>
       </header>
@@ -88,6 +94,7 @@ import {
   isPortalAuthenticated,
   isPortalEnabled,
   logoutPortalSession,
+  markPortalLogoutPending,
   syncPortalDisplayName,
 } from "../portal";
 
@@ -161,6 +168,7 @@ function syncActiveSection() {
 
 const portalLoggedIn = ref(isPortalAuthenticated());
 const portalDisplayName = ref(getPortalDisplayName());
+const portalLogoutLoading = ref(false);
 
 const appVersion = computed(() => import.meta.env.VITE_APP_VERSION || "0.2.0");
 const isCloudRoute = computed(() => Boolean(route.meta?.cloud) || route.path.startsWith("/cloud/"));
@@ -192,12 +200,27 @@ function onPortalAuthChanged() {
   portalDisplayName.value = getPortalDisplayName();
 }
 
-function handlePortalLogout() {
-  clearPortalAuth();
-  portalLoggedIn.value = false;
-  logoutPortalSession();
-  ElMessage.success("已退出云端登录");
-  router.push("/extension-bridge").catch(() => {});
+async function handlePortalLogout() {
+  if (portalLogoutLoading.value) return;
+  portalLogoutLoading.value = true;
+  const redirect = route.fullPath;
+  try {
+    clearPortalAuth();
+    portalLoggedIn.value = false;
+    portalDisplayName.value = "";
+    markPortalLogoutPending();
+    const loginRoute = { name: "portal-login" };
+    if (redirect && redirect !== "/portal-login") {
+      loginRoute.query = { redirect };
+    }
+    await router.replace(loginRoute);
+    await logoutPortalSession();
+    ElMessage.success("已退出云端登录");
+  } catch {
+    ElMessage.error("退出失败，请重试");
+  } finally {
+    portalLogoutLoading.value = false;
+  }
 }
 
 function isActive(path) {

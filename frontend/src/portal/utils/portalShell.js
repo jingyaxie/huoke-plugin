@@ -7,6 +7,7 @@ export const PORTAL_PING_MESSAGE = "huoke:shell-ping";
 export const PORTAL_PONG_MESSAGE = "huoke:shell-pong";
 export const PORTAL_NAVIGATE_MESSAGE = "huoke:navigate";
 export const PORTAL_AUTH_STORAGE_KEY = "huoke_portal_auth";
+export const PORTAL_LOGOUT_FLAG_KEY = "huoke_portal_logout_pending";
 export const PORTAL_SHELL_STORAGE_KEY = "huoke_shell_app";
 
 const PORTAL_ORIGIN_SUFFIXES = ["tanjiyunai.com"];
@@ -89,6 +90,19 @@ export function setPortalAuthenticated(payload = {}) {
 export function clearPortalAuth() {
   sessionStorage.removeItem(PORTAL_AUTH_STORAGE_KEY);
   window.dispatchEvent(new CustomEvent("huoke-portal-auth-changed", { detail: null }));
+}
+
+/** 主动退出后跳过登录页 session 探测，避免 cookie 尚未清完时被误判为仍在线 */
+export function markPortalLogoutPending() {
+  sessionStorage.setItem(PORTAL_LOGOUT_FLAG_KEY, String(Date.now()));
+}
+
+export function isPortalLogoutPending() {
+  return Boolean(sessionStorage.getItem(PORTAL_LOGOUT_FLAG_KEY));
+}
+
+export function clearPortalLogoutPending() {
+  sessionStorage.removeItem(PORTAL_LOGOUT_FLAG_KEY);
 }
 
 export function getPortalDisplayName() {

@@ -5,6 +5,7 @@
 import { getPortalBaseUrl } from "../config/cloudNav";
 import {
   buildPortalEmbedUrl,
+  clearPortalLogoutPending,
   getPortalDisplayName,
   handlePortalMessage,
   isPortalAuthenticated,
@@ -272,10 +273,30 @@ export function submitPortalLoginForm(fields) {
   });
 }
 
-/** 清除 portal 域 session cookie */
-export function logoutPortalSession() {
+/** 清除 portal 域 session cookie，返回 Promise 便于退出流程等待服务端 logout 完成 */
+export function logoutPortalSession(timeoutMs = 8000) {
   const frame = ensureBridgeFrame();
-  frame.src = `${getPortalBaseUrl()}/customer/logout`;
+
+  return new Promise((resolve) => {
+    let settled = false;
+
+    function finish() {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      frame.removeEventListener("load", onLoad);
+      clearPortalLogoutPending();
+      resolve();
+    }
+
+    function onLoad() {
+      finish();
+    }
+
+    const timeout = window.setTimeout(finish, timeoutMs);
+    frame.addEventListener("load", onLoad);
+    frame.src = `${getPortalBaseUrl()}/customer/logout`;
+  });
 }
 
 /** 从 H5 页面 meta 同步展示名（原生登录后 displayName 可能尚未写入） */

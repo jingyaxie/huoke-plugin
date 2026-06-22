@@ -116,7 +116,12 @@ import { ElMessage } from "element-plus";
 import { sendPortalSmsCode } from "../api/portalAuth";
 import { mapH5PathToCloudRoute } from "../config/cloudNav";
 import { probePortalSession, submitPortalLoginForm, syncPortalDisplayName } from "../utils/portalLoginBridge";
-import { isPortalAuthenticated, readPortalAuth, setPortalAuthenticated } from "../utils/portalShell";
+import {
+  isPortalAuthenticated,
+  isPortalLogoutPending,
+  readPortalAuth,
+  setPortalAuthenticated,
+} from "../utils/portalShell";
 
 const router = useRouter();
 const route = useRoute();
@@ -147,6 +152,9 @@ function redirectAfterLogin() {
 }
 
 async function tryExistingSession() {
+  if (isPortalLogoutPending()) {
+    return false;
+  }
   if (isPortalAuthenticated()) {
     redirectAfterLogin();
     return true;
