@@ -11,7 +11,9 @@ import {
 import {
   withTabDebugger,
   clickMouse,
+  dragMouse,
   moveMouse,
+  pressKey,
 } from "../../real-mouse";
 import { sendContentPluginLabCommand } from "../../tab-command";
 import { sleep, waitForTabLoad } from "../shared/tab-load";
@@ -397,4 +399,100 @@ export async function closeVideoDetailBackground(payload: Record<string, unknown
     { ...payload, platform: PLATFORM },
     { skipPreflight: true },
   );
+}
+
+interface SwipeFeedResult {
+  ok?: boolean;
+  is_search_feed?: boolean;
+  aweme_id?: string;
+  previous_aweme_id?: string | null;
+  method?: string;
+  url?: string;
+  message?: string;
+}
+
+async function probeFeedAweme(tabId: number): Promise<VideoProbe> {
+  return (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.search_video_probe",
+    { status_only: true, platform: PLATFORM },
+    { skipPreflight: true },
+  )) as VideoProbe;
+}
+
+/** 搜索 Feed 内切下一个视频：DOM 手势优先，失败再用 CDP 拖拽 */
+export async function swipeSearchFeedNextBackground(
+  payload: Record<string, unknown> = {},
+): Promise<SwipeFeedResult> {
+  const tab = await resolveLabTabForAction("plugin_lab.swipe_search_feed_next", PLATFORM);
+  if (!tab.id) throw new Error("lab tab has no id");
+  const tabId = tab.id;
+
+  const status = await probeFeedAweme(tabId);
+  if (!status.is_search_feed) {
+    return {
+      ok: false,
+      is_search_feed: false,
+      url: tab.url ?? "",
+      message: "不在搜索 Feed 浮层，无法 Feed 内切下一个视频",
+    };
+  }
+
+  const before = String(status.aweme_id ?? "").trim() || null;
+
+  const contentResult = (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.swipe_search_feed_next",
+    { ...payload, platform: PLATFORM },
+    { skipPreflight: true },
+  )) as SwipeFeedResult;
+  if (contentResult.ok) {
+    return { ...contentResult, method: contentResult.method ?? "content_dom" };
+  }
+
+  const sidebar = (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.comment_sidebar_probe",
+    { platform: PLATFORM },
+    { skipPreflight: true },
+  )) as { video_player_center?: { x: number; y: number } | null };
+
+  const center = sidebar.video_player_center;
+  if (!center || typeof center.x !== "number" || typeof center.y !== "number") {
+    return contentResult;
+  }
+
+  await withTabDebugger(tabId, async () => {
+    await pressKey(tabId, "Escape", { code: "Escape" });
+    await sleep(180);
+    await pressKey(tabId, "Escape", { code: "Escape" });
+    await sleep(humanPace.listPrepare());
+    await clickMouse(tabId, center.x, center.y);
+    await sleep(humanPace.posterClick());
+    await dragMouse(tabId, center.x, center.y + 150, center.x, center.y - 240, 12);
+    await sleep(humanPace.posterClick());
+    await pressKey(tabId, "ArrowDown", { code: "ArrowDown" });
+  });
+
+  for (let i = 0; i < 14; i += 1) {
+    await sleep(260);
+    const afterStatus = await probeFeedAweme(tabId);
+    const after = String(afterStatus.aweme_id ?? "").trim();
+    if (after && after !== before) {
+      return {
+        ok: true,
+        is_search_feed: true,
+        aweme_id: after,
+        previous_aweme_id: before,
+        method: "cdp_drag",
+        url: afterStatus.url ?? tab.url ?? "",
+        message: "已通过 CDP 拖拽在搜索 Feed 内切换到下一个视频",
+      };
+    }
+  }
+
+  return {
+    ...contentResult,
+    message: contentResult.message ?? "Feed 内未能切换到下一个视频（DOM+CDP）",
+  };
 }

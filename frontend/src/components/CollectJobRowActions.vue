@@ -41,7 +41,7 @@ function jobTargetCount(row) {
 }
 
 const canStart = computed(() => {
-  if (props.row.status === "running") return false;
+  if (props.row.status === "running") return true;
   if (props.row.status === "completed") {
     const target = jobTargetCount(props.row);
     const progress = Number(props.row.precise_count ?? props.row.comment_count ?? 0);
@@ -51,6 +51,7 @@ const canStart = computed(() => {
 });
 
 const startLabel = computed(() => {
+  if (props.row.status === "running") return "重新启动采集";
   if (props.row.status === "paused") return "继续采集";
   if (props.row.status === "completed") return "继续采集";
   if (props.row.status === "failed") return "继续采集";

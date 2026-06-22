@@ -4,6 +4,7 @@ const BACKGROUND_ACTIONS = new Set([
   "plugin_lab.click_filter_overlay",
   "plugin_lab.click_search_video",
   "plugin_lab.click_profile_video",
+  "plugin_lab.swipe_search_feed_next",
   "plugin_lab.click_comment_btn",
   "plugin_lab.reply_comment",
   "plugin_lab.click_dm_btn",

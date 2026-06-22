@@ -127,9 +127,9 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="100">
+            <el-table-column label="状态" width="108">
               <template #default="{ row }">
-                <el-tag size="small" :type="statusTagType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+                <CollectJobStatusTag :row="row" @continue="onStartCollect" />
               </template>
             </el-table-column>
             <el-table-column prop="video_count" label="视频数" width="72" align="right" />
@@ -162,6 +162,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import AcquisitionOutreachModal from "../../components/AcquisitionOutreachModal.vue";
 import AcquisitionStatsCards from "../../components/AcquisitionStatsCards.vue";
 import CollectJobRowActions from "../../components/CollectJobRowActions.vue";
+import CollectJobStatusTag from "../../components/CollectJobStatusTag.vue";
 import CreateExtensionAutoTaskDialog from "../../components/CreateExtensionAutoTaskDialog.vue";
 import ExtensionVersionAlert from "../../components/ExtensionVersionAlert.vue";
 import MetricLink from "../../components/MetricLink.vue";
@@ -237,28 +238,6 @@ async function openCollectData(row, view = "all") {
 function platformLabel(platform) {
   const map = { douyin: "抖音", xiaohongshu: "小红书", kuaishou: "快手" };
   return map[platform] || platform || "抖音";
-}
-
-function statusLabel(status) {
-  const map = {
-    pending: "待执行",
-    running: "运行中",
-    completed: "已完成",
-    failed: "失败",
-    paused: "已暂停",
-  };
-  return map[status] || status || "—";
-}
-
-function statusTagType(status) {
-  const map = {
-    pending: "info",
-    running: "primary",
-    completed: "success",
-    failed: "danger",
-    paused: "warning",
-  };
-  return map[status] || "info";
 }
 
 function onCollectJobAction(row, action) {
@@ -338,11 +317,17 @@ async function refreshAll() {
 }
 
 async function onStartCollect(row) {
+  const loadingMsg = ElMessage.info({
+    message: row.status === "running" ? "正在重新启动采集…" : "正在启动采集，请稍候…",
+    duration: 0,
+  });
   try {
     await startCollectJob(row.id);
+    loadingMsg.close();
     ElMessage.success("采集已开始，请保持抖音标签页激活");
     await refreshAll();
   } catch (err) {
+    loadingMsg.close();
     ElMessage.error(err?.response?.data?.error || err?.message || "启动失败");
   }
 }

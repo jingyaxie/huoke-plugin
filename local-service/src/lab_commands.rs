@@ -234,7 +234,7 @@ impl<'a> LabCommands<'a> {
         self.enable_network_hook().await?;
         simulate::pause(Duration::from_millis(800)).await;
 
-        let _ = self.prepare_search_for_video().await;
+        let _ = self.scroll_search_list_to_top().await;
         simulate::pause(Duration::from_millis(800)).await;
         Ok(())
     }
@@ -247,6 +247,15 @@ impl<'a> LabCommands<'a> {
         self.action(
             "prepare_search_for_video",
             json!({ "platform": self.platform }),
+        )
+        .await
+    }
+
+    /// 仅在当前搜索结果页滚到列表顶部，不跳转、不重新输入关键词。
+    pub async fn scroll_search_list_to_top(&self) -> Result<Value, String> {
+        self.action(
+            "prepare_search_for_video",
+            json!({ "platform": self.platform, "skip_restore": true }),
         )
         .await
     }
@@ -282,6 +291,24 @@ impl<'a> LabCommands<'a> {
             payload["video_url"] = json!(url);
         }
         self.action("click_search_video", payload).await
+    }
+
+    /// Feed 浮层内通过 modal_id 切到指定视频（不返回搜索列表）
+    pub async fn jump_search_feed_video(
+        &self,
+        video_index: i64,
+        aweme_id: &str,
+    ) -> Result<Value, String> {
+        self.action(
+            "click_search_video",
+            json!({
+                "video_index": video_index.max(1),
+                "aweme_id": aweme_id,
+                "open_strategy": "modal_only",
+                "use_detail_window": false,
+            }),
+        )
+        .await
     }
 
     pub async fn fetch_search_results(&self, limit: i64) -> Result<Value, String> {

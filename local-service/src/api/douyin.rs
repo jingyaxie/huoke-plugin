@@ -334,6 +334,10 @@ pub async fn start_job(
         }
     }
 
+    if job.status == JobStatus::Running {
+        state.job_runs.invalidate(&job_id);
+    }
+
     state
         .db
         .supersede_other_running_jobs(&job_id)

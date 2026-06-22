@@ -240,6 +240,21 @@ pub fn parse_fetch_search_results(resp: &Value) -> Vec<ParsedVideo> {
     out
 }
 
+/// 合并多页搜索/滚动结果，按 aweme_id 去重。
+pub fn merge_parsed_videos(
+    mut base: Vec<ParsedVideo>,
+    incoming: Vec<ParsedVideo>,
+) -> Vec<ParsedVideo> {
+    let mut seen: std::collections::HashSet<String> =
+        base.iter().map(|video| video.aweme_id.clone()).collect();
+    for video in incoming {
+        if seen.insert(video.aweme_id.clone()) {
+            base.push(video);
+        }
+    }
+    base
+}
+
 fn walk_search_nodes(node: &Value, out: &mut Vec<ParsedVideo>, seen: &mut std::collections::HashSet<String>) {
     match node {
         Value::Object(map) => {

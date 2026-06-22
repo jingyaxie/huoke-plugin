@@ -73,6 +73,51 @@ export async function clickMouse(tabId: number, x: number, y: number) {
   await sleep(randDelay(80, 160));
 }
 
+/** 模拟上滑切 Feed：按下 → 分步移动 → 松开 */
+export async function dragMouse(
+  tabId: number,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  steps = 10,
+) {
+  const startX = Math.round(fromX);
+  const startY = Math.round(fromY);
+  const endX = Math.round(toX);
+  const endY = Math.round(toY);
+  await moveMouse(tabId, startX, startY);
+  await sleep(randDelay(90, 160));
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: startX,
+    y: startY,
+    button: "left",
+    clickCount: 1,
+  });
+  const segmentCount = Math.max(4, steps);
+  for (let i = 1; i <= segmentCount; i += 1) {
+    const t = i / segmentCount;
+    const x = Math.round(startX + (endX - startX) * t);
+    const y = Math.round(startY + (endY - startY) * t);
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x,
+      y,
+      button: "left",
+    });
+    await sleep(randDelay(18, 42));
+  }
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: endX,
+    y: endY,
+    button: "left",
+    clickCount: 1,
+  });
+  await sleep(randDelay(120, 220));
+}
+
 export function randDelay(min: number, max: number) {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
