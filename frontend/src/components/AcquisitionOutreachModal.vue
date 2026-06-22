@@ -33,7 +33,6 @@
           />
           <el-select v-model="actionType" style="width: 140px" @change="page = 1">
             <el-option label="全部类型" value="all" />
-            <el-option label="评论" value="comment" />
             <el-option label="私信" value="dm" />
           </el-select>
           <el-button type="primary" @click="page = 1">查询</el-button>
@@ -76,7 +75,6 @@
             </template>
           </el-table-column>
           <el-table-column prop="evaluation_reason" label="评估说明" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="reply_content" label="评论内容" min-width="140" show-overflow-tooltip />
           <el-table-column prop="dm_content" label="私信内容" min-width="140" show-overflow-tooltip />
           <el-table-column v-if="showOutreachStatus" label="触达状态" width="100">
             <template #default="{ row }">
@@ -194,14 +192,13 @@ const viewOptions = computed(() => {
   return [
     { value: OUTREACH_METRIC_VIEWS.ALL, label: "全部采集", count: counts[OUTREACH_METRIC_VIEWS.ALL] || 0 },
     { value: OUTREACH_METRIC_VIEWS.PRECISE, label: "精准线索", count: counts[OUTREACH_METRIC_VIEWS.PRECISE] || 0 },
-    { value: OUTREACH_METRIC_VIEWS.REPLY, label: "已回复", count: counts[OUTREACH_METRIC_VIEWS.REPLY] || 0 },
     { value: OUTREACH_METRIC_VIEWS.DM, label: "已私信", count: counts[OUTREACH_METRIC_VIEWS.DM] || 0 },
     { value: OUTREACH_METRIC_VIEWS.FOLLOW, label: "关注记录", count: counts[OUTREACH_METRIC_VIEWS.FOLLOW] || 0 },
   ];
 });
 
 const showOutreachStatus = computed(() =>
-  [OUTREACH_METRIC_VIEWS.REPLY, OUTREACH_METRIC_VIEWS.DM, OUTREACH_METRIC_VIEWS.FOLLOW].includes(activeView.value),
+  [OUTREACH_METRIC_VIEWS.DM, OUTREACH_METRIC_VIEWS.FOLLOW].includes(activeView.value),
 );
 
 const commentDaysLabel = computed(() => {

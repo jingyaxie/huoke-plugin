@@ -57,21 +57,12 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="评论数" width="80" align="right">
-            <template #default="{ row }">
-              <MetricLink
-                :value="row.reply_count || 0"
-                :clickable="Number(row.reply_count) > 0"
-                @click="openCollectData(row, 'reply')"
-              />
-            </template>
-          </el-table-column>
           <el-table-column label="私信数" width="80" align="right">
             <template #default="{ row }">
               <MetricLink
                 :value="row.dm_count || 0"
-                :clickable="Number(row.dm_count) > 0"
-                @click="openCollectData(row, 'dm')"
+                always-clickable
+                @click="openOutreachMetric(row, 'dm')"
               />
             </template>
           </el-table-column>
@@ -79,8 +70,8 @@
             <template #default="{ row }">
               <MetricLink
                 :value="row.follow_count || 0"
-                :clickable="Number(row.follow_count) > 0"
-                @click="openCollectData(row, 'follow')"
+                always-clickable
+                @click="openOutreachMetric(row, 'follow')"
               />
             </template>
           </el-table-column>
@@ -136,6 +127,7 @@ import {
   extensionJobTargetCount,
   loadCollectJobForModal,
 } from "../../utils/extensionCollectJobs";
+import { alertOutreachRiskIfZero } from "../../utils/outreachRisk";
 
 const loading = ref(false);
 const allJobs = ref([]);
@@ -263,6 +255,12 @@ async function onPauseCollect(row) {
   } catch (err) {
     ElMessage.error(err?.response?.data?.error || err?.message || "暂停失败");
   }
+}
+
+async function openOutreachMetric(row, view) {
+  const countMap = { dm: row.dm_count, follow: row.follow_count };
+  if (await alertOutreachRiskIfZero(countMap[view])) return;
+  await openCollectData(row, view);
 }
 
 async function openCollectData(row, view = "all") {

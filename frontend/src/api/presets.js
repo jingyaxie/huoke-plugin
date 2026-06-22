@@ -74,7 +74,7 @@ export async function loadAllPresetContents() {
 export const DEFAULT_INTERACTION_SETTINGS = {
   comment_dm_interval_seconds_min: 10,
   comment_dm_interval_seconds_max: 30,
-  comment_dm_percentage: 50,
+  comment_dm_percentage: 0,
   follow_per_day: 30,
   dm_per_day: 30,
   batch_cooldown_minutes: 8,

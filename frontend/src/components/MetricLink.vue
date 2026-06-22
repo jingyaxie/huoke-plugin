@@ -1,8 +1,9 @@
 <template>
   <button
-    v-if="clickable || Number(value) > 0"
+    v-if="clickable || alwaysClickable || Number(value) > 0"
     type="button"
     class="metric-link"
+    :class="{ 'metric-link--zero': alwaysClickable && Number(value) <= 0 }"
     @click="$emit('click', $event)"
   >
     {{ value }}
@@ -14,6 +15,8 @@
 defineProps({
   value: { type: [Number, String], default: 0 },
   clickable: { type: Boolean, default: false },
+  /** 为 0 时仍可点击（如私信/关注风控提示） */
+  alwaysClickable: { type: Boolean, default: false },
 });
 
 defineEmits(["click"]);
@@ -33,6 +36,14 @@ defineEmits(["click"]);
 
 .metric-link:hover {
   color: var(--el-color-primary-light-3);
+}
+
+.metric-link--zero {
+  color: var(--el-text-color-secondary);
+}
+
+.metric-link--zero:hover {
+  color: var(--el-color-primary);
 }
 
 .metric-zero {

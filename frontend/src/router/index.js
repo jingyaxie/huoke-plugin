@@ -32,7 +32,7 @@ const routes = [
       { path: "llm-settings", redirect: "/settings/model" },
       { path: "account-settings", redirect: "/platform-login" },
       { path: "platform-login", name: "platform-login", component: PlatformLoginView, meta: { title: "账号绑定", section: "AI 获客（本机）" } },
-      { path: "presets", name: "presets", component: PresetsView, meta: { title: "评论/私信预设", section: "AI 获客（本机）" } },
+      { path: "presets", name: "presets", component: PresetsView, meta: { title: "私信预设", section: "AI 获客（本机）" } },
       { path: "extension-bridge", name: "extension-bridge", component: ExtensionBridgeView, meta: { title: "自动获客", section: "AI 获客（本机）", fillContent: true } },
       { path: "plugin-lab", redirect: "/settings/plugin-lab" },
       { path: "agent", redirect: "/extension-bridge" },

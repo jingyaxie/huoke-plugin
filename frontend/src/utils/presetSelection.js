@@ -6,5 +6,5 @@ export function validateTaskPresetSelection(settings, commentPresetIds, dmPreset
   if (needComment && !(commentPresetIds || []).length) missing.push("评论模板");
   if (needDm && !(dmPresetIds || []).length) missing.push("私信模板");
   if (!missing.length) return null;
-  return `请先前往「评论/私信预设」添加${missing.join("和")}，或在下方勾选要使用的模板。`;
+  return `请先前往「私信预设」添加${missing.join("和")}，或在下方勾选要使用的模板。`;
 }

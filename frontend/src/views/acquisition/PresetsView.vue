@@ -2,8 +2,8 @@
   <div class="acquisition-page">
     <header class="page-header">
       <div>
-        <h1 class="page-title">评论/私信预设</h1>
-        <p class="page-subtitle">管理评论回复与私信触达模板，创建任务时可按需勾选。</p>
+        <h1 class="page-title">私信预设</h1>
+        <p class="page-subtitle">管理私信触达模板，创建任务时可按需勾选。</p>
       </div>
       <el-button type="primary" class="create-btn" @click="openCreate">+ 添加预设</el-button>
     </header>
@@ -20,7 +20,6 @@
     <section class="table-card panel page-body">
       <el-table v-loading="loading" :data="rows" stripe empty-text="暂无预设">
         <el-table-column prop="name" label="名称" width="180" />
-        <el-table-column prop="kindLabel" label="类型" width="120" />
         <el-table-column prop="content" label="内容" min-width="280" show-overflow-tooltip />
         <el-table-column prop="updated_at" label="更新时间" width="180">
           <template #default="{ row }">{{ formatTime(row.updated_at || row.created_at) }}</template>
@@ -37,10 +36,7 @@
     <el-dialog v-model="dialogOpen" :title="editing ? '编辑预设' : '添加预设'" width="520px" destroy-on-close>
       <el-form label-width="88px">
         <el-form-item label="类型" required>
-          <el-select v-model="form.kind" :disabled="!!editing" style="width: 100%">
-            <el-option label="评论回复" value="comments" />
-            <el-option label="私信触达" value="dm-openers" />
-          </el-select>
+          <el-input :model-value="'私信触达'" disabled />
         </el-form-item>
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="预设名称" />
@@ -72,33 +68,26 @@ const loading = ref(false);
 const saving = ref(false);
 const dialogOpen = ref(false);
 const editing = ref(null);
-const comments = ref([]);
 const dmOpeners = ref([]);
 const useLocalPresets = ref(false);
 
 const form = reactive({
-  kind: "comments",
+  kind: "dm-openers",
   name: "",
   content: "",
 });
 
-const rows = computed(() => {
-  const commentRows = (comments.value || []).map((row) => ({
-    ...row,
-    kind: "comments",
-    kindLabel: "评论回复",
-  }));
-  const dmRows = (dmOpeners.value || []).map((row) => ({
+const rows = computed(() =>
+  (dmOpeners.value || []).map((row) => ({
     ...row,
     kind: "dm-openers",
     kindLabel: "私信触达",
-  }));
-  return [...commentRows, ...dmRows].sort((a, b) => {
+  })).sort((a, b) => {
     const ta = Date.parse(a.updated_at || a.created_at || "") || 0;
     const tb = Date.parse(b.updated_at || b.created_at || "") || 0;
     return tb - ta;
-  });
-});
+  }),
+);
 
 function formatTime(value) {
   if (!value) return "—";
@@ -108,9 +97,7 @@ function formatTime(value) {
 }
 
 async function loadLocal() {
-  const commentResp = listLocalPresets("comments");
   const dmResp = listLocalPresets("dm-openers");
-  comments.value = commentResp.items || [];
   dmOpeners.value = dmResp.items || [];
   useLocalPresets.value = true;
 }
@@ -118,8 +105,7 @@ async function loadLocal() {
 async function load() {
   loading.value = true;
   try {
-    const [commentResp, dmResp] = await Promise.all([listPresets("comments"), listPresets("dm-openers")]);
-    comments.value = commentResp.items || [];
+    const dmResp = await listPresets("dm-openers");
     dmOpeners.value = dmResp.items || [];
     useLocalPresets.value = false;
   } catch {
@@ -131,7 +117,7 @@ async function load() {
 
 function openCreate() {
   editing.value = null;
-  form.kind = "comments";
+  form.kind = "dm-openers";
   form.name = "";
   form.content = "";
   dialogOpen.value = true;

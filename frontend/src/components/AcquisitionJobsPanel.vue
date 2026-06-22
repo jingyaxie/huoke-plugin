@@ -83,21 +83,12 @@
           <MetricLink :value="row.metrics.progress_precise" @click="openOutreach(row.job, 'precise')" />
         </template>
       </el-table-column>
-      <el-table-column label="评论数" width="80" align="right">
-        <template #default="{ row }">
-          <MetricLink
-            :value="row.metrics.comment_count"
-            :clickable="metricViewCount(row.job, 'reply') > 0"
-            @click="openOutreach(row.job, 'reply')"
-          />
-        </template>
-      </el-table-column>
       <el-table-column label="私信数" width="80" align="right">
         <template #default="{ row }">
           <MetricLink
             :value="row.metrics.dm_count"
-            :clickable="metricViewCount(row.job, 'dm') > 0"
-            @click="openOutreach(row.job, 'dm')"
+            always-clickable
+            @click="openOutreachMetric(row, 'dm')"
           />
         </template>
       </el-table-column>
@@ -105,8 +96,8 @@
         <template #default="{ row }">
           <MetricLink
             :value="row.metrics.follow_count"
-            :clickable="metricViewCount(row.job, 'follow') > 0"
-            @click="openOutreach(row.job, 'follow')"
+            always-clickable
+            @click="openOutreachMetric(row, 'follow')"
           />
         </template>
       </el-table-column>
@@ -226,6 +217,7 @@ import {
   matchesJobFilter,
   sortJobsByCreated,
 } from "../utils/acquisitionJobs";
+import { alertOutreachRiskIfZero } from "../utils/outreachRisk";
 
 const props = defineProps({
   mode: {
@@ -363,6 +355,12 @@ async function deleteOneJob(row) {
       ElMessage.error(err?.message || "删除失败");
     }
   }
+}
+
+async function openOutreachMetric(row, view) {
+  const countMap = { dm: row.metrics?.dm_count, follow: row.metrics?.follow_count };
+  if (await alertOutreachRiskIfZero(countMap[view])) return;
+  openOutreach(row.job, view);
 }
 
 function openOutreach(job, view = "all") {

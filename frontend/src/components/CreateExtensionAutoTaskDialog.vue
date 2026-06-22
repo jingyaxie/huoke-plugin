@@ -64,24 +64,12 @@
           <p class="field-hint">每轮最多扫描多少个视频采集评论；扫满上限或搜索结果不足时即视为完成。</p>
         </el-form-item>
 
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <TaskPresetSelect
-              label="评论模板"
-              :options="commentPresets"
-              :selected-ids="selectedCommentPresetIds"
-              @update:selected-ids="selectedCommentPresetIds = $event"
-            />
-          </el-col>
-          <el-col :span="12">
-            <TaskPresetSelect
-              label="私信模板"
-              :options="dmPresets"
-              :selected-ids="selectedDmPresetIds"
-              @update:selected-ids="selectedDmPresetIds = $event"
-            />
-          </el-col>
-        </el-row>
+        <TaskPresetSelect
+          label="私信模板"
+          :options="dmPresets"
+          :selected-ids="selectedDmPresetIds"
+          @update:selected-ids="selectedDmPresetIds = $event"
+        />
 
         <TaskInteractionFields v-model="settings" />
 
@@ -145,9 +133,7 @@ const emit = defineEmits(["update:modelValue", "created"]);
 
 const visible = ref(false);
 const submitting = ref(false);
-const commentPresets = ref([]);
 const dmPresets = ref([]);
-const selectedCommentPresetIds = ref([]);
 const selectedDmPresetIds = ref([]);
 const settings = ref({ ...DEFAULT_INTERACTION_SETTINGS });
 const platformOptions = ref(mergeExtensionCapabilities());
@@ -228,13 +214,10 @@ function onAutoStartChange(value) {
 async function reloadPresets() {
   try {
     const presets = await listPlatformPresets();
-    commentPresets.value = presets.comments;
     dmPresets.value = presets.dmOpeners;
   } catch {
-    commentPresets.value = listLocalPresets("comments").items || [];
     dmPresets.value = listLocalPresets("dm-openers").items || [];
   }
-  selectedCommentPresetIds.value = commentPresets.value.map((row) => row.id);
   selectedDmPresetIds.value = dmPresets.value.map((row) => row.id);
 }
 
@@ -272,8 +255,8 @@ async function submit() {
     return;
   }
   const presetError = validateTaskPresetSelection(
-    settings.value,
-    selectedCommentPresetIds.value,
+    { ...settings.value, comment_dm_percentage: 0 },
+    [],
     selectedDmPresetIds.value,
   );
   if (presetError) {
@@ -285,12 +268,6 @@ async function submit() {
 
   submitting.value = true;
   try {
-    const commentPresetPayload = selectedCommentPresetIds.value
-      .map((id) => {
-        const row = commentPresets.value.find((item) => item.id === id);
-        return { id, content: row?.content || "" };
-      })
-      .filter((row) => row.content);
     const dmPresetPayload = selectedDmPresetIds.value
       .map((id) => {
         const row = dmPresets.value.find((item) => item.id === id);
@@ -308,11 +285,11 @@ async function submit() {
       region_code: form.regionCode || undefined,
       region_name: regionName.value || undefined,
       comment_days: form.commentDays,
-      interaction: settings.value,
-      comment_presets: commentPresetPayload,
+      interaction: { ...settings.value, comment_dm_percentage: 0 },
+      comment_presets: [],
       dm_presets: dmPresetPayload,
       auto_outreach: computeAutoOutreach({
-        commentPresetPayload,
+        commentPresetPayload: [],
         dmPresetPayload,
         followPerDay: settings.value.follow_per_day,
         dmPerDay: settings.value.dm_per_day,
