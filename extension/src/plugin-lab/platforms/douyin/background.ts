@@ -1,5 +1,5 @@
 /**
- * 抖音 Service Worker — 仅搜索 Feed 浮层，不走独立窗 /video/
+ * 抖音 Service Worker — 优先搜索 Feed 浮层，失败再开独立详情窗
  */
 import { humanPace } from "../../search-input";
 import { readLabSearchUrl, rememberLabSearchUrl } from "../../lab-context";
@@ -14,9 +14,6 @@ import {
   moveMouse,
 } from "../../real-mouse";
 import { sendContentPluginLabCommand } from "../../tab-command";
-import { buildSearchResultPayload } from "../../click-search-btn";
-import { getSearchApiDebug, pollSearchApiCache } from "../../search-api";
-import { withSearchNetworkCapture } from "../../search-network-debugger";
 import { sleep, waitForTabLoad } from "../shared/tab-load";
 
 const PLATFORM = "douyin";
@@ -101,7 +98,52 @@ function searchFeedSuccess(result: ClickResult): boolean {
 }
 
 function isRealAwemeId(raw: unknown): boolean {
-  return /^\d{10,22}$/.test(String(raw ?? "").trim());
+  return /^\d{8,22}$/.test(String(raw ?? "").trim());
+}
+
+function isDouyinVideoPageUrl(url: string): boolean {
+  return /\/video\/\d{8,22}/i.test(url);
+}
+
+async function enrichSearchVideoPayload(
+  tabId: number,
+  videoIndex: number,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const next = { ...payload };
+  const existing = String(next.aweme_id ?? next.aweme_hint ?? "").trim();
+  if (isRealAwemeId(existing) && next.rect) {
+    return next;
+  }
+
+  try {
+    const data = (await sendContentPluginLabCommand(
+      tabId,
+      "plugin_lab.fetch_search_results",
+      { limit: Math.max(videoIndex, 20), platform: PLATFORM },
+      { skipPreflight: true },
+    )) as {
+      items?: Array<{ aweme_id?: string; url?: string; rect?: unknown }>;
+    };
+    const item = data.items?.[videoIndex - 1];
+    if (item) {
+      const itemAweme = String(item.aweme_id ?? "").trim();
+      if (isRealAwemeId(itemAweme)) {
+        next.aweme_id = itemAweme;
+        next.aweme_hint = itemAweme;
+      }
+      if (!next.rect && item.rect && typeof item.rect === "object") {
+        next.rect = item.rect;
+      }
+      if (!next.video_url && item.url) {
+        next.video_url = item.url;
+      }
+    }
+  } catch {
+    // keep original payload
+  }
+
+  return next;
 }
 
 async function tryOpenKnownAweme(
@@ -142,7 +184,9 @@ async function runFeedOpenAttempts(
     }
 
     const probeAweme = await probeVideo(tabId, { ...payload, video_index: videoIndex, aweme_id: awemeHint });
-    if (!awemeHint && probeAweme.aweme_id) awemeHint = probeAweme.aweme_id;
+    if (!awemeHint && probeAweme.aweme_id && isRealAwemeId(probeAweme.aweme_id)) {
+      awemeHint = probeAweme.aweme_id;
+    }
 
     if (probeAweme.is_search_feed) {
       return {
@@ -172,9 +216,26 @@ async function runFeedOpenAttempts(
       lastMessage = modalResult.message ?? lastMessage;
     }
 
+    const hadAwemeBeforeProbe = Boolean(awemeHint);
     const probe = await probeVideo(tabId, { ...payload, video_index: videoIndex, aweme_id: awemeHint });
     lastUrl = probe.url ?? lastUrl;
-    if (!awemeHint && probe.aweme_id) awemeHint = probe.aweme_id;
+    if (!awemeHint && probe.aweme_id && isRealAwemeId(probe.aweme_id)) {
+      awemeHint = probe.aweme_id;
+    }
+
+    if (!hadAwemeBeforeProbe && awemeHint) {
+      const modalAfterProbe = await domOpenFeed(tabId, {
+        ...payload,
+        video_index: videoIndex,
+        aweme_id: awemeHint,
+        strategy: "modal_only",
+      });
+      lastUrl = modalAfterProbe.url ?? lastUrl;
+      if (searchFeedSuccess(modalAfterProbe)) {
+        return { ...modalAfterProbe, attempt, aweme_id: awemeHint };
+      }
+      lastMessage = modalAfterProbe.message ?? lastMessage;
+    }
 
     if (probe.ok && probe.center) {
       const { x, y } = probe.center;
@@ -233,97 +294,55 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
   const tabId = tab.id;
   const videoIndex = Math.max(1, Number(payload.video_index ?? payload.index ?? 1));
   const openStrategy = String(payload.open_strategy ?? "auto").trim().toLowerCase();
-  const useDetailWindow = payload.use_detail_window !== false && openStrategy !== "feed";
+  const detailOnly = openStrategy === "detail";
+  const feedOnly = openStrategy === "feed" || payload.use_detail_window === false;
+  const enrichedPayload = await enrichSearchVideoPayload(tabId, videoIndex, payload);
 
-  if (useDetailWindow) {
-    const resolved = await resolveSearchVideoUrl(tabId, videoIndex, {
-      ...payload,
-      platform: PLATFORM,
-    });
-    if (resolved.url) {
-      return openVideoInDetailWindow({
-        platform: PLATFORM,
-        url: resolved.url,
-        listTabId: tabId,
-        aweme_id: resolved.aweme_id,
-        video_index: videoIndex,
-      });
+  let feedResult: ClickResult | null = null;
+
+  if (!detailOnly) {
+    const awemeHint = String(enrichedPayload.aweme_id ?? enrichedPayload.aweme_hint ?? "").trim();
+    if (isRealAwemeId(awemeHint)) {
+      const fast = await tryOpenKnownAweme(tabId, videoIndex, enrichedPayload, awemeHint);
+      if (fast?.ok) return fast;
+    }
+
+    feedResult = await runFeedOpenAttempts(tabId, videoIndex, enrichedPayload, tab.url ?? "");
+    if (searchFeedSuccess(feedResult)) {
+      return feedResult;
+    }
+    if (feedOnly) {
+      return feedResult;
     }
   }
 
-  const awemeHint = String(payload.aweme_id ?? payload.aweme_hint ?? "").trim();
-  if (isRealAwemeId(awemeHint)) {
-    const fast = await tryOpenKnownAweme(tabId, videoIndex, payload, awemeHint);
-    if (fast?.ok) return fast;
-  }
-
-  return runFeedOpenAttempts(tabId, videoIndex, payload, tab.url ?? "");
-}
-
-export async function clickSearchButtonBackground(payload: Record<string, unknown> = {}) {
-  const tab = await resolveLabTabForAction("plugin_lab.click_search_btn", PLATFORM);
-  if (!tab.id) throw new Error("lab tab has no id");
-  const tabId = tab.id;
-
-  return withSearchNetworkCapture(tabId, async () => {
-    await sendContentPluginLabCommand(
-      tabId,
-      "plugin_lab.search_prepare",
-      { platform: PLATFORM },
-      { skipPreflight: true },
-    );
-
-    const clickResult = (await sendContentPluginLabCommand(
-      tabId,
-      "plugin_lab.search_submit",
-      {
-        platform: PLATFORM,
-        search_text: payload.search_text ?? payload.keyword,
-      },
-      { skipPreflight: true },
-    )) as Record<string, unknown>;
-
-    const polled = await pollSearchApiCache({ timeoutMs: 12_000, minItems: 1 });
-    let items = polled?.items ?? [];
-    let captureMethod: "api" | "dom" | "none" = items.length > 0 ? "api" : "none";
-
-    if (!items.length) {
-      const domResult = (await sendContentPluginLabCommand(
-        tabId,
-        "plugin_lab.fetch_search_results",
-        { limit: 20, platform: PLATFORM },
-        { skipPreflight: true },
-      )) as Record<string, unknown>;
-      const domItems = domResult.items ?? domResult.results;
-      if (Array.isArray(domItems) && domItems.length > 0) {
-        items = domItems as typeof items;
-        captureMethod = (domResult.capture_method as typeof captureMethod) ?? "dom";
-      }
-    }
-
-    const debug = await getSearchApiDebug().catch(() => null);
-    const hasResults = items.length > 0;
-    const activeTab = await chrome.tabs.get(tabId);
-    const onSearchPage = /\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(activeTab.url ?? "");
-    const ok = Boolean(clickResult.ok) || hasResults || onSearchPage;
-
-    return {
-      ...clickResult,
-      ok,
-      ...buildSearchResultPayload(items, captureMethod),
-      api_events_seen: debug?.eventsSeen ?? 0,
-      last_api_url: debug?.lastApiUrl ?? "",
-      last_api_status: debug?.lastStatus,
-      last_body_kind: debug?.lastBodyKind ?? "",
-      message: hasResults
-        ? captureMethod === "api"
-          ? `已触发搜索，从接口获取 ${items.length} 条结果`
-          : `已进入搜索页，接口未解析到数据，已用 DOM 兜底 ${items.length} 条`
-        : ok
-          ? "已进入搜索页，但接口暂无数据"
-          : "已点击搜索，但未进入搜索结果页，也未截获搜索接口",
-    };
+  const resolved = await resolveSearchVideoUrl(tabId, videoIndex, {
+    ...enrichedPayload,
+    platform: PLATFORM,
   });
+  if (resolved.url && isDouyinVideoPageUrl(resolved.url)) {
+    const detailResult = await openVideoInDetailWindow({
+      platform: PLATFORM,
+      url: resolved.url,
+      listTabId: tabId,
+      aweme_id: resolved.aweme_id,
+      video_index: videoIndex,
+    });
+    if (detailResult.ok) {
+      return detailResult;
+    }
+  }
+
+  if (feedResult) {
+    return {
+      ...feedResult,
+      message:
+        feedResult.message
+        || "搜索 Feed 未打开，且无法通过独立窗口打开视频",
+    };
+  }
+
+  return runFeedOpenAttempts(tabId, videoIndex, enrichedPayload, tab.url ?? "");
 }
 
 function isDouyinSearchUrl(url?: string | null): boolean {

@@ -18,7 +18,7 @@ import {
   typeDmTextFallback,
 } from "../../dm-dom";
 import { clickFollowButton } from "../../click-follow-btn";
-import { prepareSearchCapture, submitSearchClick } from "../../click-search-btn";
+import { clickSearchButton, prepareSearchCapture, submitSearchClick } from "../../click-search-btn";
 import {
   clickSearchVideoFallback,
   clickSearchVideoInContent,
@@ -112,6 +112,8 @@ export async function dispatchDouyinLabCommand(
       return clickFilterButton();
     case "plugin_lab.click_filter_overlay":
       return clickFilterOverlay((payload ?? {}) as ClickFilterOverlayPayload);
+    case "plugin_lab.click_search_btn":
+      return clickSearchButton((payload ?? {}) as Parameters<typeof clickSearchButton>[0]);
     case "plugin_lab.search_prepare":
       return prepareSearchCapture();
     case "plugin_lab.search_submit":

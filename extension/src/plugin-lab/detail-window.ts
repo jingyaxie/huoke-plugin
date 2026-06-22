@@ -312,7 +312,7 @@ export async function resolveSearchVideoUrl(
     String(payload.platform ?? detectPlatformFromUrl(listTab.url) ?? "douyin"),
   );
 
-  if (awemeId) {
+  if (/^\d{8,22}$/.test(awemeId)) {
     if (platform === "douyin") {
       return { url: `https://www.douyin.com/video/${awemeId}`, aweme_id: awemeId };
     }
@@ -329,6 +329,15 @@ export async function resolveSearchVideoUrl(
   )) as { items?: Array<{ url?: string; aweme_id?: string }> };
 
   const item = apiResult.items?.[videoIndex - 1];
+  const itemAweme = String(item?.aweme_id ?? "").trim();
   const url = String(item?.url ?? "").trim();
-  return { url, aweme_id: item?.aweme_id ?? (awemeId || undefined) };
+  const resolvedAweme = /^\d{8,22}$/.test(itemAweme)
+    ? itemAweme
+    : /^\d{8,22}$/.test(awemeId)
+      ? awemeId
+      : undefined;
+  if (!url && resolvedAweme && platform === "douyin") {
+    return { url: `https://www.douyin.com/video/${resolvedAweme}`, aweme_id: resolvedAweme };
+  }
+  return { url, aweme_id: resolvedAweme };
 }

@@ -35,18 +35,13 @@ import {
 } from "../plugin-lab/platforms/kuaishou/search-api";
 
 let injected = false;
+let captureBootstrapped = false;
 
-async function ensureInjected() {
-  if (injected) return;
-  await chrome.runtime.sendMessage({ type: "huoke:noop" }).catch(() => undefined);
-  const src = chrome.runtime.getURL(NETWORK_HOOK_FILE);
-  const script = document.createElement("script");
-  script.src = src;
-  script.type = "text/javascript";
-  script.dataset.huokeInjected = "1";
-  (document.head || document.documentElement).appendChild(script);
-  injected = true;
-  log("injected network hook", src);
+/** 页面加载后立即初始化截获桥，避免等第一次 plugin_lab 命令才监听 postMessage */
+function bootstrapNetworkCapture(): void {
+  if (captureBootstrapped) return;
+  captureBootstrapped = true;
+
   initSearchApiCaptureBridge();
   initProfileApiCaptureBridge();
   initCommentApiCaptureBridge();
@@ -54,6 +49,7 @@ async function ensureInjected() {
   initXhsCommentApiBridge();
   initKsSearchApiBridge();
   initKsCommentApiBridge();
+
   const platform = detectPlatformFromUrl(location.href);
   if (platform === "douyin") {
     enableSearchNetworkHook();
@@ -65,6 +61,33 @@ async function ensureInjected() {
     enableKsSearchNetworkHook();
     enableKsCommentNetworkHook();
   }
+
+  log("network capture bootstrapped", platform || "unknown", location.href);
+}
+
+function hookAlreadyInstalled(): boolean {
+  return Boolean((window as Window & { __huokeNetworkHookInstalled?: boolean }).__huokeNetworkHookInstalled);
+}
+
+async function ensureInjected() {
+  bootstrapNetworkCapture();
+
+  if (injected || hookAlreadyInstalled()) {
+    injected = true;
+    return;
+  }
+
+  await chrome.runtime.sendMessage({ type: "huoke:noop" }).catch(() => undefined);
+  const src = chrome.runtime.getURL(NETWORK_HOOK_FILE);
+  const script = document.createElement("script");
+  script.src = src;
+  script.type = "text/javascript";
+  script.dataset.huokeInjected = "1";
+  (document.head || document.documentElement).appendChild(script);
+  injected = true;
+  log("injected network hook fallback", src);
+
+  bootstrapNetworkCapture();
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -124,6 +147,7 @@ window.addEventListener("message", (event) => {
   });
 });
 
+bootstrapNetworkCapture();
 log("content script ready", location.href);
 
 export function onExecute() {

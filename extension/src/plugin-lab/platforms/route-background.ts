@@ -12,7 +12,6 @@ type LabPlatform = "douyin" | "xiaohongshu" | "kuaishou";
 
 interface PlatformBackgroundModule {
   clickSearchVideoBackground(payload: Record<string, unknown>): Promise<unknown>;
-  clickSearchButtonBackground(payload: Record<string, unknown>): Promise<unknown>;
   prepareSearchForVideoBackground(payload: Record<string, unknown>): Promise<unknown>;
   closeVideoDetailBackground(payload: Record<string, unknown>): Promise<unknown>;
 }
@@ -51,12 +50,6 @@ async function routeByLabTab(
 export async function clickSearchVideoBackground(payload: Record<string, unknown> = {}) {
   return routeByLabTab("plugin_lab.click_search_video", payload, (mod, enriched) =>
     mod.clickSearchVideoBackground(enriched),
-  );
-}
-
-export async function clickSearchButtonBackground(payload: Record<string, unknown> = {}) {
-  return routeByLabTab("plugin_lab.click_search_btn", payload, (mod, enriched) =>
-    mod.clickSearchButtonBackground(enriched),
   );
 }
 

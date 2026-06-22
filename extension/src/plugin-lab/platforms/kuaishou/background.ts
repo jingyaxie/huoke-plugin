@@ -2,12 +2,8 @@
  * 快手 Service Worker — URL 搜索 + DOM / URL 打开短视频详情
  */
 import { buildSearchUrl } from "../../../content/platforms/kuaishou/search";
-import { buildSearchResultPayload } from "../../click-search-btn";
 import { readLabSearchUrl, rememberLabSearchUrl } from "../../lab-context";
-import { pollPlatformSearchCache } from "../../platform-lab-helpers";
 import { resolveLabTabForAction } from "../../resolve-lab-tab";
-import { getSearchApiDebug } from "../../search-api";
-import { withSearchNetworkCapture } from "../../search-network-debugger";
 import { sendContentPluginLabCommand } from "../../tab-command";
 import { sleep, waitForTabLoad } from "../shared/tab-load";
 
@@ -46,21 +42,6 @@ async function domOpenDetail(tabId: number, payload: Record<string, unknown>): P
 function isKsSearchUrl(url?: string | null): boolean {
   if (!url) return false;
   return /\/search\/|searchKey=/i.test(url);
-}
-
-async function navigateKuaishouSearch(tabId: number, keyword: string): Promise<boolean> {
-  const trimmed = keyword.trim();
-  if (!trimmed) return false;
-  await chrome.tabs.update(tabId, { url: buildSearchUrl(trimmed) });
-  await waitForTabLoad(tabId, 12_000);
-  await sleep(900);
-  await sendContentPluginLabCommand(
-    tabId,
-    "plugin_lab.search_prepare",
-    { platform: PLATFORM },
-    { skipPreflight: true },
-  );
-  return true;
 }
 
 export async function clickSearchVideoBackground(payload: Record<string, unknown> = {}) {
@@ -116,62 +97,6 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
   };
 }
 
-export async function clickSearchButtonBackground(payload: Record<string, unknown> = {}) {
-  const tab = await resolveLabTabForAction("plugin_lab.click_search_btn", PLATFORM);
-  if (!tab.id) throw new Error("lab tab has no id");
-  const tabId = tab.id;
-
-  return withSearchNetworkCapture(tabId, async () => {
-    await sendContentPluginLabCommand(
-      tabId,
-      "plugin_lab.search_prepare",
-      { platform: PLATFORM },
-      { skipPreflight: true },
-    );
-
-    const clickResult = (await sendContentPluginLabCommand(
-      tabId,
-      "plugin_lab.search_submit",
-      { platform: PLATFORM },
-      { skipPreflight: true },
-    )) as Record<string, unknown>;
-
-    const keyword = String(
-      clickResult.keyword ?? payload.search_text ?? payload.keyword ?? "",
-    ).trim();
-    const submitUrl = String(clickResult.url ?? tab.url ?? "");
-    if (keyword && !isKsSearchUrl(submitUrl)) {
-      await navigateKuaishouSearch(tabId, keyword);
-    }
-
-    const activeTab = await chrome.tabs.get(tabId);
-    const polled = await pollPlatformSearchCache(activeTab.url, 12_000, 1);
-    const items = polled.items;
-    const captureMethod = polled.captureMethod;
-    const debug = await getSearchApiDebug().catch(() => null);
-    const hasResults = items.length > 0;
-    const onSearchPage = isKsSearchUrl(activeTab.url);
-    const ok = Boolean(clickResult.ok) || hasResults || onSearchPage;
-
-    return {
-      ...clickResult,
-      ok,
-      ...buildSearchResultPayload(items, captureMethod),
-      api_events_seen: debug?.eventsSeen ?? 0,
-      last_api_url: debug?.lastApiUrl ?? "",
-      last_api_status: debug?.lastStatus,
-      last_body_kind: debug?.lastBodyKind ?? "",
-      message: hasResults
-        ? captureMethod === "api"
-          ? `已触发搜索，从接口获取 ${items.length} 条结果`
-          : `已进入搜索页，接口未解析到数据，已用 DOM 兜底 ${items.length} 条`
-        : ok
-          ? "已进入搜索页，但接口暂无数据"
-          : "已点击搜索，但未进入搜索结果页，也未截获搜索接口",
-    };
-  });
-}
-
 export async function prepareSearchForVideoBackground(payload: Record<string, unknown> = {}) {
   const tab = await resolveLabTabForAction("plugin_lab.prepare_search_video", PLATFORM);
   if (!tab.id) throw new Error("lab tab has no id");
@@ -189,7 +114,7 @@ export async function prepareSearchForVideoBackground(payload: Record<string, un
   }
   await sleep(400);
 
-  let current = await chrome.tabs.get(tabId);
+  const current = await chrome.tabs.get(tabId);
   const onSearchPage = isKsSearchUrl(current.url);
   if (onSearchPage && current.url) {
     await rememberLabSearchUrl(PLATFORM, current.url);

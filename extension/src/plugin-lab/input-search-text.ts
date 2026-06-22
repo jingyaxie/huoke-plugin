@@ -2,6 +2,7 @@ import {
   activateSearchInput,
   detectPlatformFromUrl,
   findSearchInputMatch,
+  fillSearchInputFast,
   sleep,
   typeIntoSearchInput,
   waitForSearchInput,
@@ -13,6 +14,8 @@ export interface InputSearchTextPayload {
   search_text?: string;
   keyword?: string;
   char_delay_ms?: { min: number; max: number };
+  /** 为 true 时逐字慢速输入；默认 false 使用快速一次性填入 */
+  simulate_human?: boolean;
   focus_first?: boolean;
 }
 
@@ -62,7 +65,16 @@ export async function inputSearchText(payload: InputSearchTextPayload = {}) {
     };
   }
 
-  const typedChars = await typeIntoSearchInput(input, text, payload.char_delay_ms);
+  let typedChars: string[];
+  let method: string;
+  if (payload.simulate_human) {
+    typedChars = await typeIntoSearchInput(input, text, payload.char_delay_ms);
+    method = "char_by_char";
+  } else {
+    typedChars = await fillSearchInputFast(input, text);
+    method = "fast_fill";
+  }
+
   let finalValue = (input.value ?? "").trim();
   if (finalValue !== text) {
     // React 受控输入偶发丢字，用一次性赋值兜底
@@ -91,8 +103,11 @@ export async function inputSearchText(payload: InputSearchTextPayload = {}) {
     keyword: text,
     chars: typedChars.length,
     value: finalValue,
-    method: "char_by_char",
+    method,
     url: location.href,
-    message: `已逐字输入搜索文本（${typedChars.length} 字）`,
+    message:
+      method === "char_by_char"
+        ? `已逐字输入搜索文本（${typedChars.length} 字）`
+        : `已快速填入搜索文本（${typedChars.length} 字）`,
   };
 }

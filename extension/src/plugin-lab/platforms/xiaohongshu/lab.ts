@@ -148,6 +148,11 @@ async function xhsPrepareSearchForVideo(payload: { skip_restore?: boolean } = {}
   };
 }
 
+export async function xhsClickSearchButton() {
+  await xhsPrepareSearchCapture();
+  return xhsSubmitSearchClick();
+}
+
 export async function xhsFetchSearchResults(payload: { limit?: number; api_timeout_ms?: number } = {}) {
   const limit = Math.max(1, Math.min(Number(payload.limit ?? 20), 50));
   const timeoutMs = Math.max(2000, Math.min(Number(payload.api_timeout_ms ?? 12_000), 30_000));
@@ -438,8 +443,9 @@ export async function dispatchXiaohongshuLabCommand(
     case "plugin_lab.search_prepare":
       return xhsPrepareSearchCapture();
     case "plugin_lab.search_submit":
-    case "plugin_lab.click_search_btn":
       return xhsSubmitSearchClick();
+    case "plugin_lab.click_search_btn":
+      return xhsClickSearchButton();
     case "plugin_lab.fetch_search_results":
       return xhsFetchSearchResults((payload ?? {}) as { limit?: number; api_timeout_ms?: number });
     case "plugin_lab.prepare_search_video":

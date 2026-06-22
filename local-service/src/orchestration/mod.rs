@@ -8,7 +8,7 @@ use tracing::{info, warn};
 
 use crate::db::{CapturedVideo, Database, JobStatus};
 use crate::douyin::parser::{
-    dom_poster_index, is_dom_poster_aweme_id, parse_aweme_id_from_page_url,
+    dom_poster_click_payload, dom_poster_index, is_dom_poster_aweme_id, parse_aweme_id_from_page_url,
     parse_dom_scroll_comments, resolve_aweme_id_for_video,
     ParsedVideo,
 };
@@ -540,8 +540,15 @@ impl JobOrchestrator {
                 Some(video.aweme_id.clone())
             };
             let video_url = (!video.video_url.is_empty()).then_some(video.video_url.as_str());
+            let rect = if is_dom_poster_aweme_id(&video.aweme_id) {
+                dom_poster_click_payload(video.raw_json.as_deref())
+                    .get("rect")
+                    .cloned()
+            } else {
+                None
+            };
             let clicked = lab
-                .click_search_video(index, None, aweme_hint.as_deref(), video_url)
+                .click_search_video(index, rect, aweme_hint.as_deref(), video_url)
                 .await?;
             let ready = video_ready_for_collect(&clicked);
             if !ready {

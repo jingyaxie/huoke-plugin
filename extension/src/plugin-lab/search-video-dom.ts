@@ -175,7 +175,7 @@ export async function openSearchFeedAtIndex(payload: {
   }
 
   const clicked = await clickSearchPosterAtIndex(index);
-  let feedOpen = await waitForSearchFeedOverlay(5000);
+  let feedOpen = await waitForSearchFeedOverlay(9000);
   let awemeId = clicked.aweme_id || awemeHint;
 
   if (!feedOpen && isStandaloneVideoPage() && awemeId) {

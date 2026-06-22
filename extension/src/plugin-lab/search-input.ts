@@ -323,6 +323,16 @@ export async function typeIntoSearchInput(
   return typedChars;
 }
 
+/** 插件实验室默认：一次性填入，避免逐字等待过久 */
+export async function fillSearchInputFast(input: SearchField, text: string): Promise<string[]> {
+  await clearSearchInput(input);
+  setNativeInputValue(input, text);
+  dispatchInputChange(input, text);
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await sleep(randDelay(120, 220));
+  return Array.from(text);
+}
+
 export async function waitForSearchInput(
   platform: PlatformId,
   rounds = 12,

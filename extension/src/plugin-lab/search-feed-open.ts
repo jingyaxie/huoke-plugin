@@ -16,6 +16,10 @@ const FEED_OVERLAY_SELECTORS = [
   '[data-e2e="comment-icon"]',
   '[data-e2e="detail-tab-comment"]',
   '[data-e2e="browse-comment-icon"]',
+  '[data-e2e="video-player-container"]',
+  '[class*="PlayerContainer"]',
+  '[class*="playerContainer"]',
+  '[class*="BasicPlayer"]',
 ] as const;
 
 const COMMENT_SIDEBAR_MARKERS = [
@@ -115,7 +119,7 @@ export function buildSearchModalUrl(awemeId: string, baseUrl?: string): string |
   return null;
 }
 
-export async function waitForSearchFeedOverlay(maxMs = 6000): Promise<boolean> {
+export async function waitForSearchFeedOverlay(maxMs = 9000): Promise<boolean> {
   const deadline = Date.now() + maxMs;
   while (Date.now() < deadline) {
     if (isSearchFeedOverlay()) return true;
@@ -138,11 +142,20 @@ export async function openFeedViaModalId(
     };
   }
 
-  if (location.href.split("#")[0] !== target.split("#")[0]) {
+  const currentBase = location.href.split("#")[0];
+  const targetBase = target.split("#")[0];
+  if (currentBase !== targetBase) {
     location.assign(target);
+  } else if (!isSearchFeedOverlay()) {
+    location.replace(target);
+    await sleep(400);
+    if (!isSearchFeedOverlay()) {
+      location.reload();
+      await sleep(500);
+    }
   }
 
-  const opened = await waitForSearchFeedOverlay(7000);
+  const opened = await waitForSearchFeedOverlay(9000);
   return {
     ok: opened,
     mode: "modal_id",

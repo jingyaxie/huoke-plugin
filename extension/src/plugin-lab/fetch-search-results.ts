@@ -129,7 +129,7 @@ function buildFailureMessage(options: {
   return `未找到搜索结果，当前不在搜索结果页（${location.href}），请先执行步骤 7 或手动进入搜索页`;
 }
 
-/** 步骤 8：优先截获 search/single 等 JS 接口，失败再 DOM 抓取 */
+/** 步骤 8：hook 截获 search 接口 → 失败再 DOM 兜底（无 CDP / Debugger） */
 export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}) {
   const limit = Math.max(1, Math.min(Number(payload.limit ?? 20), 50));
   const apiTimeoutMs = Math.max(

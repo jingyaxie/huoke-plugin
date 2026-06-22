@@ -1,3 +1,4 @@
+import { buildSearchUrl } from "../../../content/platforms/kuaishou/search";
 import { findAndFocusSearchBox } from "../../find-search-box";
 import { inputSearchText, type InputSearchTextPayload } from "../../input-search-text";
 import { findSearchInputMatch, humanClick, isVisible, randDelay, sleep } from "../../search-input";
@@ -138,6 +139,16 @@ export async function ksSubmitSearchClick() {
             ? "已点击搜索，等待跳转搜索结果页"
             : "未找到搜索关键词",
   };
+}
+
+export async function ksClickSearchButton() {
+  await ksPrepareSearchCapture();
+  const clickResult = await ksSubmitSearchClick();
+  if (clickResult.needs_navigate && clickResult.keyword) {
+    location.assign(buildSearchUrl(String(clickResult.keyword)));
+    await waitForKsSearchReady(8_000);
+  }
+  return clickResult;
 }
 
 export async function ksFetchSearchResults(payload: { limit?: number; api_timeout_ms?: number } = {}) {
@@ -446,8 +457,9 @@ export async function dispatchKuaishouLabCommand(
     case "plugin_lab.search_prepare":
       return ksPrepareSearchCapture();
     case "plugin_lab.search_submit":
-    case "plugin_lab.click_search_btn":
       return ksSubmitSearchClick();
+    case "plugin_lab.click_search_btn":
+      return ksClickSearchButton();
     case "plugin_lab.fetch_search_results":
       return ksFetchSearchResults((payload ?? {}) as { limit?: number; api_timeout_ms?: number });
     case "plugin_lab.prepare_search_video":

@@ -1,12 +1,8 @@
 /**
  * 小红书 Service Worker — DOM / URL 打开笔记详情
  */
-import { buildSearchResultPayload } from "../../click-search-btn";
 import { readLabSearchUrl, rememberLabSearchUrl } from "../../lab-context";
-import { pollPlatformSearchCache } from "../../platform-lab-helpers";
 import { resolveLabTabForAction } from "../../resolve-lab-tab";
-import { getSearchApiDebug } from "../../search-api";
-import { withSearchNetworkCapture } from "../../search-network-debugger";
 import { sendContentPluginLabCommand } from "../../tab-command";
 import { sleep, waitForTabLoad } from "../shared/tab-load";
 
@@ -98,54 +94,6 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
       domResult.message
       ?? (domResult.ok ? `已打开第 ${videoIndex} 条内容详情` : "未能打开内容详情"),
   };
-}
-
-export async function clickSearchButtonBackground(payload: Record<string, unknown> = {}) {
-  const tab = await resolveLabTabForAction("plugin_lab.click_search_btn", PLATFORM);
-  if (!tab.id) throw new Error("lab tab has no id");
-  const tabId = tab.id;
-
-  return withSearchNetworkCapture(tabId, async () => {
-    await sendContentPluginLabCommand(
-      tabId,
-      "plugin_lab.search_prepare",
-      { platform: PLATFORM },
-      { skipPreflight: true },
-    );
-
-    const clickResult = (await sendContentPluginLabCommand(
-      tabId,
-      "plugin_lab.search_submit",
-      { platform: PLATFORM },
-      { skipPreflight: true },
-    )) as Record<string, unknown>;
-
-    const activeTab = await chrome.tabs.get(tabId);
-    const polled = await pollPlatformSearchCache(activeTab.url, 12_000, 1);
-    const items = polled.items;
-    const captureMethod = polled.captureMethod;
-    const debug = await getSearchApiDebug().catch(() => null);
-    const hasResults = items.length > 0;
-    const onSearchPage = isXhsSearchUrl(activeTab.url);
-    const ok = Boolean(clickResult.ok) || hasResults || onSearchPage;
-
-    return {
-      ...clickResult,
-      ok,
-      ...buildSearchResultPayload(items, captureMethod),
-      api_events_seen: debug?.eventsSeen ?? 0,
-      last_api_url: debug?.lastApiUrl ?? "",
-      last_api_status: debug?.lastStatus,
-      last_body_kind: debug?.lastBodyKind ?? "",
-      message: hasResults
-        ? captureMethod === "api"
-          ? `已触发搜索，从接口获取 ${items.length} 条结果`
-          : `已进入搜索页，接口未解析到数据，已用 DOM 兜底 ${items.length} 条`
-        : ok
-          ? "已进入搜索页，但接口暂无数据"
-          : "已点击搜索，但未进入搜索结果页，也未截获搜索接口",
-    };
-  });
 }
 
 export async function prepareSearchForVideoBackground(payload: Record<string, unknown> = {}) {

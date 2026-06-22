@@ -29,7 +29,14 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://www.douyin.com/*", "https://*.douyin.com/*"],
+      "matches": [
+        "https://www.douyin.com/*",
+        "https://*.douyin.com/*",
+        "https://www.xiaohongshu.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://www.kuaishou.com/*",
+        "https://*.kuaishou.com/*"
+      ],
       "js": ["src/injected/network-hook.js"],
       "run_at": "document_start",
       "world": "MAIN"
@@ -44,7 +51,7 @@
         "https://*.kuaishou.com/*"
       ],
       "js": ["src/content/bootstrap.js", "src/content/index.ts"],
-      "run_at": "document_idle"
+      "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [

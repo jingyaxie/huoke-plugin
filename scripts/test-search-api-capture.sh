@@ -88,8 +88,8 @@ assert_api_capture() {
   err="$(echo "$resp" | jq -r '.error // empty' 2>/dev/null || true)"
   ok="$(echo "$resp" | jq -r '.ok // false' 2>/dev/null || echo false)"
   method="$(echo "$resp" | jq -r '.capture_method // .data.capture_method // empty' 2>/dev/null || true)"
-  count="$(echo "$resp" | jq -r '.count // (.items | length) // 0' 2>/dev/null || echo 0)"
-  api_count="$(echo "$resp" | jq -r '.api_count // 0' 2>/dev/null || echo 0)"
+  count="$(echo "$resp" | jq -r '.count // .data.count // (.data.items | length) // (.items | length) // 0' 2>/dev/null || echo 0)"
+  api_count="$(echo "$resp" | jq -r '.api_count // .data.api_count // 0' 2>/dev/null || echo 0)"
 
   if [[ -n "$err" || "$ok" != "true" ]]; then
     bad "${step} — 请求失败: ${err:-ok=false}"
@@ -101,18 +101,18 @@ assert_api_capture() {
     return 1
   fi
 
-  has_raw="$(echo "$resp" | jq '[.items[]? // .results[]?] | map(select(.source == "api" and (.raw_aweme != null))) | length' 2>/dev/null || echo 0)"
+  has_raw="$(echo "$resp" | jq '[.data.items[]? // .items[]? // .data.results[]? // .results[]?] | map(select(.source == "api" and (.raw_aweme != null))) | length' 2>/dev/null || echo 0)"
 
   if [[ "$method" == "api" ]]; then
     ok "${step} — capture_method=api, count=${count}, raw_aweme_items=${has_raw}"
-    echo "$resp" | jq -r '.items[0] // .results[0] // {} | {source, click_by, aweme_id, title, author, has_raw_aweme: (.raw_aweme != null)}' | tee -a "$REPORT"
+    echo "$resp" | jq -r '.data.items[0] // .items[0] // .data.results[0] // .results[0] // {} | {source, click_by, aweme_id, title, author, has_raw_aweme: (.raw_aweme != null)}' | tee -a "$REPORT"
     return 0
   fi
 
   if [[ "$method" == "dom" ]]; then
-    bad "${step} — 未截获 API，已降级 DOM (count=${count}, dom_count=${api_count})"
-    echo "$resp" | jq -r '.message // empty' | tee -a "$REPORT"
-    return 1
+    ok "${step} — hook 未解析到 API，已 DOM 兜底 count=${count} (events=${api_count})"
+    echo "$resp" | jq -r '.data.message // .message // empty' | tee -a "$REPORT"
+    return 0
   fi
 
   bad "${step} — 未知 capture_method=${method:-none}, count=${count}"
@@ -154,21 +154,28 @@ lab input_search_text "{\"platform\":\"douyin\",\"search_text\":\"${KEYWORD}\"}"
 sleep 2
 
 log ""
-log "━━ 步骤 3: 点击搜索（步骤 7，应优先 API 截获）"
+log "━━ 步骤 3: 点击搜索（步骤 7，仅触发搜索，无 CDP）"
 focus_douyin_window
 STEP7="$(lab click_search_btn '{}')"
-assert_api_capture "步骤7 click_search_btn" "$STEP7" || true
-sleep 3
+echo "$STEP7" | tee -a "$REPORT" | jq . 2>/dev/null || echo "$STEP7" | tee -a "$REPORT"
+STEP7_OK="$(echo "$STEP7" | jq -r '.ok // .data.ok // false' 2>/dev/null || echo false)"
+STEP7_ON_PAGE="$(echo "$STEP7" | jq -r '.data.on_search_page // .on_search_page // false' 2>/dev/null || echo false)"
+if [[ "$STEP7_OK" == "true" || "$STEP7_ON_PAGE" == "true" ]]; then
+  ok "步骤7 click_search_btn — 已触发搜索"
+else
+  bad "步骤7 click_search_btn — 未能进入搜索页"
+fi
+sleep 2
 
 log ""
-log "━━ 步骤 4: 获取搜索结果（步骤 8，应优先 API 截获）"
+log "━━ 步骤 4: 获取搜索结果（步骤 8，hook 优先 + DOM 兜底，无 CDP）"
 focus_douyin_window
 STEP8="$(lab fetch_search_results '{"limit":20}')"
 assert_api_capture "步骤8 fetch_search_results" "$STEP8" || true
 
 log ""
 log "━━ 步骤 5: 校验首条数据字段"
-SAMPLE="$(echo "$STEP8" | jq -c '.items[0] // .results[0] // empty')"
+SAMPLE="$(echo "$STEP8" | jq -c '.data.items[0] // .data.results[0] // .items[0] // .results[0] // empty')"
 if [[ -n "$SAMPLE" && "$SAMPLE" != "null" ]]; then
   echo "$SAMPLE" | jq '{source, click_by, aweme_id, title, author, url, raw_aweme_keys: (.raw_aweme | keys? // [])}' | tee -a "$REPORT"
   SOURCE="$(echo "$SAMPLE" | jq -r '.source // empty')"

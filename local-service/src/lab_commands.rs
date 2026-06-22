@@ -191,7 +191,7 @@ impl<'a> LabCommands<'a> {
     ) -> Result<Value, String> {
         let mut payload = json!({
             "video_index": video_index.max(1),
-            "use_detail_window": self.platform == "douyin",
+            "use_detail_window": false,
             "open_strategy": "auto",
         });
         if let Some(rect) = rect {

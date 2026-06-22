@@ -1,9 +1,10 @@
 import { findSearchInputMatch, humanClick, randDelay, sleep } from "./search-input";
 import { rememberSearchResultsUrl } from "./search-feed-open";
+import { collectSearchResultCards, isSearchResultsPage } from "./search-results-dom";
 import {
   clearSearchApiCache,
   enableSearchNetworkHook,
-  type SearchApiItem,
+  getCachedSearchApiResultsSync,
 } from "./search-api";
 
 const SEARCH_BTN_SELECTORS = [
@@ -32,21 +33,6 @@ function findSearchButton(): HTMLElement | null {
   return null;
 }
 
-function isSearchResultsPage(url = location.href): boolean {
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname.toLowerCase();
-    if (/\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(path)) return true;
-    if (path.includes("/search")) return true;
-    for (const key of ["keyword", "q", "search_key", "searchKey", "search_keyword"]) {
-      if (parsed.searchParams.get(key)?.trim()) return true;
-    }
-    return false;
-  } catch {
-    return /\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(url);
-  }
-}
-
 function normalizeKeyword(raw: string): string {
   return raw.replace(/\s+/g, " ").trim();
 }
@@ -56,6 +42,20 @@ function keywordsMatch(a: string, b: string): boolean {
   const right = normalizeKeyword(b);
   if (!left || !right) return false;
   return left === right || left.includes(right) || right.includes(left);
+}
+
+function searchResultsReady(): boolean {
+  if (getCachedSearchApiResultsSync(120_000)?.length) return true;
+  return collectSearchResultCards().length > 0;
+}
+
+function dismissSearchSuggestions(input?: HTMLInputElement | HTMLTextAreaElement | null): void {
+  if (input) {
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }),
+    );
+    input.blur();
+  }
 }
 
 function extractSearchKeywordFromUrl(url = location.href): string {
@@ -116,7 +116,7 @@ export async function submitSearchClick(payload: SubmitSearchClickPayload = {}) 
     keywordsMatch(expectedKeyword, urlKeyword) &&
     keywordsMatch(inputValue || expectedKeyword, urlKeyword);
 
-  if (isSearchResultsPage(location.href) && sameKeywordAsUrl) {
+  if (isSearchResultsPage(location.href) && sameKeywordAsUrl && searchResultsReady()) {
     rememberSearchResultsUrl(location.href);
     return {
       ok: true,
@@ -128,6 +128,9 @@ export async function submitSearchClick(payload: SubmitSearchClickPayload = {}) 
       message: "已在搜索结果页且关键词一致，跳过重复搜索",
     };
   }
+
+  dismissSearchSuggestions(inputMatch?.input ?? null);
+  await sleep(randDelay(120, 220));
 
   if (button) {
     humanClick(button);
@@ -173,5 +176,17 @@ export async function submitSearchClick(payload: SubmitSearchClickPayload = {}) 
     url: location.href,
     on_search_page: isSearchResultsPage(location.href),
     message: isSearchResultsPage(location.href) ? "已触发搜索并进入搜索结果页" : "已点击搜索，等待接口返回",
+  };
+}
+
+/** Step 7：仅触发搜索；结果采集见 Step 8 fetch_search_results（hook + DOM，无 CDP） */
+export async function clickSearchButton(payload: SubmitSearchClickPayload = {}) {
+  await prepareSearchCapture();
+  const clickResult = await submitSearchClick(payload);
+  return {
+    ...clickResult,
+    ok: Boolean(clickResult.ok),
+    on_search_page: isSearchResultsPage(),
+    message: clickResult.message ?? (clickResult.ok ? "已触发搜索" : "未能触发搜索"),
   };
 }
