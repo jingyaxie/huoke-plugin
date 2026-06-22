@@ -36,6 +36,7 @@ pub fn bridge_action_for(action_id: &str) -> Option<&'static str> {
         "input_dm_text" => Some("plugin_lab.input_dm_text"),
         "send_dm" => Some("plugin_lab.send_dm"),
         "close_video_detail" => Some("plugin_lab.close_video_detail"),
+        "close_browser" => Some("plugin_lab.close_browser"),
         "search_context_probe" => Some("plugin_lab.search_context_probe"),
         _ => None,
     }
@@ -126,6 +127,7 @@ pub fn supported_actions() -> &'static [&'static str] {
         "input_dm_text",
         "send_dm",
         "close_video_detail",
+        "close_browser",
         "search_context_probe",
     ]
 }

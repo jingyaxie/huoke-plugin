@@ -1,8 +1,8 @@
 import type { PlatformId } from "../shared/protocol";
 import { ensureContentScript } from "../background/command-router";
 import { detectPlatformFromUrl, isPlatformUrl } from "./platform-hosts";
-import { pinLabSession, readLabSession } from "./lab-context";
-import { closeDetailWindow } from "./detail-window";
+import { pinLabSession, readLabSession, clearLabSession } from "./lab-context";
+import { closeDetailWindow, closeVideoDetailBackground } from "./detail-window";
 import { isUsablePlatformTab } from "./platforms/shared/tab-health";
 import { log, warn } from "../shared/logger";
 
@@ -419,7 +419,10 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
   const customUrl = String(payload.url ?? "").trim();
   const startUrl = PLATFORM_URLS[platform] ?? PLATFORM_URLS.douyin;
 
-  async function openInExistingTab(existing: chrome.tabs.Tab): Promise<OpenBrowserResult> {
+  async function openInExistingTab(
+    existing: chrome.tabs.Tab,
+    adoptedUserTab = false,
+  ): Promise<OpenBrowserResult> {
     if (!existing.id) throw new Error("target tab has no id");
 
     if (resetToStart && !customUrl) {
@@ -455,7 +458,7 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
       await waitForTabLoad(existing.id, 10_000);
       readyTab = await chrome.tabs.get(existing.id);
     }
-    await pinLabSession(readyTab, platform);
+    await pinLabSession(readyTab, platform, { adoptedUserTab });
     await ensureContentScriptReady(readyTab.id!);
     return buildResult(platform, readyTab, {
       opened: false,
@@ -473,7 +476,7 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
     const pinned = await resolvePinnedSessionTab(platform);
     if (pinned) return openInExistingTab(pinned);
     const existing = await findExistingPlatformTab(platform);
-    if (existing?.id) return openInExistingTab(existing);
+    if (existing?.id) return openInExistingTab(existing, true);
   }
 
   const { tab, bounds, newWindow } = await createPlatformWindow(url);
@@ -486,7 +489,7 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
     await waitForTabLoad(tab.id!, 10_000);
     refreshed = await chrome.tabs.get(tab.id!);
   }
-  await pinLabSession(refreshed, platform);
+  await pinLabSession(refreshed, platform, { huokeOwned: true, huokeNewWindow: newWindow });
   await ensureContentScriptReady(refreshed.id!);
   return buildResult(platform, refreshed, {
     opened: true,
@@ -496,4 +499,85 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
       ? `已在屏幕左侧半屏打开 ${platform} 独立窗口`
       : `已在现有窗口打开 ${platform} 标签页（独立窗口创建失败，已降级）`,
   });
+}
+
+export interface CloseBrowserResult {
+  ok: boolean;
+  closed: boolean;
+  detail_closed?: boolean;
+  huoke_owned?: boolean;
+  message: string;
+}
+
+/** 任务结束：关闭视频层 + Huoke 工作窗/标签 */
+export async function closeBrowser(payload: Record<string, unknown> = {}): Promise<CloseBrowserResult> {
+  const platform = resolvePlatform(String(payload.platform ?? ""));
+  let detailClosed = false;
+
+  const detailResult = await closeDetailWindow(platform).catch(() => null);
+  if (detailResult?.detail_window_closed) detailClosed = true;
+
+  const session = await readLabSession(platform);
+  if (!session?.tabId) {
+    await clearLabSession(platform);
+    return {
+      ok: true,
+      closed: detailClosed,
+      detail_closed: detailClosed,
+      message: detailClosed ? "已关闭视频独立窗口" : "无工作区可关闭",
+    };
+  }
+
+  try {
+    const overlay = await closeVideoDetailBackground({ platform });
+    if (overlay && typeof overlay === "object" && "ok" in overlay) {
+      detailClosed = detailClosed || Boolean((overlay as { ok?: boolean }).ok);
+    }
+  } catch {
+    // work tab may already be gone
+  }
+
+  if (!session.huokeOwned) {
+    await clearLabSession(platform);
+    return {
+      ok: true,
+      closed: false,
+      detail_closed: detailClosed,
+      huoke_owned: false,
+      message: detailClosed
+        ? "已关闭视频层，工作标签为用户自有标签未关闭"
+        : "工作标签为用户自有标签，未关闭",
+    };
+  }
+
+  let closed = false;
+  if (session.huokeNewWindow && session.windowId >= 0) {
+    try {
+      await chrome.windows.remove(session.windowId);
+      closed = true;
+    } catch {
+      try {
+        await chrome.tabs.remove(session.tabId);
+        closed = true;
+      } catch {
+        // ignore
+      }
+    }
+  } else {
+    try {
+      await chrome.tabs.remove(session.tabId);
+      closed = true;
+    } catch {
+      // ignore
+    }
+  }
+
+  await clearLabSession(platform);
+  return {
+    ok: true,
+    closed,
+    detail_closed: detailClosed,
+    huoke_owned: true,
+    message: closed ? "已关闭任务工作窗口" : "未能关闭任务工作窗口",
+  };
 }

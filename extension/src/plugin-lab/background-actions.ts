@@ -1,5 +1,6 @@
 const BACKGROUND_ACTIONS = new Set([
   "plugin_lab.open_browser",
+  "plugin_lab.close_browser",
   "plugin_lab.click_filter_btn",
   "plugin_lab.click_filter_overlay",
   "plugin_lab.click_search_video",

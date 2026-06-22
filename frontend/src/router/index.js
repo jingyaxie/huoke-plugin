@@ -13,6 +13,7 @@ import PluginLabView from "../views/plugin-lab/PluginLabView.vue";
 import PortalLoginView from "../portal/views/PortalLoginView.vue";
 import { buildCloudRoutes } from "../config/cloudNav";
 import { isPortalAuthenticated, isPortalEnabled, requiresPortalAuth } from "../portal";
+import { canAccessSettings } from "../utils/settingsAccess";
 
 const routes = [
   {
@@ -77,6 +78,9 @@ const router = createRouter({
 });
 
 router.beforeEach((to) => {
+  if (to.path.startsWith("/settings") && !canAccessSettings()) {
+    return { path: "/extension-bridge" };
+  }
   if (!isPortalEnabled()) return true;
   if (to.meta?.public) return true;
   if (!requiresPortalAuth(to.path)) return true;

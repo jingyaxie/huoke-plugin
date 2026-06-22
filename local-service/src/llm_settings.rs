@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/v1";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
+/// 内置默认 Key，用户未配置 .env 时也可使用评论评估等 LLM 能力。
+const DEFAULT_DEEPSEEK_API_KEY: &str = "sk-63aca3444e6d41c09fe3d53afd3444c9";
 
 const LLM_ENV_KEYS: &[&str] = &[
     "AGENT_DEFAULT_PROVIDER",
@@ -170,11 +172,26 @@ fn write_env_updates(path: &Path, updates: &HashMap<String, Option<String>>) -> 
     std::fs::write(path, content).map_err(|e| e.to_string())
 }
 
-fn deepseek_from_env(parsed: &HashMap<String, String>) -> (String, String, String) {
-    let api_key = parsed
+fn effective_deepseek_api_key(parsed: &HashMap<String, String>) -> String {
+    let raw = parsed
         .get("DEEPSEEK_API_KEY")
-        .cloned()
-        .unwrap_or_default();
+        .map(|s| s.as_str())
+        .unwrap_or("")
+        .trim();
+    if raw.is_empty() {
+        DEFAULT_DEEPSEEK_API_KEY.to_string()
+    } else {
+        raw.to_string()
+    }
+}
+
+pub fn deepseek_api_key_for_data_dir(data_dir: &Path) -> String {
+    let parsed = parse_env_file(&resolve_llm_env_file(data_dir));
+    effective_deepseek_api_key(&parsed)
+}
+
+fn deepseek_from_env(parsed: &HashMap<String, String>) -> (String, String, String) {
+    let api_key = effective_deepseek_api_key(parsed);
     let base_url = parsed
         .get("DEEPSEEK_BASE_URL")
         .filter(|v| !v.trim().is_empty())
@@ -285,6 +302,26 @@ mod tests {
     fn mask_api_key_works() {
         assert_eq!(mask_api_key(""), None);
         assert_eq!(mask_api_key("sk-abcdefgh"), Some("sk-***efgh".to_string()));
+    }
+
+    #[test]
+    fn default_api_key_when_env_empty() {
+        let tmp = std::env::temp_dir().join(format!("huoke-llm-default-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&tmp).unwrap();
+        let env_path = tmp.join(".env.local");
+        fs::write(&env_path, "# empty\n").unwrap();
+        std::env::set_var("HUOKE_ENV_PATH", env_path.to_string_lossy().to_string());
+
+        let payload = read_llm_settings(&tmp);
+        assert!(payload.llm_configured);
+        assert!(payload.deepseek.configured);
+        assert_eq!(
+            deepseek_api_key_for_data_dir(&tmp),
+            DEFAULT_DEEPSEEK_API_KEY
+        );
+
+        std::env::remove_var("HUOKE_ENV_PATH");
+        let _ = fs::remove_dir_all(tmp);
     }
 
     #[test]

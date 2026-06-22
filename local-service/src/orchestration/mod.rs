@@ -134,6 +134,7 @@ impl JobOrchestrator {
 
         let job = self.db.get_job(job_id)?;
         let cfg = JobConfig::from_job(&job);
+        let platform = job.platform.clone();
         self.db
             .update_job_status(job_id, JobStatus::Running, None)?;
 
@@ -180,35 +181,73 @@ impl JobOrchestrator {
                         );
                         self.db
                             .update_job_status(job_id, JobStatus::Failed, Some(&msg))?;
+                        self.cleanup_job_workspace(&platform, job_id).await;
                         return Err(msg);
                     }
                 }
+
+                if cfg.collects_by_video_limit() {
+                    let scanned = self.scanned_video_count(job_id)?;
+                    self.db
+                        .update_job_status(job_id, JobStatus::Completed, None)?;
+                    info!(
+                        "job {job_id}: scan completed ({scanned}/{} videos)",
+                        job.limit_videos.max(1)
+                    );
+                } else {
+                    if cfg.should_run_auto_outreach() {
+                        let runner = InlineOutreachRunner {
+                            db: &self.db,
+                            hub: &self.hub,
+                            default_daily_quota: self.default_daily_quota,
+                        };
+                        if let Err(err) = runner.run(job_id, &cfg).await {
+                            warn!("job {job_id} inline outreach partial failure: {err}");
+                        }
+                    } else {
+                        info!(
+                            "job {job_id}: skipping outreach (auto_outreach={}, follow={}, dm={}, reply_presets={}, dm_presets={})",
+                            cfg.auto_outreach,
+                            cfg.interaction.follow_per_day,
+                            cfg.interaction.dm_per_day,
+                            cfg.comment_presets.len(),
+                            cfg.dm_presets.len(),
+                        );
+                    }
+                    if self.is_job_paused(job_id)? {
+                        info!("job {job_id} paused");
+                        return Ok(());
+                    }
+                    self.db
+                        .update_job_status(job_id, JobStatus::Completed, None)?;
+                    info!("job {job_id} completed");
+                    self.cleanup_job_workspace(&platform, job_id).await;
+                    return Ok(());
+                }
+
+                if self.is_job_paused(job_id)? {
+                    info!("job {job_id} paused");
+                    return Ok(());
+                }
                 if cfg.should_run_auto_outreach() {
+                    info!("job {job_id}: post-scan outreach (status=completed)");
                     let runner = InlineOutreachRunner {
                         db: &self.db,
                         hub: &self.hub,
                         default_daily_quota: self.default_daily_quota,
                     };
                     if let Err(err) = runner.run(job_id, &cfg).await {
-                        warn!("job {job_id} inline outreach partial failure: {err}");
+                        warn!("job {job_id} post-scan outreach partial failure: {err}");
                     }
                 } else {
                     info!(
-                        "job {job_id}: skipping outreach (auto_outreach={}, follow={}, dm={}, reply_presets={}, dm_presets={})",
+                        "job {job_id}: skipping post-scan outreach (auto_outreach={}, follow={}, dm={})",
                         cfg.auto_outreach,
                         cfg.interaction.follow_per_day,
                         cfg.interaction.dm_per_day,
-                        cfg.comment_presets.len(),
-                        cfg.dm_presets.len(),
                     );
                 }
-                if self.is_job_paused(job_id)? {
-                    info!("job {job_id} paused");
-                    return Ok(());
-                }
-                self.db
-                    .update_job_status(job_id, JobStatus::Completed, None)?;
-                info!("job {job_id} completed");
+                self.cleanup_job_workspace(&platform, job_id).await;
                 Ok(())
             }
             Err(err) if err == JOB_PAUSED => {
@@ -222,8 +261,21 @@ impl JobOrchestrator {
                 }
                 self.db
                     .update_job_status(job_id, JobStatus::Failed, Some(&err))?;
+                self.cleanup_job_workspace(&platform, job_id).await;
                 Err(err)
             }
+        }
+    }
+
+    async fn cleanup_job_workspace(&self, platform: &str, job_id: &str) {
+        info!("job {job_id}: closing task browser workspace");
+        let lab = LabCommands::new(&self.hub, platform);
+        match lab.close_browser().await {
+            Ok(resp) => {
+                let closed = resp.get("closed").and_then(|v| v.as_bool()).unwrap_or(false);
+                info!("job {job_id}: close_browser closed={closed}");
+            }
+            Err(err) => warn!("job {job_id}: close_browser failed: {err}"),
         }
     }
 
@@ -646,6 +698,14 @@ impl JobOrchestrator {
                         let _ = self
                             .evaluate_pending_comments(job_id, job, cfg)
                             .await;
+                    }
+                    if self.video_scan_quota_met(job_id, job, false)? {
+                        info!(
+                            "job {job_id}: scan quota met after video collect ({}/{})",
+                            self.scanned_video_count(job_id)?,
+                            job.limit_videos.max(1)
+                        );
+                        break;
                     }
                 }
                 Err(err) if err == JOB_PAUSED => return Ok(()),

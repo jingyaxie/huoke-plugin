@@ -14,6 +14,24 @@ export function isKeywordVideoScanSuccess(row) {
   return row?.status === "completed" && progress > 0;
 }
 
+/** 展示用状态：目标已达成时不受「失败/中断」影响 */
+export function effectiveCollectJobStatus(row) {
+  const status = row?.status || "";
+  if (status === "failed" && isCollectGoalMet(row)) {
+    return "completed";
+  }
+  return status;
+}
+
+export function isCollectGoalMet(row) {
+  if (isKeywordVideoLimitJob(row)) {
+    return isKeywordVideoScanSuccess(row);
+  }
+  const target = extensionJobTargetCount(row);
+  const progress = collectJobProgress(row);
+  return target > 0 && progress >= target;
+}
+
 export function collectJobProgress(row) {
   if (isKeywordVideoLimitJob(row)) {
     return Number(row?.video_count ?? 0);
@@ -70,6 +88,9 @@ export function getCollectJobStatusBrief(row) {
   const comments = Number(row?.comment_count ?? 0);
 
   if (status === "failed") {
+    if (isCollectGoalMet(row)) {
+      return getCollectJobStatusBrief({ ...row, status: "completed" });
+    }
     return buildFailedBrief(error, { target, progress, precise, comments });
   }
   if (status === "paused") {

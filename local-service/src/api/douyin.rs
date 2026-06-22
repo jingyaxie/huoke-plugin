@@ -243,6 +243,7 @@ pub async fn create_job(
 }
 
 pub async fn list_jobs(State(state): State<AppState>) -> Result<Json<Vec<CollectJob>>, ApiError> {
+    let _ = state.db.reconcile_interrupted_failed_jobs();
     let jobs = state.db.list_jobs(50).map_err(internal_error)?;
     Ok(Json(jobs))
 }

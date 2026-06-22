@@ -20,10 +20,12 @@ pub struct RuntimeInitResponse {
 pub async fn init(State(state): State<AppState>) -> Json<RuntimeInitResponse> {
     state.hub.reset_runtime().await;
 
-    let stale_jobs = state
+    let (stale_completed, stale_failed) = state
         .db
-        .fail_stale_running_jobs("运行环境已重新初始化")
-        .unwrap_or(0);
+        .reconcile_stale_running_jobs("运行环境已重新初始化")
+        .unwrap_or((0, 0));
+    let stale_jobs = stale_completed + stale_failed;
+    let promoted = state.db.reconcile_interrupted_failed_jobs().unwrap_or(0);
 
     let extension_clients = state.hub.extension_client_count();
     let extension_reset = if extension_clients > 0 {
@@ -38,11 +40,21 @@ pub async fn init(State(state): State<AppState>) -> Json<RuntimeInitResponse> {
 
     let message = if extension_clients > 0 {
         format!(
-            "运行环境已初始化（清理 {stale_jobs} 个僵尸任务，已通知 {extension_clients} 个插件连接重置）"
+            "运行环境已初始化（清理 {stale_jobs} 个僵尸任务{}，已通知 {extension_clients} 个插件连接重置）",
+            if promoted > 0 {
+                format!("，{promoted} 个已达目标任务已标记完成")
+            } else {
+                String::new()
+            }
         )
     } else {
         format!(
-            "运行环境已初始化（清理 {stale_jobs} 个僵尸任务；插件未连接，请在 Chrome 重新加载扩展）"
+            "运行环境已初始化（清理 {stale_jobs} 个僵尸任务{}；插件未连接，请在 Chrome 重新加载扩展）",
+            if promoted > 0 {
+                format!("，{promoted} 个已达目标任务已标记完成")
+            } else {
+                String::new()
+            }
         )
     };
 

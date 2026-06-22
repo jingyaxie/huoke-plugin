@@ -276,6 +276,14 @@ impl<'a> LabCommands<'a> {
         self.action("close_video_detail", json!({})).await
     }
 
+    pub async fn close_browser(&self) -> Result<Value, String> {
+        self.action(
+            "close_browser",
+            json!({ "platform": self.platform }),
+        )
+        .await
+    }
+
     pub async fn prepare_search_for_video(&self) -> Result<Value, String> {
         self.action(
             "prepare_search_for_video",

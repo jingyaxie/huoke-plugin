@@ -22,9 +22,16 @@ pub fn build_app_state(config: &AppConfig) -> AppState {
     let hub = BridgeHub::new();
     hub.reset_on_boot();
     let db = Database::open(&config.db_path()).expect("open sqlite database");
-    if let Ok(n) = db.fail_stale_running_jobs("服务重启，任务已中断") {
+    if let Ok((completed, failed)) = db.reconcile_stale_running_jobs("服务重启，任务已中断") {
+        if completed + failed > 0 {
+            tracing::info!(
+                "reconciled stale running jobs on boot: {completed} completed, {failed} failed"
+            );
+        }
+    }
+    if let Ok(n) = db.reconcile_interrupted_failed_jobs() {
         if n > 0 {
-            tracing::info!("marked {n} stale running collect job(s) as failed on boot");
+            tracing::info!("promoted {n} interrupted failed job(s) to completed on boot");
         }
     }
     let default_daily_quota = std::env::var("HUOKE_DAILY_REPLY_QUOTA")

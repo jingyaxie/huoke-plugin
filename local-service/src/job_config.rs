@@ -266,6 +266,15 @@ impl JobConfig {
         self.intent == "keyword_auto"
     }
 
+    /// 判断采集目标是否已达成（用于中断后恢复状态，不受服务重启影响）。
+    pub fn collect_goal_met(job: &CollectJob, scanned_videos: i64, precise_count: i64) -> bool {
+        let cfg = Self::from_job(job);
+        if cfg.collects_by_video_limit() {
+            return scanned_videos >= job.limit_videos.max(1);
+        }
+        precise_count >= cfg.target_count
+    }
+
     pub fn reply_templates(&self) -> Vec<String> {
         self.comment_presets
             .iter()
@@ -389,5 +398,33 @@ mod tests {
         });
         let job_cfg = JobConfig::from_parts(&cfg, 5, 10, "test");
         assert!(job_cfg.should_run_auto_outreach());
+    }
+
+    #[test]
+    fn collect_goal_met_by_video_limit() {
+        use crate::db::{CollectJob, JobStatus};
+        let job = CollectJob {
+            id: "j1".into(),
+            platform: "douyin".into(),
+            keyword: "test".into(),
+            name: "test".into(),
+            job_type: "keyword".into(),
+            input_url: None,
+            status: JobStatus::Running,
+            limit_videos: 10,
+            max_comments_per_video: 8,
+            error_message: None,
+            created_at: 0,
+            updated_at: 0,
+            video_count: 10,
+            comment_count: 100,
+            reply_count: 0,
+            dm_count: 0,
+            follow_count: 0,
+            precise_count: 5,
+            config: Some(json!({ "intent": "keyword_auto" })),
+        };
+        assert!(JobConfig::collect_goal_met(&job, 10, 5));
+        assert!(!JobConfig::collect_goal_met(&job, 9, 5));
     }
 }

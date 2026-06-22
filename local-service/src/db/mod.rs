@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::douyin::parser::parse_aweme_id_from_page_url;
+use crate::job_config::JobConfig;
 
 pub mod outreach;
 pub use outreach::{
@@ -602,16 +603,72 @@ impl Database {
         rows.map(|row| row.map_err(|e| e.to_string())).collect()
     }
 
-    /// 服务重启后，内存里的编排任务已不存在，需把 DB 中残留的 running 标记为失败。
+    /// 服务重启后，内存里的编排任务已不存在；已达目标的标记 completed，其余标记 failed。
+    pub fn reconcile_stale_running_jobs(&self, fail_reason: &str) -> Result<(usize, usize), String> {
+        let ids = self.list_running_job_ids()?;
+        let mut completed = 0usize;
+        let mut failed = 0usize;
+        for id in ids {
+            let job = self.get_job(&id)?;
+            if self.collect_goal_met_for_job(&job)? {
+                self.update_job_status(&id, JobStatus::Completed, None)?;
+                completed += 1;
+            } else {
+                self.update_job_status(&id, JobStatus::Failed, Some(fail_reason))?;
+                failed += 1;
+            }
+        }
+        Ok((completed, failed))
+    }
+
+    /// 因服务重启/被取代等标记为 failed，但采集目标已达成 → 修正为 completed。
+    pub fn reconcile_interrupted_failed_jobs(&self) -> Result<usize, String> {
+        let rows = {
+            let conn = self.conn.lock().map_err(|e| e.to_string())?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM collect_jobs WHERE status = 'failed' AND (
+                       error_message LIKE '%服务重启%'
+                       OR error_message LIKE '%运行环境已重新初始化%'
+                       OR error_message LIKE '%已被新任务取代%'
+                       OR error_message LIKE '%任务已中断%'
+                     )",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|e| e.to_string())?;
+            rows.map(|row| row.map_err(|e| e.to_string())).collect::<Result<Vec<_>, _>>()?
+        };
+
+        let mut promoted = 0usize;
+        for id in rows {
+            let job = self.get_job(&id)?;
+            if !self.collect_goal_met_for_job(&job)? {
+                continue;
+            }
+            self.update_job_status(&id, JobStatus::Completed, None)?;
+            promoted += 1;
+        }
+        Ok(promoted)
+    }
+
+    fn scanned_video_count_for_job(&self, job_id: &str) -> Result<i64, String> {
+        let (video_count, _) = self.counts_for_job(job_id)?;
+        let with_comments = self.count_distinct_comment_awemes_for_job(job_id)?;
+        Ok(video_count.max(with_comments))
+    }
+
+    fn collect_goal_met_for_job(&self, job: &CollectJob) -> Result<bool, String> {
+        let scanned = self.scanned_video_count_for_job(&job.id)?;
+        let precise = self.count_precise_comments_for_job(&job.id)?;
+        Ok(JobConfig::collect_goal_met(job, scanned, precise))
+    }
+
+    /// @deprecated 使用 reconcile_stale_running_jobs
     pub fn fail_stale_running_jobs(&self, reason: &str) -> Result<usize, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        let n = conn
-            .execute(
-                "UPDATE collect_jobs SET status = 'failed', error_message = ?1, updated_at = ?2 WHERE status = 'running'",
-                params![reason, Self::now_ms()],
-            )
-            .map_err(|e| e.to_string())?;
-        Ok(n)
+        let (_, failed) = self.reconcile_stale_running_jobs(reason)?;
+        Ok(failed)
     }
 
     /// 启动新任务前，结束其它仍在 running 的采集任务（单 Chrome 标签页同时只能跑一个）。

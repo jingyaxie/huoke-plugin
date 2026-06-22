@@ -31,6 +31,7 @@ import CollectJobStatusDialog from "./CollectJobStatusDialog.vue";
 import {
   collectJobStatusLabel,
   collectJobStatusTagType,
+  effectiveCollectJobStatus,
   getCollectJobStatusBrief,
   isCollectJobStatusClickable,
 } from "../utils/collectJobStatusBrief";
@@ -43,8 +44,9 @@ defineEmits(["continue"]);
 
 const dialogOpen = ref(false);
 
-const label = computed(() => collectJobStatusLabel(props.row?.status));
-const tagType = computed(() => collectJobStatusTagType(props.row?.status));
+const effectiveStatus = computed(() => effectiveCollectJobStatus(props.row));
+const label = computed(() => collectJobStatusLabel(effectiveStatus.value));
+const tagType = computed(() => collectJobStatusTagType(effectiveStatus.value));
 const clickable = computed(() => isCollectJobStatusClickable(props.row));
 const brief = computed(() => getCollectJobStatusBrief(props.row));
 

@@ -154,6 +154,7 @@ fn mock_lab_data(action: &str, payload: &Value) -> Value {
         }),
         "plugin_lab.send_dm" => json!({ "ok": true, "simulated": true, "sent": true }),
         "plugin_lab.close_video_detail" => json!({ "ok": true, "simulated": true, "closed": true }),
+        "plugin_lab.close_browser" => json!({ "ok": true, "simulated": true, "closed": true }),
         "network.hook.enable" => json!({ "enabled": true, "simulated": true, "patterns": payload.get("patterns").cloned() }),
         "network.hook.disable" => json!({ "enabled": false, "simulated": true }),
         "network.hook.status" => json!({ "enabled": true, "simulated": true }),

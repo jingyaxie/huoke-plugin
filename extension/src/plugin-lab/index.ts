@@ -1,5 +1,5 @@
 import type { BridgeMessage } from "../shared/protocol";
-import { openBrowser } from "./open-browser";
+import { openBrowser, closeBrowser } from "./open-browser";
 import {
   clickFilterButtonBackground,
   clickFilterOverlayBackground,
@@ -20,6 +20,8 @@ export async function runPluginLabBackgroundCommand(command: BridgeMessage): Pro
   switch (command.action) {
     case "plugin_lab.open_browser":
       return openBrowser((command.payload ?? {}) as Record<string, unknown>);
+    case "plugin_lab.close_browser":
+      return closeBrowser((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_filter_btn":
       return clickFilterButtonBackground();
     case "plugin_lab.click_filter_overlay":

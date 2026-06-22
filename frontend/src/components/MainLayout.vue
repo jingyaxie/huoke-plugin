@@ -44,6 +44,7 @@
 
       <div class="sidebar-foot">
         <router-link
+          v-if="showSettings"
           to="/settings/general"
           class="settings-link"
           :class="{ active: route.path.startsWith('/settings') }"
@@ -97,6 +98,7 @@ import {
   markPortalLogoutPending,
   syncPortalDisplayName,
 } from "../portal";
+import { canAccessSettings } from "../utils/settingsAccess";
 
 const route = useRoute();
 const router = useRouter();
@@ -169,6 +171,11 @@ function syncActiveSection() {
 const portalLoggedIn = ref(isPortalAuthenticated());
 const portalDisplayName = ref(getPortalDisplayName());
 const portalLogoutLoading = ref(false);
+const showSettings = computed(() => {
+  void portalLoggedIn.value;
+  void portalDisplayName.value;
+  return canAccessSettings();
+});
 
 const appVersion = computed(() => import.meta.env.VITE_APP_VERSION || "0.2.0");
 const isCloudRoute = computed(() => Boolean(route.meta?.cloud) || route.path.startsWith("/cloud/"));

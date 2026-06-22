@@ -15,6 +15,10 @@ export interface LabSession {
   /** 视频播放独立窗口（列表页保持不动） */
   detailTabId?: number;
   detailWindowId?: number;
+  /** Huoke 新建的工作窗/标签（任务结束可安全关闭） */
+  huokeOwned?: boolean;
+  /** huokeOwned 且通过 windows.create 打开 */
+  huokeNewWindow?: boolean;
 }
 
 /** @deprecated 旧版全局 session，读取时自动迁移到按平台 key */
@@ -174,10 +178,20 @@ export async function readLabSession(platform?: string): Promise<LabSession | nu
   }
 }
 
-export async function pinLabSession(tab: chrome.tabs.Tab, platform = "douyin"): Promise<void> {
+export async function pinLabSession(
+  tab: chrome.tabs.Tab,
+  platform = "douyin",
+  options?: { huokeOwned?: boolean; huokeNewWindow?: boolean; adoptedUserTab?: boolean },
+): Promise<void> {
   if (!tab.id) return;
   const normalized = normalizePlatformId(platform);
   const existing = await readLabSession(normalized);
+  const huokeOwned = options?.adoptedUserTab
+    ? false
+    : (options?.huokeOwned ?? existing?.huokeOwned ?? false);
+  const huokeNewWindow = options?.adoptedUserTab
+    ? false
+    : (options?.huokeNewWindow ?? existing?.huokeNewWindow ?? false);
   const session: LabSession = {
     tabId: tab.id,
     windowId: tab.windowId ?? -1,
@@ -185,6 +199,8 @@ export async function pinLabSession(tab: chrome.tabs.Tab, platform = "douyin"): 
     pinnedAt: Date.now(),
     lastUrl: tab.url,
     searchUrl: existing?.searchUrl,
+    huokeOwned,
+    huokeNewWindow,
   };
   await chrome.storage.session.set({
     [labSessionKey(normalized)]: session,

@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::llm_settings::read_llm_settings;
+use crate::llm_settings::{deepseek_api_key_for_data_dir, read_llm_settings};
 
 #[derive(Debug, Clone)]
 pub struct LlmClient {
@@ -33,13 +33,8 @@ impl LlmClient {
         if !settings.llm_configured {
             return None;
         }
-        let parsed = parse_env_file(std::path::Path::new(&settings.env_file));
-        let api_key = parsed.get("DEEPSEEK_API_KEY")?.trim().to_string();
-        if api_key.is_empty() {
-            return None;
-        }
         Some(Self {
-            api_key,
+            api_key: deepseek_api_key_for_data_dir(data_dir),
             base_url: settings.deepseek.base_url,
             model: settings.deepseek.model,
         })
@@ -90,36 +85,6 @@ impl LlmClient {
 
         serde_json::from_str(content).map_err(|e| format!("LLM JSON 无效: {e}; raw={content}"))
     }
-}
-
-fn parse_env_file(path: &Path) -> std::collections::HashMap<String, String> {
-    let mut out = std::collections::HashMap::new();
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return out;
-    };
-    for line in content.lines() {
-        let stripped = line.trim();
-        if stripped.is_empty() || stripped.starts_with('#') {
-            continue;
-        }
-        let Some((key, value)) = stripped.split_once('=') else {
-            continue;
-        };
-        let key = key.trim();
-        if key.is_empty() {
-            continue;
-        }
-        let mut raw = value.trim().to_string();
-        if raw.len() >= 2 {
-            let first = raw.chars().next().unwrap_or(' ');
-            let last = raw.chars().last().unwrap_or(' ');
-            if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
-                raw = raw[1..raw.len() - 1].to_string();
-            }
-        }
-        out.insert(key.to_string(), raw);
-    }
-    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
