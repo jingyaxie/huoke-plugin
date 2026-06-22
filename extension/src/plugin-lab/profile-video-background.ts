@@ -47,11 +47,11 @@ async function probeProfileVideo(
   )) as ProfileProbe;
 }
 
-async function prepareProfilePage(tabId: number) {
+async function prepareProfilePage(tabId: number, freshProfile: boolean) {
   return (await sendContentPluginLabCommand(
     tabId,
     "plugin_lab.prepare_profile_video",
-    {},
+    { fresh_profile: freshProfile },
     { skipPreflight: true },
   )) as { ok?: boolean; card_count?: number; message?: string };
 }
@@ -96,12 +96,13 @@ export async function clickProfileVideoBackground(payload: Record<string, unknow
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
   const videoIndex = Math.max(1, Number(payload.video_index ?? payload.index ?? 1));
+  const freshProfile = Boolean(payload.fresh_profile);
   let awemeHint = String(payload.aweme_id ?? payload.aweme_hint ?? "").trim();
   let lastMessage = "未打开主页视频浮层";
   let lastUrl = tab.url ?? "";
 
   for (let attempt = 1; attempt <= 4; attempt += 1) {
-    const prep = await prepareProfilePage(tabId);
+    const prep = await prepareProfilePage(tabId, freshProfile);
     if (!prep.ok) {
       lastMessage = prep.message ?? "主页作品列表未就绪";
       await sleep(800 + attempt * 350);
@@ -120,6 +121,7 @@ export async function clickProfileVideoBackground(payload: Record<string, unknow
       return {
         ok: true,
         feed_open: true,
+        is_search_feed: true,
         mode: "already_open",
         video_index: videoIndex,
         aweme_id: awemeHint || probe.aweme_id,
@@ -136,6 +138,7 @@ export async function clickProfileVideoBackground(payload: Record<string, unknow
           ok: true,
           clicked: true,
           feed_open: true,
+          is_search_feed: true,
           mode: "cdp_real_mouse",
           video_index: probe.video_index ?? videoIndex,
           aweme_id: awemeHint || probe.aweme_id,

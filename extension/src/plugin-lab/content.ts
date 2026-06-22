@@ -45,7 +45,12 @@ import { scrollAndCollectComments, type ScrollCollectCommentsPayload } from "./s
 import { sendComment } from "./send-comment";
 import { sendDm } from "./send-dm";
 import { swipePage, type SwipePagePayload } from "./swipe-page";
-import { swipeSearchFeedNext, prepareFeedForSwipe, recoverSearchFeedFromAweme } from "./search-feed-next";
+import {
+  swipeSearchFeedNext,
+  prepareFeedForSwipe,
+  recoverDouyinFeedFromAweme,
+  probeDouyinFeed,
+} from "./search-feed-next";
 import { probeSearchContextDom } from "./search-context-probe";
 
 /**
@@ -97,9 +102,11 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
     case "plugin_lab.prepare_feed_for_swipe":
       return prepareFeedForSwipe();
     case "plugin_lab.recover_search_feed":
-      return recoverSearchFeedFromAweme(
+      return recoverDouyinFeedFromAweme(
         String((payload as { aweme_id?: string })?.aweme_id ?? ""),
       );
+    case "plugin_lab.probe_douyin_feed":
+      return probeDouyinFeed();
     case "plugin_lab.search_video_dom_click":
       return clickSearchVideoInContent((payload ?? {}) as {
         video_index?: number;
@@ -143,7 +150,7 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
     case "plugin_lab.fetch_profile_videos":
       return fetchProfileVideos((payload ?? {}) as { limit?: number });
     case "plugin_lab.prepare_profile_video":
-      return prepareProfileForVideoClick();
+      return prepareProfileForVideoClick((payload ?? {}) as { fresh_profile?: boolean });
     case "plugin_lab.profile_video_dom_click":
       return clickProfileVideoAtIndex((payload ?? {}) as {
         video_index?: number;

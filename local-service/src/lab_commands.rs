@@ -436,6 +436,25 @@ impl<'a> LabCommands<'a> {
         self.action("click_profile_video", payload).await
     }
 
+    /// 主页刚打开时点击第一个视频进 Feed，跳过冗长列表等待
+    pub async fn click_profile_video_fresh(
+        &self,
+        video_index: i64,
+    ) -> Result<Value, String> {
+        self.action(
+            "click_profile_video",
+            json!({
+                "video_index": video_index.max(1),
+                "fresh_profile": true,
+            }),
+        )
+        .await
+    }
+
+    pub async fn probe_douyin_feed(&self) -> Result<Value, String> {
+        self.action("probe_douyin_feed", json!({ "platform": self.platform })).await
+    }
+
     pub async fn fetch_profile_videos(&self, limit: i64) -> Result<Value, String> {
         self.action(
             "fetch_profile_videos",

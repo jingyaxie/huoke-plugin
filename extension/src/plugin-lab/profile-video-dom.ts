@@ -1,5 +1,9 @@
 import { closeVideoDetail } from "./close-video-detail";
-import { feedOverlayVisible } from "./search-feed-open";
+import {
+  isDouyinFeedOverlay,
+  isProfileFeedOverlay,
+  isStandaloneVideoPage,
+} from "./search-feed-open";
 import { humanClick, humanPace, randDelay, sleep } from "./search-input";
 
 export const PROFILE_URL_STORAGE_KEY = "huoke:douyin-profile-url";
@@ -76,7 +80,124 @@ export function readStoredProfileUrl(): string {
 }
 
 export function profileFeedOpen(): boolean {
-  return feedOverlayVisible();
+  return isProfileFeedOverlay();
+}
+
+export function stripModalFromProfileUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete("modal_id");
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return url.replace(/([?&])modal_id=[^&]+&?/i, "$1").replace(/[?&]$/, "");
+  }
+}
+
+export function buildProfileModalUrl(awemeId: string, baseUrl?: string): string | null {
+  const aweme = awemeId.trim();
+  if (!/^\d{8,22}$/.test(aweme)) return null;
+
+  const candidates = [
+    baseUrl?.trim(),
+    readStoredProfileUrl(),
+    isProfileListPage() ? location.href : "",
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    if (!isProfileListPage(candidate)) continue;
+    try {
+      const url = new URL(candidate);
+      url.searchParams.set("modal_id", aweme);
+      url.hash = "";
+      return url.toString();
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+export async function waitForProfileFeedOverlay(maxMs = 9000): Promise<boolean> {
+  const deadline = Date.now() + maxMs;
+  const pollMs = maxMs <= 5000 ? 160 : 280;
+  while (Date.now() < deadline) {
+    if (isProfileFeedOverlay()) return true;
+    await sleep(pollMs);
+  }
+  return isProfileFeedOverlay();
+}
+
+export async function openProfileFeedViaModalId(
+  awemeId: string,
+  baseUrl?: string,
+): Promise<{ ok: boolean; mode: "modal_id"; url: string; message: string }> {
+  const target = buildProfileModalUrl(awemeId, baseUrl);
+  if (!target) {
+    return {
+      ok: false,
+      mode: "modal_id",
+      url: location.href,
+      message: "无法构造主页 Feed modal_id URL（缺少用户主页地址）",
+    };
+  }
+
+  const currentBase = location.href.split("#")[0];
+  const targetBase = target.split("#")[0];
+  if (currentBase !== targetBase) {
+    location.assign(target);
+  } else if (!isProfileFeedOverlay()) {
+    location.replace(target);
+    await sleep(400);
+    if (!isProfileFeedOverlay()) {
+      location.reload();
+      await sleep(500);
+    }
+  }
+
+  const opened = await waitForProfileFeedOverlay(9000);
+  return {
+    ok: opened,
+    mode: "modal_id",
+    url: location.href,
+    message: opened
+      ? `已通过 modal_id 打开主页 Feed 浮层（aweme=${awemeId.slice(0, 12)}…）`
+      : isStandaloneVideoPage()
+        ? "modal_id 导航后仍落在独立视频详情页"
+        : "modal_id 导航后主页 Feed 浮层未就绪",
+  };
+}
+
+/** Feed 被误关时，用 modal_id 恢复主页 Feed */
+export async function recoverProfileFeedFromAweme(awemeId: string) {
+  const id = String(awemeId ?? "").trim();
+  if (!/^\d{8,22}$/.test(id)) {
+    return {
+      ok: false,
+      is_search_feed: false,
+      message: "缺少有效 aweme_id，无法恢复主页 Feed",
+      url: location.href,
+    };
+  }
+  const opened = await openProfileFeedViaModalId(id);
+  const phase = isDouyinFeedOverlay();
+  return {
+    ok: opened.ok && phase,
+    is_search_feed: phase,
+    aweme_id: readFeedAwemeIdFromUrl() ?? id,
+    url: location.href,
+    message: opened.message,
+  };
+}
+
+function readFeedAwemeIdFromUrl(url = location.href): string | null {
+  try {
+    const modal = new URL(url).searchParams.get("modal_id");
+    if (modal && /^\d{8,22}$/.test(modal)) return modal;
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 export async function waitForProfileVideoCards(limit = 10, maxAttempts = 12): Promise<ProfileVideoCard[]> {
@@ -181,10 +302,26 @@ export async function backToProfileList(profileUrl?: string): Promise<{ ok: bool
 }
 
 /** 打开下一个主页视频前：关闭浮层并确保作品列表可见 */
-export async function prepareProfileForVideoClick() {
-  const profileUrl = readStoredProfileUrl();
-  const back = await backToProfileList(profileUrl);
+export async function prepareProfileForVideoClick(options: { fresh_profile?: boolean } = {}) {
+  const freshProfile = Boolean(options.fresh_profile);
   rememberProfileUrl();
+
+  if (!freshProfile) {
+    const profileUrl = readStoredProfileUrl();
+    const back = await backToProfileList(profileUrl);
+    if (!back.ok && !isProfileListPage()) {
+      return {
+        ok: false,
+        card_count: 0,
+        on_profile_page: false,
+        url: location.href,
+        message: back.message,
+      };
+    }
+  } else if (profileFeedOpen()) {
+    await closeVideoDetail();
+    await sleep(randDelay(350, 550));
+  }
 
   if (!isProfileListPage()) {
     return {
@@ -197,10 +334,13 @@ export async function prepareProfileForVideoClick() {
   }
 
   window.scrollTo({ top: 0, behavior: "auto" });
-  await sleep(humanPace.listPrepare());
+  await sleep(freshProfile ? randDelay(350, 550) : humanPace.listPrepare());
 
   let cards = collectProfileVideoCards(50);
-  if (cards.length === 0) {
+  if (cards.length === 0 && !freshProfile) {
+    await scrollProfileList();
+    cards = collectProfileVideoCards(50);
+  } else if (cards.length === 0 && freshProfile) {
     await scrollProfileList();
     cards = collectProfileVideoCards(50);
   }
@@ -296,6 +436,7 @@ export async function clickProfileVideoAtIndex(payload: {
       return {
         ok: true,
         feed_open: true,
+        is_search_feed: true,
         clicked: true,
         mode: "dom_click",
         video_index: target.index,
@@ -332,6 +473,7 @@ export function probeProfileVideoCard(payload: {
       video_index: index,
       feed_open: feedOpen,
       is_profile_feed: feedOpen,
+      is_search_feed: feedOpen,
       url: location.href,
       message: feedOpen ? "主页视频浮层已打开" : "等待主页视频浮层",
     };

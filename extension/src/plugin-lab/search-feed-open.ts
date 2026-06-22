@@ -54,12 +54,30 @@ export function feedOverlayVisible(): boolean {
   return false;
 }
 
+function isProfilePageUrl(url = location.href): boolean {
+  if (!/\/user\//i.test(url)) return false;
+  if (/\/video\/\d{8,22}/i.test(url)) return false;
+  return true;
+}
+
 /** 搜索页 Feed 浮层（左视频 + 右评论），非 /video/ 独立详情页 */
 export function isSearchFeedOverlay(url = location.href): boolean {
   if (isStandaloneVideoPage(url)) return false;
   const onSearch = isSearchResultsPage(url);
   if (!onSearch && !/modal_id=\d{8,22}/i.test(url)) return false;
   return feedOverlayVisible();
+}
+
+/** 博主主页 Feed 浮层（作品列表上 modal 播放） */
+export function isProfileFeedOverlay(url = location.href): boolean {
+  if (isStandaloneVideoPage(url)) return false;
+  if (!feedOverlayVisible()) return false;
+  return isProfilePageUrl(url) || (/\/user\//i.test(url) && /modal_id=\d{8,22}/i.test(url));
+}
+
+/** 抖音搜索/主页共用的 Feed 浮层（用于 Feed 内切下一个视频） */
+export function isDouyinFeedOverlay(url = location.href): boolean {
+  return isSearchFeedOverlay(url) || isProfileFeedOverlay(url);
 }
 
 export function rememberSearchResultsUrl(url = location.href): void {

@@ -3,7 +3,14 @@ import {
   isCommentSidebarReadyForCollect,
   probeCommentSidebar,
 } from "./comment-sidebar-dom";
-import { isSearchFeedOverlay, openFeedViaModalId } from "./search-feed-open";
+import { recoverProfileFeedFromAweme } from "./profile-video-dom";
+import {
+  isDouyinFeedOverlay,
+  isProfileFeedOverlay,
+  isSearchFeedOverlay,
+  openFeedViaModalId,
+  readStoredSearchResultsUrl,
+} from "./search-feed-open";
 import { humanClick, isVisible, randDelay, sleep } from "./search-input";
 
 /** 搜索 Feed 右侧「下一个」下箭头 SVG path 特征（viewBox 0 0 26 26） */
@@ -184,7 +191,7 @@ async function pointerDragFeedNext(feed: HTMLElement) {
 }
 
 async function dismissCommentPanelForSwipe() {
-  const inSearchFeed = isSearchFeedOverlay();
+  const inDouyinFeed = isDouyinFeedOverlay();
   const player = resolveFeedSwipeTarget();
 
   // 先点视频区收回焦点；Feed 浮层内禁止 Escape（会关掉整个 Feed）
@@ -193,7 +200,7 @@ async function dismissCommentPanelForSwipe() {
 
   if (!isCommentSidebarReadyForCollect()) return;
 
-  if (inSearchFeed) {
+  if (inDouyinFeed) {
     clickCommentIconViaDom();
     await sleep(randDelay(280, 420));
     await focusFeedPlayer(player);
@@ -207,21 +214,25 @@ async function dismissCommentPanelForSwipe() {
   await sleep(randDelay(220, 320));
 }
 
+function feedOverlayReady(): boolean {
+  return isDouyinFeedOverlay();
+}
+
 /** 采完评论后、切下一个视频前：确保仍在 Feed 且评论区不挡操作 */
 export async function prepareFeedForSwipe() {
-  if (!isSearchFeedOverlay()) {
+  if (!feedOverlayReady()) {
     const awemeId = readFeedAwemeId();
     return {
       ok: false,
       is_search_feed: false,
       aweme_id: awemeId,
       url: location.href,
-      message: "不在搜索 Feed 浮层",
+      message: "不在 Feed 浮层",
     };
   }
 
   await dismissCommentPanelForSwipe();
-  const stillInFeed = isSearchFeedOverlay();
+  const stillInFeed = feedOverlayReady();
   return {
     ok: stillInFeed,
     is_search_feed: stillInFeed,
@@ -243,13 +254,52 @@ export async function recoverSearchFeedFromAweme(awemeId: string) {
     };
   }
   const opened = await openFeedViaModalId(id);
-  const phase = isSearchFeedOverlay();
+  const phase = feedOverlayReady();
   return {
     ok: opened.ok && phase,
     is_search_feed: phase,
     aweme_id: readFeedAwemeId() ?? id,
     url: location.href,
     message: opened.message,
+  };
+}
+
+/** 搜索/主页 Feed 被误关时恢复（优先搜索页，其次主页） */
+export async function recoverDouyinFeedFromAweme(awemeId: string) {
+  const id = String(awemeId ?? "").trim();
+  if (!/^\d{8,22}$/.test(id)) {
+    return {
+      ok: false,
+      is_search_feed: false,
+      message: "缺少有效 aweme_id，无法恢复 Feed",
+      url: location.href,
+    };
+  }
+
+  const hasSearchContext = Boolean(readStoredSearchResultsUrl()) || isSearchFeedOverlay();
+  if (hasSearchContext) {
+    const search = await recoverSearchFeedFromAweme(id);
+    if (search.ok) return search;
+  }
+
+  const profile = await recoverProfileFeedFromAweme(id);
+  if (profile.ok) return profile;
+
+  if (!hasSearchContext) {
+    return await recoverSearchFeedFromAweme(id);
+  }
+  return profile;
+}
+
+export function probeDouyinFeed() {
+  const inFeed = feedOverlayReady();
+  return {
+    ok: inFeed,
+    is_search_feed: inFeed,
+    is_profile_feed: isProfileFeedOverlay(),
+    aweme_id: readFeedAwemeId(),
+    url: location.href,
+    message: inFeed ? "Feed 浮层已打开" : "不在 Feed 浮层",
   };
 }
 
@@ -279,21 +329,21 @@ async function waitForFeedAwemeChange(before: string | null, maxMs = 3200): Prom
   return readFeedAwemeId();
 }
 
-/** 搜索 Feed 浮层内切换到下一个视频（上滑/ArrowDown），无需返回列表 */
+/** 搜索/主页 Feed 浮层内切换到下一个视频（上滑/ArrowDown），无需返回列表 */
 export async function swipeSearchFeedNext() {
-  if (!isSearchFeedOverlay()) {
+  if (!feedOverlayReady()) {
     return {
       ok: false,
       is_search_feed: false,
       url: location.href,
-      message: "不在搜索 Feed 浮层，无法 Feed 内切下一个视频",
+      message: "不在 Feed 浮层，无法 Feed 内切下一个视频",
     };
   }
 
   const before = readFeedAwemeId();
   await dismissCommentPanelForSwipe();
 
-  if (!isSearchFeedOverlay()) {
+  if (!feedOverlayReady()) {
     return {
       ok: false,
       is_search_feed: false,
@@ -354,7 +404,7 @@ export async function swipeSearchFeedNext() {
         attempt: attempt + 1,
         method: methodNames[attempt - 1] ?? "unknown",
         url: location.href,
-        message: "已在搜索 Feed 内切换到下一个视频",
+        message: "已在 Feed 内切换到下一个视频",
       };
     }
   }
@@ -362,7 +412,7 @@ export async function swipeSearchFeedNext() {
   const sidebar = probeCommentSidebar();
   return {
     ok: false,
-    is_search_feed: isSearchFeedOverlay(),
+    is_search_feed: feedOverlayReady(),
     aweme_id: readFeedAwemeId(),
     previous_aweme_id: before,
     comment_sidebar_open: sidebar.sidebar_ready,

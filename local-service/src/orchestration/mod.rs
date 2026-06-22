@@ -21,6 +21,12 @@ use crate::ws::BridgeHub;
 
 const JOB_PAUSED: &str = "__job_paused__";
 
+#[derive(Clone, Debug)]
+enum DouyinFeedSource {
+    KeywordSearch,
+    ProfileHome { profile_url: String },
+}
+
 fn feed_aweme_from_response(resp: &serde_json::Value) -> Option<String> {
     resp.get("aweme_id")
         .and_then(|v| v.as_str())
@@ -212,7 +218,7 @@ impl JobOrchestrator {
             )
             .await?;
             return self
-                .collect_keyword_via_search_feed(job_id, job, cfg)
+                .collect_douyin_via_feed(job_id, job, cfg, DouyinFeedSource::KeywordSearch)
                 .await;
         }
 
@@ -276,6 +282,21 @@ impl JobOrchestrator {
         self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
         lab.enable_network_hook().await?;
         self.wait_if_not_paused(job_id, Duration::from_secs(4)).await?;
+
+        if cfg.intent == "account_home" && job.platform == "douyin" {
+            let _ = lab.close_video_detail().await;
+            self.wait_if_not_paused(job_id, Duration::from_millis(800)).await?;
+            return self
+                .collect_douyin_via_feed(
+                    job_id,
+                    job,
+                    cfg,
+                    DouyinFeedSource::ProfileHome {
+                        profile_url: open_url.clone(),
+                    },
+                )
+                .await;
+        }
 
         if cfg.intent == "account_home" {
             let _ = lab.close_video_detail().await;
@@ -362,12 +383,13 @@ impl JobOrchestrator {
         Ok(())
     }
 
-    /// 抖音关键词任务：搜索后点第一个进 Feed，在 Feed 内上滑切视频，遇已采则跳过。
-    async fn collect_keyword_via_search_feed(
+    /// 抖音 Feed 采集：搜索或主页点第一个进 Feed，在 Feed 内切视频，遇已采则跳过。
+    async fn collect_douyin_via_feed(
         &self,
         job_id: &str,
         job: &crate::db::CollectJob,
         cfg: &JobConfig,
+        feed_source: DouyinFeedSource,
     ) -> Result<(), String> {
         use std::collections::HashMap;
 
@@ -382,6 +404,17 @@ impl JobOrchestrator {
         let mut last_aweme_id: Option<String> = None;
         const MAX_SWIPE_FAILURES: u32 = 8;
         const MAX_STALE_ON_SAME: u32 = 3;
+
+        let (open_label, fail_hint) = match &feed_source {
+            DouyinFeedSource::KeywordSearch => (
+                "open first search result in feed",
+                "failed to open search feed or collect any video — keep Douyin on search results",
+            ),
+            DouyinFeedSource::ProfileHome { .. } => (
+                "open first profile video in feed",
+                "failed to open profile feed or collect any video — keep Douyin on blogger profile page",
+            ),
+        };
 
         loop {
             self.bail_if_paused(job_id)?;
@@ -406,8 +439,16 @@ impl JobOrchestrator {
 
             let opening_first = !feed_open;
             let nav = if opening_first {
-                info!("job {job_id}: open first search result in feed");
-                lab.click_search_video_fresh(1).await
+                info!("job {job_id}: {open_label}");
+                match &feed_source {
+                    DouyinFeedSource::KeywordSearch => lab.click_search_video_fresh(1).await,
+                    DouyinFeedSource::ProfileHome { profile_url } => {
+                        let _ = lab.open_url(profile_url).await;
+                        self.wait_if_not_paused(job_id, Duration::from_millis(800))
+                            .await?;
+                        lab.click_profile_video_fresh(1).await
+                    }
+                }
             } else {
                 self.feed_swipe_next(&lab, last_aweme_id.as_deref()).await
             };
@@ -441,11 +482,12 @@ impl JobOrchestrator {
                 .get("is_search_feed")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
+                || resp.get("feed_open").and_then(|v| v.as_bool()).unwrap_or(false)
                 || feed_open;
 
             let aweme_id = feed_aweme_from_response(&resp).unwrap_or_default();
             let aweme_id = if aweme_id.is_empty() {
-                lab.probe_search_feed()
+                lab.probe_douyin_feed()
                     .await
                     .ok()
                     .and_then(|p| feed_aweme_from_response(&p))
@@ -518,10 +560,7 @@ impl JobOrchestrator {
         let total = self.db.count_comments_for_job(job_id)?;
         let progress = self.collect_progress_count(job_id)?;
         if total == 0 && collected_videos == 0 {
-            return Err(
-                "failed to open search feed or collect any video — keep Douyin on search results"
-                    .into(),
-            );
+            return Err(fail_hint.into());
         }
         if progress < cfg.target_count {
             let label = self.collect_progress_label();
