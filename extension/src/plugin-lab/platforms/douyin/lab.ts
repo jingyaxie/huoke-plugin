@@ -35,6 +35,7 @@ import { fetchProfileVideos } from "../../fetch-profile-videos";
 import { closeVideoDetail } from "../../close-video-detail";
 import { findFilterOptionPoint, probeFilterDom } from "../../filter-dom";
 import { fetchSearchResults, type FetchSearchResultsPayload } from "../../fetch-search-results";
+import { ensureSearchMultiColumnLayout } from "../../search-layout";
 import { findAndFocusSearchBox } from "../../find-search-box";
 import { inputSearchText, type InputSearchTextPayload } from "../../input-search-text";
 import {
@@ -48,6 +49,7 @@ import { scrollAndCollectComments, type ScrollCollectCommentsPayload } from "../
 import { sendComment } from "../../send-comment";
 import { sendDm } from "../../send-dm";
 import { swipePage, type SwipePagePayload } from "../../swipe-page";
+import { swipeSearchFeedNext } from "../../search-feed-next";
 
 const HANDLED = new Set([
   "plugin_lab.swipe_page",
@@ -58,7 +60,9 @@ const HANDLED = new Set([
   "plugin_lab.search_prepare",
   "plugin_lab.search_submit",
   "plugin_lab.fetch_search_results",
+  "plugin_lab.ensure_search_multi_column",
   "plugin_lab.prepare_search_video",
+  "plugin_lab.swipe_search_feed_next",
   "plugin_lab.search_video_dom_click",
   "plugin_lab.click_search_video",
   "plugin_lab.search_video_probe",
@@ -120,8 +124,12 @@ export async function dispatchDouyinLabCommand(
       return submitSearchClick((payload ?? {}) as Parameters<typeof submitSearchClick>[0]);
     case "plugin_lab.fetch_search_results":
       return fetchSearchResults((payload ?? {}) as FetchSearchResultsPayload);
+    case "plugin_lab.ensure_search_multi_column":
+      return ensureSearchMultiColumnLayout();
     case "plugin_lab.prepare_search_video":
       return prepareSearchForVideoClick((payload ?? {}) as { skip_restore?: boolean });
+    case "plugin_lab.swipe_search_feed_next":
+      return swipeSearchFeedNext();
     case "plugin_lab.search_video_dom_click":
       return clickSearchVideoInContent((payload ?? {}) as {
         video_index?: number;

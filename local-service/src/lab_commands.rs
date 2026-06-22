@@ -61,15 +61,36 @@ impl<'a> LabCommands<'a> {
         simulate::pause(Duration::from_millis(600)).await;
 
         // 1 打开 → 3~7 搜索 →（可选）4~5 筛选 → 8 抓结果（有筛选时先筛后抓）
-        self.action(
-            "open_browser",
-            json!({
-                "platform": platform,
-                "reuse_existing": true,
-                "reset_to_start": true,
-            }),
-        )
-        .await?;
+        const MAX_OPEN_ATTEMPTS: u32 = 3;
+        let mut open_err = String::new();
+        for attempt in 1..=MAX_OPEN_ATTEMPTS {
+            match self
+                .action(
+                    "open_browser",
+                    json!({
+                        "platform": platform,
+                        "reuse_existing": true,
+                        "reset_to_start": true,
+                    }),
+                )
+                .await
+            {
+                Ok(_) => {
+                    open_err.clear();
+                    break;
+                }
+                Err(err) => {
+                    open_err = err;
+                    if attempt < MAX_OPEN_ATTEMPTS {
+                        warn!("open_browser attempt {attempt} failed: {open_err}, retrying…");
+                        simulate::pause(Duration::from_secs(3)).await;
+                    }
+                }
+            }
+        }
+        if !open_err.is_empty() {
+            return Err(open_err);
+        }
         simulate::pause(Duration::from_secs(3)).await;
 
         const MAX_SEARCH_ATTEMPTS: u32 = 4;
@@ -136,6 +157,20 @@ impl<'a> LabCommands<'a> {
             return Ok(submit);
         }
 
+        if platform == "douyin" {
+            match self.action("ensure_search_multi_column", json!({})).await {
+                Ok(resp) if resp.get("ok").and_then(|v| v.as_bool()) == Some(true) => {}
+                Ok(resp) => {
+                    warn!(
+                        "ensure_search_multi_column: {:?}",
+                        resp.get("message").and_then(|v| v.as_str())
+                    );
+                }
+                Err(err) => warn!("ensure_search_multi_column failed: {err}"),
+            }
+            simulate::pause(Duration::from_millis(800)).await;
+        }
+
         // 等待进入搜索结果页
         simulate::pause(Duration::from_secs(5)).await;
 
@@ -160,6 +195,11 @@ impl<'a> LabCommands<'a> {
         self.enable_network_hook().await?;
         simulate::pause(Duration::from_secs(1)).await;
 
+        if platform == "douyin" {
+            let _ = self.action("ensure_search_multi_column", json!({})).await;
+            simulate::pause(Duration::from_millis(600)).await;
+        }
+
         let search_payload = match self
             .action(
                 "fetch_search_results",
@@ -174,6 +214,31 @@ impl<'a> LabCommands<'a> {
         Ok(search_payload)
     }
 
+    /// 继续采集：关闭 Feed/详情，聚焦已有标签页并回到搜索结果，不重新输入关键词。
+    pub async fn prepare_keyword_collect_resume(&self) -> Result<(), String> {
+        let platform = self.platform.clone();
+        let _ = self.close_video_detail().await;
+        simulate::pause(Duration::from_millis(600)).await;
+
+        self.action(
+            "open_browser",
+            json!({
+                "platform": platform,
+                "reuse_existing": true,
+                "reset_to_start": false,
+            }),
+        )
+        .await?;
+        simulate::pause(Duration::from_secs(2)).await;
+
+        self.enable_network_hook().await?;
+        simulate::pause(Duration::from_millis(800)).await;
+
+        let _ = self.prepare_search_for_video().await;
+        simulate::pause(Duration::from_millis(800)).await;
+        Ok(())
+    }
+
     pub async fn close_video_detail(&self) -> Result<Value, String> {
         self.action("close_video_detail", json!({})).await
     }
@@ -181,6 +246,15 @@ impl<'a> LabCommands<'a> {
     pub async fn prepare_search_for_video(&self) -> Result<Value, String> {
         self.action(
             "prepare_search_for_video",
+            json!({ "platform": self.platform }),
+        )
+        .await
+    }
+
+    /// 搜索 Feed 浮层内切换到下一个视频（抖音关键词任务链式浏览）
+    pub async fn swipe_search_feed_next(&self) -> Result<Value, String> {
+        self.action(
+            "swipe_search_feed_next",
             json!({ "platform": self.platform }),
         )
         .await
@@ -510,9 +584,11 @@ fn action_timeout(action_id: &str) -> Duration {
         }
         "click_search_video" => Duration::from_secs(90),
         "click_profile_video" => Duration::from_secs(90),
+        "click_comment_btn" => Duration::from_secs(90),
         "reply_comment" | "input_dm_text" => Duration::from_secs(60),
         "open_browser" => Duration::from_secs(120),
         "fetch_search_results" => Duration::from_secs(120),
+        "swipe_search_feed_next" => Duration::from_secs(30),
         "swipe_page" => Duration::from_secs(20),
         _ => Duration::from_secs(45),
     }

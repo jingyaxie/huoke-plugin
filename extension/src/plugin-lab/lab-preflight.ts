@@ -17,6 +17,8 @@ const SKIP_PREFLIGHT = new Set([
   "plugin_lab.profile_video_dom_click",
   "plugin_lab.back_to_profile",
   "plugin_lab.prepare_search_video",
+  "plugin_lab.fetch_search_results",
+  "plugin_lab.ensure_search_multi_column",
   "plugin_lab.close_video_detail",
   "plugin_lab.comment_sidebar_probe",
   "plugin_lab.activate_comment_sidebar",

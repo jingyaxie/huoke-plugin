@@ -7,6 +7,7 @@ export function backgroundCommandTimeoutMs(action: string): number {
     action === "plugin_lab.fetch_search_results" ||
     action === "plugin_lab.click_search_video" ||
     action === "plugin_lab.click_profile_video" ||
+    action === "plugin_lab.click_comment_btn" ||
     action === "plugin_lab.scroll_and_collect_comments" ||
     action.startsWith("network.hook.")
   ) {

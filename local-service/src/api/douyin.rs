@@ -316,7 +316,22 @@ pub async fn start_job(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let job = state.db.get_job(&job_id).map_err(|_| not_found())?;
     if job.status == JobStatus::Completed {
-        return Ok(Json(json!({ "job_id": job_id, "status": "completed", "message": "already completed" })));
+        let cfg = JobConfig::from_job(&job);
+        let uses_precise = crate::llm_client::LlmClient::from_data_dir(&state.data_dir).is_some();
+        let progress = if uses_precise {
+            state
+                .db
+                .count_precise_comments_for_job(&job_id)
+                .map_err(internal_error)?
+        } else {
+            state
+                .db
+                .count_comments_for_job(&job_id)
+                .map_err(internal_error)?
+        };
+        if progress >= cfg.target_count {
+            return Ok(Json(json!({ "job_id": job_id, "status": "completed", "message": "already completed" })));
+        }
     }
 
     state

@@ -10,7 +10,7 @@
           评估评论
         </el-dropdown-item>
         <el-dropdown-item command="start" :disabled="!canStart">
-          {{ row.status === "paused" ? "继续采集" : "开始采集" }}
+          {{ startLabel }}
         </el-dropdown-item>
         <el-dropdown-item command="pause" :disabled="!canPause">暂停</el-dropdown-item>
         <el-dropdown-item v-if="canDelete" command="delete" divided>
@@ -31,9 +31,31 @@ const props = defineProps({
 
 const emit = defineEmits(["action"]);
 
-const canStart = computed(
-  () => props.row.status !== "running" && props.row.status !== "completed",
-);
+function jobTargetCount(row) {
+  const fromConfig = Number(row?.config?.target_count);
+  if (Number.isFinite(fromConfig) && fromConfig > 0) return fromConfig;
+  const limitVideos = Number(row?.limit_videos || 0);
+  const maxComments = Number(row?.max_comments_per_video || 0);
+  if (limitVideos > 0 && maxComments > 0) return limitVideos * maxComments;
+  return 0;
+}
+
+const canStart = computed(() => {
+  if (props.row.status === "running") return false;
+  if (props.row.status === "completed") {
+    const target = jobTargetCount(props.row);
+    const progress = Number(props.row.precise_count ?? props.row.comment_count ?? 0);
+    return target > 0 && progress < target;
+  }
+  return true;
+});
+
+const startLabel = computed(() => {
+  if (props.row.status === "paused") return "继续采集";
+  if (props.row.status === "completed") return "继续采集";
+  if (props.row.status === "failed") return "继续采集";
+  return "开始采集";
+});
 
 const canPause = computed(() => props.row.status === "running");
 

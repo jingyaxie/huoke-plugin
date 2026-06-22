@@ -6,6 +6,7 @@ import {
   enableSearchNetworkHook,
   getCachedSearchApiResultsSync,
 } from "./search-api";
+import { ensureSearchMultiColumnLayout } from "./search-layout";
 
 const SEARCH_BTN_SELECTORS = [
   '[data-e2e="searchbar-button"]',
@@ -118,6 +119,7 @@ export async function submitSearchClick(payload: SubmitSearchClickPayload = {}) 
 
   if (isSearchResultsPage(location.href) && sameKeywordAsUrl && searchResultsReady()) {
     rememberSearchResultsUrl(location.href);
+    const layout = await ensureSearchMultiColumnLayout();
     return {
       ok: true,
       method: "skip_already_on_results",
@@ -125,7 +127,9 @@ export async function submitSearchClick(payload: SubmitSearchClickPayload = {}) 
       url: location.href,
       on_search_page: true,
       keyword: inputValue || expectedKeyword || undefined,
-      message: "已在搜索结果页且关键词一致，跳过重复搜索",
+      message: layout.message
+        ? `已在搜索结果页且关键词一致；${layout.message}`
+        : "已在搜索结果页且关键词一致，跳过重复搜索",
     };
   }
 
@@ -169,13 +173,23 @@ export async function submitSearchClick(payload: SubmitSearchClickPayload = {}) 
     rememberSearchResultsUrl(location.href);
   }
 
+  let layoutMessage = "";
+  if (isSearchResultsPage(location.href)) {
+    const layout = await ensureSearchMultiColumnLayout();
+    layoutMessage = layout.message;
+  }
+
   return {
     ok: isSearchResultsPage(location.href),
     method: button ? "click_button" : "enter_key",
     selector: button ? SEARCH_BTN_SELECTORS[0] : inputMatch?.selector ?? "",
     url: location.href,
     on_search_page: isSearchResultsPage(location.href),
-    message: isSearchResultsPage(location.href) ? "已触发搜索并进入搜索结果页" : "已点击搜索，等待接口返回",
+    message: isSearchResultsPage(location.href)
+      ? layoutMessage
+        ? `已触发搜索；${layoutMessage}`
+        : "已触发搜索并进入搜索结果页"
+      : "已点击搜索，等待接口返回",
   };
 }
 

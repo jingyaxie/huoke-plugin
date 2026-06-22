@@ -5,6 +5,8 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::douyin::parser::parse_aweme_id_from_page_url;
+
 pub mod outreach;
 pub use outreach::{
     OutreachItem, OutreachItemDraft, OutreachItemStatus, OutreachTask, OutreachTaskStatus, QuotaStatus,
@@ -721,6 +723,46 @@ impl Database {
             |row| row.get(0),
         )
         .map_err(|e| e.to_string())
+    }
+
+    pub fn count_distinct_comment_awemes_for_job(&self, job_id: &str) -> Result<i64, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT COUNT(DISTINCT aweme_id) FROM captured_comments WHERE job_id = ?1",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn get_video_url_for_job(&self, job_id: &str, aweme_id: &str) -> Result<String, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT video_url FROM captured_videos WHERE job_id = ?1 AND aweme_id = ?2",
+            params![job_id, aweme_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn patch_video_collect_url(
+        &self,
+        job_id: &str,
+        video_aweme_id: &str,
+        resolved_aweme_id: &str,
+        page_url: Option<&str>,
+    ) -> Result<(), String> {
+        let url = page_url
+            .filter(|u| !u.trim().is_empty() && parse_aweme_id_from_page_url(u).is_some())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("https://www.douyin.com/video/{resolved_aweme_id}"));
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE captured_videos SET video_url = ?1 WHERE job_id = ?2 AND aweme_id = ?3",
+            params![url, job_id, video_aweme_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn comment_days_for_running_job(&self, job_id: &str) -> i64 {

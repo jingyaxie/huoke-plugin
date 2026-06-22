@@ -176,17 +176,19 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
           return fail(targetAction, required, "不在搜索结果页", { on_search_page: false });
         }
       }
-      if (isPlatformFeedOverlayOpen(platform)) {
-        return fail(targetAction, required, "当前为视频浮层，请先关闭视频详情", {
-          on_search_page: true,
-          feed_overlay_open: true,
-        });
-      }
       const apiItems = platform === "douyin" ? getCachedSearchApiResultsSync() : null;
       if (apiItems?.length) {
         return pass(targetAction, required, {
           search_card_count: apiItems.length,
           capture_method: "api",
+          feed_overlay_open: isPlatformFeedOverlayOpen(platform),
+        });
+      }
+      if (isPlatformFeedOverlayOpen(platform)) {
+        return fail(targetAction, required, "当前为单列/视频浮层，请切换到多列或关闭视频详情", {
+          on_search_page: true,
+          feed_overlay_open: true,
+          search_layout: "single",
         });
       }
       const cardCount = countPlatformSearchCards(platform);

@@ -213,6 +213,19 @@ export async function clickCommentButtonBackground(payload: Record<string, unkno
     }
   }
 
+  // 搜索 Feed：优先 content DOM 点评论，避免 CDP 与步骤 9 争抢 debugger 导致长时间卡住
+  if (status.is_search_feed || status.feed_open) {
+    const domResult = await activateViaContent(tabId);
+    status = await probe(tabId);
+    if (domResult.ok || sidebarReady(status)) {
+      return buildSuccessResult(tab, status, {
+        mode: "content_dom",
+        method: domResult.method,
+        message: domResult.message ?? "已通过 DOM 展开搜索 Feed 评论区",
+      });
+    }
+  }
+
   const targets = status.icon_targets ?? [];
   const cdp = await tryCdpCommentClick(tabId, status, targets);
   status = cdp.status;

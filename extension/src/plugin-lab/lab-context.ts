@@ -44,6 +44,7 @@ const ACTION_CONTEXT: Record<string, { context: LabPageContext; strict?: boolean
   "plugin_lab.filter_probe": { context: "search" },
   "plugin_lab.filter_find_option": { context: "search" },
   "plugin_lab.fetch_search_results": { context: "search", strict: true },
+  "plugin_lab.ensure_search_multi_column": { context: "search", strict: false },
   "plugin_lab.prepare_search_video": { context: "search", strict: false },
   "plugin_lab.search_video_dom_click": { context: "search", strict: true },
   "plugin_lab.swipe_page": { context: "search", strict: true },

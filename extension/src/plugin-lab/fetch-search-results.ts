@@ -20,6 +20,7 @@ import {
   type SearchApiItem,
   waitForSearchApiResults,
 } from "./search-api";
+import { detectSearchLayoutMode, ensureSearchMultiColumnLayout } from "./search-layout";
 
 export interface FetchSearchResultsPayload {
   limit?: number;
@@ -137,6 +138,32 @@ export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}
     Math.min(Number(payload.api_timeout_ms ?? DEFAULT_API_TIMEOUT_MS), 30_000),
   );
 
+  let layoutNote = "";
+  if (isSearchResultsPage() && (detectSearchLayoutMode() === "single" || isFeedOverlayOpen())) {
+    const layout = await ensureSearchMultiColumnLayout();
+    layoutNote = layout.message;
+    if (!layout.ok) {
+      return {
+        ok: false,
+        count: 0,
+        items: [],
+        results: [],
+        url: location.href,
+        on_search_page: true,
+        capture_method: "none" as const,
+        api_count: 0,
+        dom_count: 0,
+        dom_link_count: 0,
+        poster_count: 0,
+        feed_overlay_open: isFeedOverlayOpen(),
+        api_events_seen: 0,
+        last_body_kind: "none",
+        search_layout: detectSearchLayoutMode(),
+        message: layout.message,
+      };
+    }
+  }
+
   const apiResult = await collectViaApi(limit, apiTimeoutMs);
   const feedOpen = isFeedOverlayOpen();
 
@@ -156,7 +183,10 @@ export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}
       feed_overlay_open: feedOpen,
       api_events_seen: apiResult.eventsSeen,
       last_body_kind: apiResult.lastBodyKind ?? "json",
-      message: `已从 search 接口获取 ${apiResult.items.length} 条结果（含完整 aweme 字段）`,
+      search_layout: detectSearchLayoutMode(),
+      message: layoutNote
+        ? `已从 search 接口获取 ${apiResult.items.length} 条结果；${layoutNote}`
+        : `已从 search 接口获取 ${apiResult.items.length} 条结果（含完整 aweme 字段）`,
     };
   }
 
@@ -178,9 +208,12 @@ export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}
     feed_overlay_open: feedOpen,
     api_events_seen: apiResult.eventsSeen,
     last_body_kind: apiResult.lastBodyKind ?? "none",
+    search_layout: detectSearchLayoutMode(),
     message:
       items.length > 0
-        ? `接口未截获到数据，已用 DOM 兜底 ${items.length} 条（按序号+坐标点击，字段较 API 精简）`
+        ? layoutNote
+          ? `接口未截获到数据，已用 DOM 兜底 ${items.length} 条；${layoutNote}`
+          : `接口未截获到数据，已用 DOM 兜底 ${items.length} 条（按序号+坐标点击，字段较 API 精简）`
         : buildFailureMessage({
             onSearchPage: domResult.onSearchPage,
             feedOpen,
