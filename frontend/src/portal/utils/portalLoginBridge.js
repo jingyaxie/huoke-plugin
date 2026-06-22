@@ -11,10 +11,18 @@ import {
   isPortalMessageOrigin,
   PORTAL_NAVIGATE_MESSAGE,
   PORTAL_PING_MESSAGE,
+  PORTAL_PONG_MESSAGE,
 } from "./portalShell";
 
 const BRIDGE_FRAME_ID = "huoke-portal-login-bridge";
 const BRIDGE_FRAME_NAME = "huoke-portal-login-bridge";
+const LOGIN_SUBMIT_TIMEOUT_MS = 45000;
+const LOGIN_FAILURE_GRACE_MS = 2800;
+
+function isPortalLoginPath(path) {
+  const normalized = String(path || "").trim();
+  return normalized === "/customer/login" || normalized === "/customer/login/";
+}
 
 function ensureBridgeFrame() {
   let frame = document.getElementById(BRIDGE_FRAME_ID);
@@ -61,6 +69,7 @@ function attachPortalSessionProbe(frame, options = {}) {
     onAuthenticated,
     onTimeout,
     onFrameLoad,
+    onPong,
   } = options;
 
   let settled = false;
@@ -96,16 +105,28 @@ function attachPortalSessionProbe(frame, options = {}) {
     return false;
   }
 
-  function queueDashboardProbe(delayMs = 0) {
+  function scheduleAction(delayMs, action) {
     probeTimers.push(
       window.setTimeout(() => {
         if (settled) return;
-        frame.src = dashboardEmbedUrl();
+        action();
       }, delayMs),
     );
   }
 
+  function queueDashboardProbe(delayMs = 0) {
+    scheduleAction(delayMs, () => {
+      frame.src = dashboardEmbedUrl();
+    });
+  }
+
   function onMessage(event) {
+    if (isPortalMessageOrigin(event.origin)) {
+      const data = event.data;
+      if (data?.type === PORTAL_PONG_MESSAGE) {
+        onPong?.(data);
+      }
+    }
     handlePortalMessage(event);
     if (tryComplete()) return;
     if (isPortalNavigateMessage(event)) {
@@ -127,10 +148,32 @@ function attachPortalSessionProbe(frame, options = {}) {
 
   return {
     queueDashboardProbe,
+    scheduleAction,
     tryComplete,
     finish,
     cleanup,
+    isSettled: () => settled,
   };
+}
+
+function scheduleLoginVerification(probe, frame) {
+  // 先 ping 当前 iframe，避免过早 frame.src 跳转打断验证码登录 POST/重定向
+  [0, 500, 1000, 1600, 2300, 3200, 4200, 5500, 7000, 9000, 11500, 14500, 18000, 22000, 28000, 35000].forEach(
+    (delay) => {
+      probe.scheduleAction(delay, () => pingBridgeFrame(frame));
+    },
+  );
+  // dashboard 探测仅作兜底，且必须晚于首次登录响应
+  [2500, 6000, 11000, 18000, 28000, 38000].forEach((delay) => {
+    probe.scheduleAction(delay, () => probe.queueDashboardProbe(0));
+  });
+}
+
+function buildLoginFailureMessage(fields, sawLoginPage) {
+  if (fields.login_method === "sms") {
+    return sawLoginPage ? "验证码错误或已过期，请重新获取" : "登录失败，请检查手机号和验证码";
+  }
+  return sawLoginPage ? "账号或密码错误，请检查后重试" : "登录失败，请检查账号信息";
 }
 
 /**
@@ -160,21 +203,40 @@ export function submitPortalLoginForm(fields) {
   return new Promise((resolve, reject) => {
     let settled = false;
     let formSubmitted = false;
+    let loginResponseAt = 0;
+    let sawLoginPage = false;
+    let failureTimer = null;
+    let verificationScheduled = false;
 
     const probe = attachPortalSessionProbe(frame, {
-      timeoutMs: 30000,
+      timeoutMs: LOGIN_SUBMIT_TIMEOUT_MS,
       onAuthenticated: () => finishResolve({ authenticated: true }),
-      onTimeout: () => finishReject(new Error("登录超时，请检查账号信息或网络连接")),
+      onTimeout: () =>
+        finishReject(new Error(buildLoginFailureMessage(fields, sawLoginPage) || "登录超时，请检查账号信息或网络连接")),
       onFrameLoad: () => {
         if (!formSubmitted || settled) return;
-        probe.queueDashboardProbe(300);
-        probe.queueDashboardProbe(1200);
+        loginResponseAt = Date.now();
+        pingBridgeFrame(frame);
+        if (verificationScheduled) return;
+        verificationScheduled = true;
+        scheduleLoginVerification(probe, frame);
+        failureTimer = window.setTimeout(() => {
+          if (settled || !sawLoginPage) return;
+          finishReject(new Error(buildLoginFailureMessage(fields, true)));
+        }, LOGIN_FAILURE_GRACE_MS);
+      },
+      onPong: (data) => {
+        if (!formSubmitted || settled || !loginResponseAt) return;
+        if (isPortalLoginPath(data?.path) && data?.authenticated === false) {
+          sawLoginPage = true;
+        }
       },
     });
 
     function finishResolve(value) {
       if (settled) return;
       settled = true;
+      if (failureTimer) window.clearTimeout(failureTimer);
       probe.cleanup();
       resolve(value);
     }
@@ -182,6 +244,7 @@ export function submitPortalLoginForm(fields) {
     function finishReject(error) {
       if (settled) return;
       settled = true;
+      if (failureTimer) window.clearTimeout(failureTimer);
       probe.cleanup();
       reject(error instanceof Error ? error : new Error(String(error)));
     }
@@ -206,8 +269,6 @@ export function submitPortalLoginForm(fields) {
     formSubmitted = true;
     form.submit();
     form.remove();
-
-    [800, 1800, 3500, 6000].forEach((delay) => probe.queueDashboardProbe(delay));
   });
 }
 
