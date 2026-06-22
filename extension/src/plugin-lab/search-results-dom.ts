@@ -378,16 +378,19 @@ function feedOverlayVisibleStrict(): boolean {
   return false;
 }
 
-export async function waitForSearchResultCards(maxAttempts = 10): Promise<HTMLElement[]> {
+export async function waitForSearchResultCards(
+  maxAttempts = 10,
+  fast = false,
+): Promise<HTMLElement[]> {
   window.scrollTo({ top: 0, behavior: "auto" });
-  await sleep(300);
+  await sleep(fast ? 120 : 300);
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const cards = collectSearchResultCards();
     if (cards.length > 0) return cards;
     if (attempt < maxAttempts - 1) {
       window.scrollBy({ top: 400 + attempt * 250, behavior: "auto" });
-      await sleep(450 + attempt * 120);
+      await sleep(fast ? 220 + attempt * 60 : 450 + attempt * 120);
     }
   }
   return [];

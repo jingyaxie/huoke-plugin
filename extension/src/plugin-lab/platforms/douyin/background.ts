@@ -58,11 +58,11 @@ async function probeVideo(tabId: number, payload: Record<string, unknown>): Prom
   )) as VideoProbe;
 }
 
-async function prepareSearchPage(tabId: number) {
+async function prepareSearchPage(tabId: number, payload: Record<string, unknown> = {}) {
   return (await sendContentPluginLabCommand(
     tabId,
     "plugin_lab.prepare_search_video",
-    { skip_restore: true, platform: PLATFORM },
+    { skip_restore: true, ...payload, platform: PLATFORM },
     { skipPreflight: true },
   )) as { ok?: boolean; card_count?: number; message?: string };
 }
@@ -76,9 +76,9 @@ async function domOpenFeed(tabId: number, payload: Record<string, unknown>): Pro
   )) as ClickResult;
 }
 
-async function waitSearchFeedOpen(tabId: number, videoIndex: number, maxPolls = 36): Promise<boolean> {
+async function waitSearchFeedOpen(tabId: number, videoIndex: number, maxPolls = 24): Promise<boolean> {
   for (let i = 0; i < maxPolls; i += 1) {
-    await sleep(220 + i * 45);
+    await sleep(140 + i * 30);
     const status = await probeVideo(tabId, { video_index: videoIndex, status_only: true });
     if (status.is_search_feed) return true;
     if (status.is_standalone_video) return false;
@@ -154,7 +154,8 @@ async function tryOpenKnownAweme(
   payload: Record<string, unknown>,
   awemeId: string,
 ): Promise<ClickResult | null> {
-  await prepareSearchPage(tabId);
+  const prepPayload = payload.fresh_search ? { fresh_search: true, skip_restore: true } : {};
+  await prepareSearchPage(tabId, prepPayload);
   const modal = await domOpenFeed(tabId, {
     ...payload,
     video_index: videoIndex,
@@ -176,12 +177,14 @@ async function runFeedOpenAttempts(
   let lastMessage = "未打开搜索 Feed 浮层";
   let lastUrl = initialUrl;
   let awemeHint = String(payload.aweme_id ?? payload.aweme_hint ?? "").trim();
+  const freshSearch = Boolean(payload.fresh_search);
+  const prepPayload = freshSearch ? { fresh_search: true, skip_restore: true } : {};
 
   for (let attempt = 1; attempt <= 4; attempt += 1) {
-    const prep = await prepareSearchPage(tabId);
+    const prep = await prepareSearchPage(tabId, prepPayload);
     if (!prep.ok) {
       lastMessage = prep.message ?? "搜索列表未就绪";
-      await sleep(800 + attempt * 350);
+      await sleep(freshSearch ? 400 + attempt * 200 : 800 + attempt * 350);
       continue;
     }
 
@@ -463,10 +466,6 @@ export async function swipeSearchFeedNextBackground(
   }
 
   await withTabDebugger(tabId, async () => {
-    await pressKey(tabId, "Escape", { code: "Escape" });
-    await sleep(180);
-    await pressKey(tabId, "Escape", { code: "Escape" });
-    await sleep(humanPace.listPrepare());
     await clickMouse(tabId, center.x, center.y);
     await sleep(humanPace.posterClick());
     await dragMouse(tabId, center.x, center.y + 150, center.x, center.y - 240, 12);

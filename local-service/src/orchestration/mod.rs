@@ -21,6 +21,19 @@ use crate::ws::BridgeHub;
 
 const JOB_PAUSED: &str = "__job_paused__";
 
+fn feed_aweme_from_response(resp: &serde_json::Value) -> Option<String> {
+    resp.get("aweme_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !is_dom_poster_aweme_id(s))
+        .map(str::to_string)
+        .or_else(|| {
+            resp.get("url")
+                .and_then(|v| v.as_str())
+                .and_then(parse_aweme_id_from_page_url)
+        })
+}
+
 /// 插件已打开可采评论的视频上下文：Feed 浮层 / 右侧独立窗 / 工作窗 /video/ 页
 fn video_ready_for_collect(resp: &serde_json::Value) -> bool {
     if resp.get("ok").and_then(|v| v.as_bool()) != Some(true) {
@@ -44,6 +57,11 @@ fn video_ready_for_collect(resp: &serde_json::Value) -> bool {
     resp.get("url")
         .and_then(|v| v.as_str())
         .is_some_and(|u| u.contains("/video/") || u.contains("/short-video/"))
+}
+
+fn feed_navigation_ok(resp: &serde_json::Value) -> bool {
+    video_ready_for_collect(resp)
+        && feed_aweme_from_response(resp).is_some()
 }
 
 pub struct JobOrchestrator {
@@ -175,42 +193,59 @@ impl JobOrchestrator {
         let lab = LabCommands::new(&self.hub, &job.platform);
         let existing_progress = self.collect_progress_count(job_id)?;
         let resume_collect = existing_progress > 0 && existing_progress < cfg.target_count;
+        let feed_collect = job.platform == "douyin" && cfg.intent == "keyword_auto";
 
-        let search_result = if resume_collect {
+        if resume_collect {
             info!(
-                "job {job_id}: continue collect — {} {} already stored (target {}), resume search page without re-entering keyword",
+                "job {job_id}: continue collect — {} {} stored (target {}), re-run keyword search ({search_kw})",
                 existing_progress,
                 self.collect_progress_label(),
                 cfg.target_count
             );
-            lab.prepare_keyword_collect_resume().await?;
-            None
-        } else {
-            let search_result = lab
-                .run_keyword_search(&search_kw, cfg.filter_publish_days_for_ui())
-                .await?;
-            let videos_preview = parse_plugin_lab_search_results(&job.platform, &search_result);
-            let ok = search_result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
-            if !ok && videos_preview.is_empty() {
-                let msg = search_result
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("keyword search failed");
-                return Err(msg.to_string());
-            }
-            Some(search_result)
-        };
+        }
+
+        if feed_collect {
+            lab.run_keyword_search(
+                &search_kw,
+                cfg.filter_publish_days_for_ui(),
+                false,
+            )
+            .await?;
+            return self
+                .collect_keyword_via_search_feed(job_id, job, cfg)
+                .await;
+        }
+
+        let mut keyword_researched = false;
+        let search_result = lab
+            .run_keyword_search(
+                &search_kw,
+                cfg.filter_publish_days_for_ui(),
+                true,
+            )
+            .await?;
+        keyword_researched = true;
+        let videos_preview = parse_plugin_lab_search_results(&job.platform, &search_result);
+        let ok = search_result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
+        if !ok && videos_preview.is_empty() {
+            let msg = search_result
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("keyword search failed");
+            return Err(msg.to_string());
+        }
 
         self.ensure_search_videos_captured(
             job_id,
             &job.platform,
             &lab,
-            search_result.as_ref(),
+            Some(&search_result),
             job.limit_videos,
         )
         .await?;
 
-        self.collect_until_target(job_id, job, cfg).await
+        self.collect_until_target(job_id, job, cfg, &mut keyword_researched)
+            .await
     }
 
     async fn run_manual_job(
@@ -272,7 +307,9 @@ impl JobOrchestrator {
             }
         }
 
-        self.collect_until_target(job_id, job, cfg).await
+        let mut keyword_researched = false;
+        self.collect_until_target(job_id, job, cfg, &mut keyword_researched)
+            .await
     }
 
     async fn ensure_profile_videos_captured(
@@ -325,13 +362,339 @@ impl JobOrchestrator {
         Ok(())
     }
 
-    async fn collect_until_target(
+    /// 抖音关键词任务：搜索后点第一个进 Feed，在 Feed 内上滑切视频，遇已采则跳过。
+    async fn collect_keyword_via_search_feed(
         &self,
         job_id: &str,
         job: &crate::db::CollectJob,
         cfg: &JobConfig,
     ) -> Result<(), String> {
-        let videos = self.load_videos_for_job(job_id, cfg)?;
+        use std::collections::HashMap;
+
+        let lab = LabCommands::new(&self.hub, &job.platform);
+        let scroll_rounds =
+            scroll_rounds_for_video(job.max_comments_per_video, cfg.comment_days);
+        let max_videos = job.limit_videos.max(1) as u32;
+        let mut feed_open = false;
+        let mut collected_videos = 0_u32;
+        let mut swipe_failures = 0_u32;
+        let mut stale_hits: HashMap<String, u32> = HashMap::new();
+        let mut last_aweme_id: Option<String> = None;
+        const MAX_SWIPE_FAILURES: u32 = 8;
+        const MAX_STALE_ON_SAME: u32 = 3;
+
+        loop {
+            self.bail_if_paused(job_id)?;
+            if self.is_job_paused(job_id)? {
+                return Ok(());
+            }
+            if self.collect_target_reached(job_id, cfg)? {
+                break;
+            }
+            if collected_videos >= max_videos {
+                info!(
+                    "job {job_id}: feed collect reached video limit ({max_videos})"
+                );
+                break;
+            }
+            if swipe_failures >= MAX_SWIPE_FAILURES {
+                warn!(
+                    "job {job_id}: feed swipe failed {swipe_failures} times, stop feed collect"
+                );
+                break;
+            }
+
+            let opening_first = !feed_open;
+            let nav = if opening_first {
+                info!("job {job_id}: open first search result in feed");
+                lab.click_search_video_fresh(1).await
+            } else {
+                self.feed_swipe_next(&lab, last_aweme_id.as_deref()).await
+            };
+
+            let resp = match nav {
+                Ok(r) => r,
+                Err(err) => {
+                    swipe_failures += 1;
+                    warn!("job {job_id}: feed navigation error — {err}");
+                    simulate::pause(Duration::from_millis(800)).await;
+                    continue;
+                }
+            };
+
+            let nav_ok = if opening_first {
+                video_ready_for_collect(&resp)
+            } else {
+                feed_navigation_ok(&resp)
+            };
+            if !nav_ok {
+                swipe_failures += 1;
+                warn!(
+                    "job {job_id}: feed navigation not ready — {:?}",
+                    resp.get("message").and_then(|v| v.as_str())
+                );
+                simulate::pause(Duration::from_millis(800)).await;
+                continue;
+            }
+
+            feed_open = resp
+                .get("is_search_feed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+                || feed_open;
+
+            let aweme_id = feed_aweme_from_response(&resp).unwrap_or_default();
+            let aweme_id = if aweme_id.is_empty() {
+                lab.probe_search_feed()
+                    .await
+                    .ok()
+                    .and_then(|p| feed_aweme_from_response(&p))
+                    .unwrap_or_default()
+            } else {
+                aweme_id
+            };
+
+            if aweme_id.is_empty() {
+                swipe_failures += 1;
+                warn!("job {job_id}: feed open but aweme_id unknown");
+                continue;
+            }
+            last_aweme_id = Some(aweme_id.clone());
+
+            let stale = stale_hits.entry(aweme_id.clone()).or_insert(0);
+            *stale += 1;
+            if *stale > MAX_STALE_ON_SAME {
+                swipe_failures += 1;
+                warn!(
+                    "job {job_id}: stuck on aweme {aweme_id} ({stale} times), treat as swipe failure"
+                );
+                continue;
+            }
+
+            if self.aweme_comments_already_collected(job_id, &aweme_id)? {
+                info!(
+                    "job {job_id}: skip aweme {aweme_id} — already collected, swipe next"
+                );
+                continue;
+            }
+
+            info!(
+                "job {job_id}: collect comments in feed aweme={aweme_id} ({}/{max_videos})",
+                collected_videos + 1
+            );
+
+            match self
+                .scroll_and_persist_feed_comments(
+                    job_id,
+                    job,
+                    cfg,
+                    &aweme_id,
+                    scroll_rounds,
+                )
+                .await
+            {
+                Ok(()) => {
+                    collected_videos += 1;
+                    swipe_failures = 0;
+                    stale_hits.clear();
+                    if self.uses_precise_collect_target() {
+                        let _ = self
+                            .evaluate_pending_comments(job_id, job, cfg)
+                            .await;
+                    }
+                }
+                Err(err) if err == JOB_PAUSED => return Ok(()),
+                Err(err) => {
+                    warn!("job {job_id}: feed collect failed for {aweme_id} — {err}");
+                    simulate::pause(Duration::from_millis(600)).await;
+                }
+            }
+        }
+
+        if self.uses_precise_collect_target() {
+            let _ = self.evaluate_pending_comments(job_id, job, cfg).await;
+        }
+
+        let total = self.db.count_comments_for_job(job_id)?;
+        let progress = self.collect_progress_count(job_id)?;
+        if total == 0 && collected_videos == 0 {
+            return Err(
+                "failed to open search feed or collect any video — keep Douyin on search results"
+                    .into(),
+            );
+        }
+        if progress < cfg.target_count {
+            let label = self.collect_progress_label();
+            return Err(format!(
+                "仅识别到 {progress}/{} 条{label}（共采集 {total} 条评论，Feed 内已浏览 {collected_videos} 个新视频）",
+                cfg.target_count
+            ));
+        }
+        info!(
+            "job {job_id}: {} {progress}/{} (total comments {total}, feed videos {collected_videos})",
+            self.collect_progress_label(),
+            cfg.target_count,
+        );
+        Ok(())
+    }
+
+    fn aweme_comments_already_collected(&self, job_id: &str, aweme_id: &str) -> Result<bool, String> {
+        Ok(self.db.count_comments_for_aweme(job_id, aweme_id)? > 0)
+    }
+
+    async fn scroll_and_persist_feed_comments(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+        aweme_hint: &str,
+        scroll_rounds: i64,
+    ) -> Result<(), String> {
+        self.bail_if_paused(job_id)?;
+        let lab = LabCommands::new(&self.hub, &job.platform);
+
+        let placeholder = ParsedVideo {
+            aweme_id: aweme_hint.to_string(),
+            video_url: String::new(),
+            title: String::new(),
+            author: String::new(),
+            raw_json: None,
+        };
+        let _ = self.db.upsert_videos(job_id, &[placeholder]);
+
+        self.wait_human_if_not_paused(job_id, 5500, 8500).await?;
+
+        let mut sidebar_ok = false;
+        for attempt in 1..=3 {
+            self.bail_if_paused(job_id)?;
+            let sidebar = lab.open_comment_sidebar().await?;
+            sidebar_ok = sidebar.get("ok").and_then(|v| v.as_bool()).unwrap_or(false)
+                || sidebar
+                    .get("comment_item_count")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0)
+                    > 0;
+            if sidebar_ok {
+                break;
+            }
+            self.wait_human_if_not_paused(job_id, 1200, 2200).await?;
+        }
+        if !sidebar_ok {
+            return Err("failed to open comment sidebar after 3 attempts".into());
+        }
+        self.wait_human_if_not_paused(job_id, 1500, 2800).await?;
+
+        let scroll_resp = lab
+            .scroll_comments(
+                scroll_rounds,
+                job.max_comments_per_video,
+                cfg.comment_days,
+            )
+            .await?;
+        let page_url = scroll_resp.get("url").and_then(|v| v.as_str());
+        let aweme_id = resolve_aweme_id_for_video(aweme_hint, "", page_url);
+        let scroll_comments = parse_dom_scroll_comments(&scroll_resp);
+        let capture_method = scroll_resp
+            .get("capture_method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let persistable: Vec<_> = scroll_comments
+            .into_iter()
+            .filter(|c| capture_method == "dom" || !c.comment_id.starts_with("dom_"))
+            .collect();
+
+        if !persistable.is_empty() {
+            let inserted = self.db.upsert_comments(job_id, &aweme_id, &persistable)?;
+            info!(
+                "job {job_id}: stored {inserted} comments for aweme {aweme_id} via {capture_method}"
+            );
+            if inserted > 0 {
+                if self.uses_precise_collect_target() {
+                    let _ = crate::evaluation::evaluate_job_comments(
+                        &self.db,
+                        &self.data_dir,
+                        job_id,
+                        &job.keyword,
+                        &cfg.evaluation,
+                    )
+                    .await;
+                } else {
+                    crate::evaluation::spawn_evaluate_job(
+                        self.db.clone(),
+                        self.data_dir.clone(),
+                        job_id.to_string(),
+                    );
+                }
+            }
+        }
+
+        let _ = self.db.patch_video_collect_url(
+            job_id,
+            aweme_hint,
+            &aweme_id,
+            page_url,
+        );
+
+        let _ = lab.prepare_feed_for_swipe().await;
+        self.wait_human_if_not_paused(job_id, 800, 1500).await?;
+        Ok(())
+    }
+
+    async fn feed_swipe_next(
+        &self,
+        lab: &LabCommands<'_>,
+        last_aweme: Option<&str>,
+    ) -> Result<serde_json::Value, String> {
+        let _ = lab.prepare_feed_for_swipe().await;
+
+        match lab.swipe_search_feed_next().await {
+            Ok(resp) if feed_navigation_ok(&resp) => return Ok(resp),
+            Ok(resp) if resp.get("is_search_feed").and_then(|v| v.as_bool()) == Some(true) => {
+                warn!(
+                    "feed swipe retry after prepare — {:?}",
+                    resp.get("message").and_then(|v| v.as_str())
+                );
+                let _ = lab.prepare_feed_for_swipe().await;
+                simulate::pause(Duration::from_millis(400)).await;
+                match lab.swipe_search_feed_next().await {
+                    Ok(retry) if feed_navigation_ok(&retry) => return Ok(retry),
+                    Ok(retry) => Ok(retry),
+                    Err(err) => Err(err),
+                }
+            }
+            Ok(resp) => {
+                if let Some(id) = last_aweme.filter(|s| !s.is_empty()) {
+                    if let Ok(recovered) = lab.recover_search_feed(id).await {
+                        if recovered.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                            info!("feed recovered via modal_id for aweme {id}");
+                            return lab.swipe_search_feed_next().await;
+                        }
+                    }
+                }
+                Ok(resp)
+            }
+            Err(err) => {
+                if let Some(id) = last_aweme.filter(|s| !s.is_empty()) {
+                    if let Ok(recovered) = lab.recover_search_feed(id).await {
+                        if recovered.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                            info!("feed recovered after swipe error for aweme {id}");
+                            return lab.swipe_search_feed_next().await;
+                        }
+                    }
+                }
+                Err(err)
+            }
+        }
+    }
+
+    async fn collect_until_target(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+        keyword_researched: &mut bool,
+    ) -> Result<(), String> {
+        let mut videos = self.load_videos_for_job(job_id, cfg)?;
         if videos.is_empty() {
             return Err(
                 "search produced no videos — ensure Douyin tab is active and logged in".into(),
@@ -343,6 +706,8 @@ impl JobOrchestrator {
         let mut pass = 0_u32;
         let mut opened_videos = 0_u32;
         let mut search_feed_chain = false;
+        let mut expand_attempts = 0_u32;
+        const MAX_EXPAND_ATTEMPTS: u32 = 1;
 
         let lab = LabCommands::new(&self.hub, &job.platform);
         if cfg.intent == "account_home" {
@@ -356,6 +721,7 @@ impl JobOrchestrator {
                 return Ok(());
             }
             pass += 1;
+            opened_videos = 0;
             for (index, video) in videos.iter().enumerate() {
                 self.bail_if_paused(job_id)?;
                 if self.collect_target_reached(job_id, cfg)? {
@@ -429,6 +795,23 @@ impl JobOrchestrator {
                     .scroll_comments(4, job.max_comments_per_video, cfg.comment_days)
                     .await;
                 simulate::pause(Duration::from_secs(3)).await;
+            } else if cfg.intent == "keyword_auto" && expand_attempts < MAX_EXPAND_ATTEMPTS {
+                expand_attempts += 1;
+                if self
+                    .try_expand_search_videos(
+                        job_id,
+                        job,
+                        cfg,
+                        &lab,
+                        &mut videos,
+                        keyword_researched,
+                    )
+                    .await?
+                {
+                    pass = 0;
+                    search_feed_chain = false;
+                    continue;
+                }
             }
         }
 
@@ -573,6 +956,17 @@ impl JobOrchestrator {
                     let _ = lab.swipe_search_results(1).await;
                     self.wait_if_not_paused(job_id, Duration::from_millis(1200))
                         .await?;
+                    let resp = lab
+                        .fetch_search_results_after_scroll(fetch_limit, videos.len())
+                        .await?;
+                    last_resp = resp.clone();
+                    let fetched = parse_plugin_lab_search_results(platform, &resp);
+                    videos = merge_parsed_videos(videos, fetched);
+                    if !videos.is_empty() {
+                        warn!("job {job_id}: fetch_search_results succeeded on attempt {attempt}");
+                        break;
+                    }
+                    continue;
                 }
             }
             if videos.is_empty() && !last_resp.is_null() {
@@ -654,15 +1048,19 @@ impl JobOrchestrator {
                 "job {job_id}: search list {before}/{target} videos — scrolling page {page}/{MAX_PAGES}"
             );
 
-            let _ = lab.scroll_search_list_to_top().await;
-            let _ = lab.swipe_search_results(1).await;
-            self.wait_if_not_paused(job_id, Duration::from_millis(1400))
+            if page == 1 {
+                let _ = lab.scroll_search_list_to_top().await;
+            }
+            let _ = lab.swipe_search_results(3).await;
+            self.wait_if_not_paused(job_id, Duration::from_millis(2200))
                 .await?;
             let _ = lab.enable_network_hook().await;
             self.wait_if_not_paused(job_id, Duration::from_millis(800))
                 .await?;
 
-            let resp = lab.fetch_search_results(fetch_limit).await?;
+            let resp = lab
+                .fetch_search_results_after_scroll(fetch_limit, before)
+                .await?;
             let batch = parse_plugin_lab_search_results(platform, &resp);
             if batch.is_empty() {
                 warn!("job {job_id}: search page {page} returned no parsable videos");
@@ -684,6 +1082,85 @@ impl JobOrchestrator {
         }
 
         Ok(videos.len().saturating_sub(initial))
+    }
+
+    /// 当前列表视频均已采集时，滚动搜索页加载更多条目。
+    async fn try_expand_search_videos(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+        lab: &LabCommands<'_>,
+        videos: &mut Vec<CapturedVideo>,
+        keyword_researched: &mut bool,
+    ) -> Result<bool, String> {
+        let pending = videos
+            .iter()
+            .filter(|v| !self.video_comments_already_collected(job_id, v).unwrap_or(false))
+            .count();
+        if pending > 0 {
+            return Ok(false);
+        }
+
+        let before = videos.len();
+        info!(
+            "job {job_id}: all {before} search videos already collected — scrolling for more"
+        );
+        let target = (before + 1).max(job.limit_videos.clamp(1, 20) as usize);
+        let fetch_limit = (job.limit_videos + 5).clamp(1, 50);
+        let mut parsed = self.parsed_videos_from_db(job_id)?;
+        let added = self
+            .paginate_search_videos(job_id, &job.platform, lab, &mut parsed, target, fetch_limit)
+            .await?;
+        if added == 0 {
+            if *keyword_researched {
+                info!(
+                    "job {job_id}: scroll pagination added no videos and keyword search already ran this session — skip re-search"
+                );
+                return Ok(false);
+            }
+            let search_kw = cfg.search_keyword(&job.keyword);
+            info!(
+                "job {job_id}: scroll pagination added no videos, one-time keyword re-search ({search_kw})"
+            );
+            *keyword_researched = true;
+            if let Ok(search_resp) = lab
+                .run_keyword_search(&search_kw, cfg.filter_publish_days_for_ui(), true)
+                .await
+            {
+                let fetched = parse_plugin_lab_search_results(&job.platform, &search_resp);
+                let merged = merge_parsed_videos(parsed, fetched);
+                if merged.len() > before {
+                    self.db.replace_videos_for_job(job_id, &merged)?;
+                    *videos = self.load_videos_for_job(job_id, cfg)?;
+                    info!(
+                        "job {job_id}: keyword re-search expanded list {before} → {} videos",
+                        videos.len()
+                    );
+                    return Ok(true);
+                }
+                info!(
+                    "job {job_id}: keyword re-search returned no new videos ({before} → {})",
+                    merged.len()
+                );
+            }
+            return Ok(false);
+        }
+        self.db.replace_videos_for_job(job_id, &parsed)?;
+        *videos = self.load_videos_for_job(job_id, cfg)?;
+        info!(
+            "job {job_id}: expanded search list {before} → {} videos (+{added})",
+            videos.len()
+        );
+        Ok(true)
+    }
+
+    fn count_pending_videos(&self, job_id: &str, cfg: &JobConfig) -> Result<usize, String> {
+        let videos = self.load_videos_for_job(job_id, cfg)?;
+        Ok(videos
+            .iter()
+            .filter(|v| !self.video_comments_already_collected(job_id, v).unwrap_or(false))
+            .count())
     }
 
     fn load_videos_for_job(

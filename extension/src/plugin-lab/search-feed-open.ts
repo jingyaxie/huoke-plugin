@@ -121,9 +121,10 @@ export function buildSearchModalUrl(awemeId: string, baseUrl?: string): string |
 
 export async function waitForSearchFeedOverlay(maxMs = 9000): Promise<boolean> {
   const deadline = Date.now() + maxMs;
+  const pollMs = maxMs <= 5000 ? 160 : 280;
   while (Date.now() < deadline) {
     if (isSearchFeedOverlay()) return true;
-    await sleep(280);
+    await sleep(pollMs);
   }
   return isSearchFeedOverlay();
 }

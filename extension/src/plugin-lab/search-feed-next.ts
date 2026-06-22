@@ -1,10 +1,85 @@
 import {
-  dismissTransientOverlay,
+  clickCommentIconViaDom,
   isCommentSidebarReadyForCollect,
   probeCommentSidebar,
 } from "./comment-sidebar-dom";
-import { isSearchFeedOverlay } from "./search-feed-open";
-import { humanClick, randDelay, sleep } from "./search-input";
+import { isSearchFeedOverlay, openFeedViaModalId } from "./search-feed-open";
+import { humanClick, isVisible, randDelay, sleep } from "./search-input";
+
+/** 搜索 Feed 右侧「下一个」下箭头 SVG path 特征（viewBox 0 0 26 26） */
+const FEED_NEXT_ARROW_PATH_MARKERS = [
+  "M7.26904 9.29059",
+  "17.3808 9.29053",
+  "13.3098 13.3616",
+] as const;
+
+function isFeedNextArrowSvg(svg: SVGElement): boolean {
+  const viewBox = svg.getAttribute("viewBox")?.replace(/\s+/g, " ") ?? "";
+  if (viewBox && viewBox !== "0 0 26 26") return false;
+  const path = svg.querySelector("path");
+  const d = path?.getAttribute("d") ?? "";
+  if (!d) return false;
+  return FEED_NEXT_ARROW_PATH_MARKERS.some((mark) => d.includes(mark));
+}
+
+function resolveClickableAncestor(el: Element, maxDepth = 8): HTMLElement | null {
+  let node: Element | null = el;
+  for (let depth = 0; node && depth < maxDepth; depth += 1) {
+    if (node instanceof HTMLElement && isVisible(node)) {
+      const tag = node.tagName.toLowerCase();
+      const role = node.getAttribute("role") ?? "";
+      if (
+        tag === "button" ||
+        role === "button" ||
+        node.hasAttribute("tabindex") ||
+        getComputedStyle(node).cursor === "pointer"
+      ) {
+        return node;
+      }
+    }
+    node = node.parentElement;
+  }
+  return el instanceof HTMLElement && isVisible(el) ? el : null;
+}
+
+/** 搜索 Feed 浮层内「下一个视频」下箭头按钮 */
+export function findFeedNextVideoButton(): HTMLElement | null {
+  const feedRoot =
+    (document.querySelector('[data-e2e="feed-active-video"]') as HTMLElement | null)?.closest(
+      '[class*="Player"], [class*="player"], [class*="Feed"], section, div',
+    ) ?? document.body;
+
+  const scope = feedRoot instanceof HTMLElement ? feedRoot : document.body;
+  const svgs = scope.querySelectorAll("svg");
+  for (let i = 0; i < svgs.length; i += 1) {
+    const svg = svgs[i];
+    if (!(svg instanceof SVGElement) || !isFeedNextArrowSvg(svg)) continue;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) continue;
+    const clickable = resolveClickableAncestor(svg);
+    if (clickable) return clickable;
+  }
+
+  // 兜底：整页扫描（浮层层级可能不在 feed-active-video 子树内）
+  const allSvgs = document.querySelectorAll("svg");
+  for (let i = 0; i < allSvgs.length; i += 1) {
+    const svg = allSvgs[i];
+    if (!(svg instanceof SVGElement) || !isFeedNextArrowSvg(svg)) continue;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8 || rect.top < 40) continue;
+    const clickable = resolveClickableAncestor(svg);
+    if (clickable) return clickable;
+  }
+  return null;
+}
+
+async function clickFeedNextVideoButton(): Promise<boolean> {
+  const btn = findFeedNextVideoButton();
+  if (!btn) return false;
+  humanClick(btn);
+  await sleep(randDelay(320, 520));
+  return true;
+}
 
 export function readFeedAwemeId(url = location.href): string | null {
   try {
@@ -109,11 +184,73 @@ async function pointerDragFeedNext(feed: HTMLElement) {
 }
 
 async function dismissCommentPanelForSwipe() {
-  for (let i = 0; i < 3; i += 1) {
-    if (!isCommentSidebarReadyForCollect()) break;
-    dismissTransientOverlay();
-    await sleep(randDelay(220, 380));
+  const inSearchFeed = isSearchFeedOverlay();
+  const player = resolveFeedSwipeTarget();
+
+  // 先点视频区收回焦点；Feed 浮层内禁止 Escape（会关掉整个 Feed）
+  await focusFeedPlayer(player);
+  await sleep(randDelay(180, 300));
+
+  if (!isCommentSidebarReadyForCollect()) return;
+
+  if (inSearchFeed) {
+    clickCommentIconViaDom();
+    await sleep(randDelay(280, 420));
+    await focusFeedPlayer(player);
+    await sleep(randDelay(180, 280));
+    return;
   }
+
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }),
+  );
+  await sleep(randDelay(220, 320));
+}
+
+/** 采完评论后、切下一个视频前：确保仍在 Feed 且评论区不挡操作 */
+export async function prepareFeedForSwipe() {
+  if (!isSearchFeedOverlay()) {
+    const awemeId = readFeedAwemeId();
+    return {
+      ok: false,
+      is_search_feed: false,
+      aweme_id: awemeId,
+      url: location.href,
+      message: "不在搜索 Feed 浮层",
+    };
+  }
+
+  await dismissCommentPanelForSwipe();
+  const stillInFeed = isSearchFeedOverlay();
+  return {
+    ok: stillInFeed,
+    is_search_feed: stillInFeed,
+    aweme_id: readFeedAwemeId(),
+    url: location.href,
+    message: stillInFeed ? "Feed 已就绪，可切换下一个视频" : "Feed 浮层已关闭",
+  };
+}
+
+/** 用 modal_id 恢复搜索 Feed（Feed 被误关时） */
+export async function recoverSearchFeedFromAweme(awemeId: string) {
+  const id = String(awemeId ?? "").trim();
+  if (!/^\d{8,22}$/.test(id)) {
+    return {
+      ok: false,
+      is_search_feed: false,
+      message: "缺少有效 aweme_id，无法恢复 Feed",
+      url: location.href,
+    };
+  }
+  const opened = await openFeedViaModalId(id);
+  const phase = isSearchFeedOverlay();
+  return {
+    ok: opened.ok && phase,
+    is_search_feed: phase,
+    aweme_id: readFeedAwemeId() ?? id,
+    url: location.href,
+    message: opened.message,
+  };
 }
 
 async function focusFeedPlayer(target: HTMLElement) {
@@ -132,7 +269,7 @@ async function focusFeedPlayer(target: HTMLElement) {
   await sleep(randDelay(280, 480));
 }
 
-async function waitForFeedAwemeChange(before: string | null, maxMs = 1800): Promise<string | null> {
+async function waitForFeedAwemeChange(before: string | null, maxMs = 3200): Promise<string | null> {
   const deadline = Date.now() + maxMs;
   while (Date.now() < deadline) {
     const after = readFeedAwemeId();
@@ -156,8 +293,35 @@ export async function swipeSearchFeedNext() {
   const before = readFeedAwemeId();
   await dismissCommentPanelForSwipe();
 
+  if (!isSearchFeedOverlay()) {
+    return {
+      ok: false,
+      is_search_feed: false,
+      aweme_id: before,
+      previous_aweme_id: before,
+      url: location.href,
+      message: "Feed 浮层已关闭（请勿用 Escape 关评论）",
+    };
+  }
+
   const target = resolveFeedSwipeTarget();
   await focusFeedPlayer(target);
+
+  if (await clickFeedNextVideoButton()) {
+    const afterArrow = await waitForFeedAwemeChange(before, 3500);
+    if (afterArrow && afterArrow !== before) {
+      return {
+        ok: true,
+        is_search_feed: true,
+        aweme_id: afterArrow,
+        previous_aweme_id: before,
+        attempt: 1,
+        method: "next_arrow_click",
+        url: location.href,
+        message: "已通过下箭头按钮切换到下一个视频",
+      };
+    }
+  }
 
   const methods: Array<() => Promise<void>> = [
     async () => {
@@ -176,17 +340,19 @@ export async function swipeSearchFeedNext() {
     },
   ];
 
+  const methodNames = ["wheel_key", "pointer_wheel", "pointer_key"] as const;
+
   for (let attempt = 1; attempt <= methods.length; attempt += 1) {
     await methods[attempt - 1]();
-    const after = await waitForFeedAwemeChange(before, 2000);
+    const after = await waitForFeedAwemeChange(before, 3500);
     if (after && after !== before) {
       return {
         ok: true,
         is_search_feed: true,
         aweme_id: after,
         previous_aweme_id: before,
-        attempt,
-        method: attempt === 1 ? "wheel_key" : attempt === 2 ? "pointer_wheel" : "pointer_key",
+        attempt: attempt + 1,
+        method: methodNames[attempt - 1] ?? "unknown",
         url: location.href,
         message: "已在搜索 Feed 内切换到下一个视频",
       };

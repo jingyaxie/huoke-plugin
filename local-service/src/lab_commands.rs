@@ -54,7 +54,12 @@ impl<'a> LabCommands<'a> {
         Err(last_err)
     }
 
-    pub async fn run_keyword_search(&self, keyword: &str, publish_days: i64) -> Result<Value, String> {
+    pub async fn run_keyword_search(
+        &self,
+        keyword: &str,
+        publish_days: i64,
+        fetch_results: bool,
+    ) -> Result<Value, String> {
         let platform = self.platform.clone();
         // 清理上次任务遗留的独立窗 / Feed 浮层 / 工作窗 /video/ 页，避免无法输入搜索
         let _ = self.close_video_detail().await;
@@ -168,11 +173,16 @@ impl<'a> LabCommands<'a> {
                 }
                 Err(err) => warn!("ensure_search_multi_column failed: {err}"),
             }
-            simulate::pause(Duration::from_millis(800)).await;
+            simulate::pause(Duration::from_millis(if fetch_results { 800 } else { 300 })).await;
         }
 
-        // 等待进入搜索结果页
-        simulate::pause(Duration::from_secs(5)).await;
+        // Feed 模式刚提交搜索，列表通常 1~2s 内就绪；列表模式仍多等一会
+        simulate::pause(if fetch_results {
+            Duration::from_secs(5)
+        } else {
+            Duration::from_millis(1200)
+        })
+        .await;
 
         if publish_days > 0 {
             if let Err(e) = self.action("click_filter_btn", json!({})).await {
@@ -188,16 +198,30 @@ impl<'a> LabCommands<'a> {
             {
                 warn!("click_filter_overlay failed: {e}");
             }
-            simulate::pause(Duration::from_secs(2)).await;
+            simulate::pause(if fetch_results {
+                Duration::from_secs(2)
+            } else {
+                Duration::from_millis(800)
+            })
+            .await;
         }
 
-        // 导航/筛选后 hook 会重置；抓数放在最后一步，确保拿到当前列表
-        self.enable_network_hook().await?;
-        simulate::pause(Duration::from_secs(1)).await;
+        // 列表抓取模式：筛选后需重新 hook；Feed 模式搜索前已 hook，直接进播放页
+        if fetch_results {
+            self.enable_network_hook().await?;
+            simulate::pause(Duration::from_millis(800)).await;
 
-        if platform == "douyin" {
-            let _ = self.action("ensure_search_multi_column", json!({})).await;
-            simulate::pause(Duration::from_millis(600)).await;
+            if platform == "douyin" {
+                let _ = self.action("ensure_search_multi_column", json!({})).await;
+                simulate::pause(Duration::from_millis(400)).await;
+            }
+        }
+
+        if !fetch_results {
+            return Ok(json!({
+                "ok": true,
+                "message": "search submitted, skip fetch (feed collect mode)",
+            }));
         }
 
         let search_payload = match self
@@ -212,6 +236,15 @@ impl<'a> LabCommands<'a> {
         };
 
         Ok(search_payload)
+    }
+
+    /// 探测当前是否在搜索 Feed 浮层，并读取 aweme_id
+    pub async fn probe_search_feed(&self) -> Result<Value, String> {
+        self.action(
+            "search_video_probe",
+            json!({ "platform": self.platform, "status_only": true }),
+        )
+        .await
     }
 
     /// 继续采集：关闭 Feed/详情，聚焦已有标签页并回到搜索结果，不重新输入关键词。
@@ -269,6 +302,22 @@ impl<'a> LabCommands<'a> {
         .await
     }
 
+    pub async fn prepare_feed_for_swipe(&self) -> Result<Value, String> {
+        self.action(
+            "prepare_feed_for_swipe",
+            json!({ "platform": self.platform }),
+        )
+        .await
+    }
+
+    pub async fn recover_search_feed(&self, aweme_id: &str) -> Result<Value, String> {
+        self.action(
+            "recover_search_feed",
+            json!({ "platform": self.platform, "aweme_id": aweme_id }),
+        )
+        .await
+    }
+
     pub async fn click_search_video(
         &self,
         video_index: i64,
@@ -276,10 +325,32 @@ impl<'a> LabCommands<'a> {
         aweme_id: Option<&str>,
         video_url: Option<&str>,
     ) -> Result<Value, String> {
+        self.click_search_video_with_options(video_index, rect, aweme_id, video_url, false)
+            .await
+    }
+
+    /// 搜索刚完成时打开第一个 Feed，跳过冗长列表等待
+    pub async fn click_search_video_fresh(
+        &self,
+        video_index: i64,
+    ) -> Result<Value, String> {
+        self.click_search_video_with_options(video_index, None, None, None, true)
+            .await
+    }
+
+    async fn click_search_video_with_options(
+        &self,
+        video_index: i64,
+        rect: Option<Value>,
+        aweme_id: Option<&str>,
+        video_url: Option<&str>,
+        fresh_search: bool,
+    ) -> Result<Value, String> {
         let mut payload = json!({
             "video_index": video_index.max(1),
             "use_detail_window": false,
-            "open_strategy": "auto",
+            "open_strategy": "feed",
+            "fresh_search": fresh_search,
         });
         if let Some(rect) = rect {
             payload["rect"] = rect;
@@ -312,14 +383,32 @@ impl<'a> LabCommands<'a> {
     }
 
     pub async fn fetch_search_results(&self, limit: i64) -> Result<Value, String> {
-        self.action(
-            "fetch_search_results",
-            json!({
-                "limit": limit.clamp(1, 50),
-                "api_timeout_ms": 25_000,
-            }),
-        )
-        .await
+        self.fetch_search_results_with_options(limit, None).await
+    }
+
+    pub async fn fetch_search_results_after_scroll(
+        &self,
+        limit: i64,
+        baseline_count: usize,
+    ) -> Result<Value, String> {
+        self.fetch_search_results_with_options(limit, Some(baseline_count))
+            .await
+    }
+
+    async fn fetch_search_results_with_options(
+        &self,
+        limit: i64,
+        baseline_count: Option<usize>,
+    ) -> Result<Value, String> {
+        let mut payload = json!({
+            "limit": limit.clamp(1, 50),
+            "api_timeout_ms": 8_000,
+        });
+        if let Some(baseline) = baseline_count {
+            payload["preserve_scroll_position"] = json!(true);
+            payload["baseline_count"] = json!(baseline as i64);
+        }
+        self.action("fetch_search_results", payload).await
     }
 
     pub async fn swipe_search_results(&self, rounds: i64) -> Result<(), String> {

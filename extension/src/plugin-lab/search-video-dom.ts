@@ -68,10 +68,13 @@ async function ensureSearchListReady(): Promise<void> {
 }
 
 /** 打开下一个视频前：关闭浮层、滚到列表顶部、等待卡片出现 */
-export async function prepareSearchForVideoClick(payload: { skip_restore?: boolean } = {}) {
+export async function prepareSearchForVideoClick(payload: {
+  skip_restore?: boolean;
+  fresh_search?: boolean;
+} = {}) {
   if (!payload.skip_restore) {
     await ensureSearchListReady();
-  } else if (!isSearchResultsPage()) {
+  } else if (!payload.fresh_search && !isSearchResultsPage()) {
     return {
       ok: false,
       card_count: 0,
@@ -93,8 +96,9 @@ export async function prepareSearchForVideoClick(payload: { skip_restore?: boole
 
   rememberSearchResultsUrl(stripModalFromSearchUrl(location.href));
   window.scrollTo({ top: 0, behavior: "auto" });
-  await sleep(humanPace.listPrepare());
-  const cards = await waitForSearchResultCards(10);
+  const cardWaitAttempts = payload.fresh_search ? 4 : 10;
+  await sleep(payload.fresh_search ? randDelay(180, 320) : humanPace.listPrepare());
+  const cards = await waitForSearchResultCards(cardWaitAttempts, payload.fresh_search);
 
   return {
     ok: cards.length > 0,
@@ -114,9 +118,11 @@ export async function openSearchFeedAtIndex(payload: {
   aweme_id?: string;
   aweme_hint?: string;
   strategy?: "modal_only" | "full";
+  fresh_search?: boolean;
 } = {}) {
   const index = Math.max(1, Number(payload.video_index ?? payload.index ?? 1));
   const awemeHint = resolveAwemeHint({ ...payload, video_index: index });
+  const feedWaitMs = payload.fresh_search ? 5000 : 9000;
 
   if (payload.strategy === "modal_only") {
     rememberSearchResultsUrl();
@@ -145,7 +151,10 @@ export async function openSearchFeedAtIndex(payload: {
     };
   }
 
-  const prep = await prepareSearchForVideoClick();
+  const prep = await prepareSearchForVideoClick({
+    skip_restore: Boolean(payload.fresh_search),
+    fresh_search: Boolean(payload.fresh_search),
+  });
   if (!prep.ok) {
     const { ok: _ignored, url: prepUrl, ...prepRest } = prep;
     return {
@@ -175,7 +184,7 @@ export async function openSearchFeedAtIndex(payload: {
   }
 
   const clicked = await clickSearchPosterAtIndex(index);
-  let feedOpen = await waitForSearchFeedOverlay(9000);
+  let feedOpen = await waitForSearchFeedOverlay(feedWaitMs);
   let awemeId = clicked.aweme_id || awemeHint;
 
   if (!feedOpen && isStandaloneVideoPage() && awemeId) {
@@ -215,6 +224,7 @@ export async function clickSearchVideoInContent(payload: {
   aweme_id?: string;
   aweme_hint?: string;
   strategy?: "modal_only" | "full";
+  fresh_search?: boolean;
 } = {}) {
   const result = await openSearchFeedAtIndex(payload);
   return {

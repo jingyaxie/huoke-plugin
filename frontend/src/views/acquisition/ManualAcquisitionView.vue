@@ -199,26 +199,59 @@ function formatTime(ts) {
   return new Date(ms).toLocaleString("zh-CN", { hour12: false });
 }
 
-async function refreshAll() {
-  loading.value = true;
+async function refreshAll({ silent = false } = {}) {
+  if (!silent) loading.value = true;
   try {
     const [status, jobs] = await Promise.all([fetchBridgeStatus(), listCollectJobs()]);
     bridgeStatus.value = status;
     allJobs.value = Array.isArray(jobs) ? jobs : [];
   } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || "连接 local-service 失败");
+    if (!silent) {
+      ElMessage.error(err?.response?.data?.error || err?.message || "连接 local-service 失败");
+    }
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
+  schedulePoll();
+}
+
+function hasActiveCollectJobs() {
+  return manualJobs.value.some((j) => j.status === "running");
+}
+
+function schedulePoll() {
+  if (pollTimer) window.clearInterval(pollTimer);
+  const interval = hasActiveCollectJobs() ? 2000 : 8000;
+  pollTimer = window.setInterval(() => refreshAll({ silent: true }), interval);
 }
 
 async function onStartCollect(row) {
+  if (!row?.id) return;
+  const idx = allJobs.value.findIndex((item) => item.id === row.id);
+  if (idx >= 0) {
+    allJobs.value[idx] = {
+      ...allJobs.value[idx],
+      status: "running",
+      error_message: "",
+    };
+  }
+  schedulePoll();
+  const loadingMsg = ElMessage.info({
+    message:
+      row.status === "running" || row.status === "failed"
+        ? "正在继续采集，请稍候…"
+        : "正在启动采集，请稍候…",
+    duration: 0,
+  });
   try {
     await startCollectJob(row.id);
-    ElMessage.success("采集已开始，请保持抖音标签页激活");
-    await refreshAll();
+    loadingMsg.close();
+    ElMessage.success("采集已开始，请保持对应平台标签页激活");
+    await refreshAll({ silent: true });
   } catch (err) {
+    loadingMsg.close();
     ElMessage.error(err?.response?.data?.error || err?.message || "启动失败");
+    await refreshAll({ silent: true });
   }
 }
 
@@ -278,7 +311,6 @@ async function onDeleteCollect(row) {
 
 onMounted(async () => {
   await refreshAll();
-  pollTimer = window.setInterval(refreshAll, 8000);
 });
 
 onUnmounted(() => {

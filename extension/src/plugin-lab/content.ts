@@ -45,7 +45,7 @@ import { scrollAndCollectComments, type ScrollCollectCommentsPayload } from "./s
 import { sendComment } from "./send-comment";
 import { sendDm } from "./send-dm";
 import { swipePage, type SwipePagePayload } from "./swipe-page";
-import { swipeSearchFeedNext } from "./search-feed-next";
+import { swipeSearchFeedNext, prepareFeedForSwipe, recoverSearchFeedFromAweme } from "./search-feed-next";
 import { probeSearchContextDom } from "./search-context-probe";
 
 /**
@@ -94,6 +94,12 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
       return prepareSearchForVideoClick((payload ?? {}) as { skip_restore?: boolean });
     case "plugin_lab.swipe_search_feed_next":
       return swipeSearchFeedNext();
+    case "plugin_lab.prepare_feed_for_swipe":
+      return prepareFeedForSwipe();
+    case "plugin_lab.recover_search_feed":
+      return recoverSearchFeedFromAweme(
+        String((payload as { aweme_id?: string })?.aweme_id ?? ""),
+      );
     case "plugin_lab.search_video_dom_click":
       return clickSearchVideoInContent((payload ?? {}) as {
         video_index?: number;

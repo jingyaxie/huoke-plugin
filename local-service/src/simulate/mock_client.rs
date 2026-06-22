@@ -109,6 +109,12 @@ fn mock_lab_data(action: &str, payload: &Value) -> Value {
             "is_search_feed": true,
             "aweme_id": "sim_aweme_next"
         }),
+        "plugin_lab.search_video_probe" => json!({
+            "ok": true,
+            "simulated": true,
+            "is_search_feed": true,
+            "aweme_id": "sim_aweme_probe"
+        }),
         "plugin_lab.click_comment_btn" => json!({ "ok": true, "simulated": true, "sidebar_open": true }),
         "plugin_lab.scroll_and_collect_comments" => json!({
             "ok": true,

@@ -301,8 +301,8 @@ async function onOpenExtensionFolder() {
   }
 }
 
-async function refreshAll() {
-  loading.value = true;
+async function refreshAll({ silent = false } = {}) {
+  if (!silent) loading.value = true;
   try {
     const [status, jobs] = await Promise.all([fetchBridgeStatus(), listCollectJobs()]);
     bridgeStatus.value = status;
@@ -310,25 +310,55 @@ async function refreshAll() {
       (row) => row.job_type !== "manual",
     );
   } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || "连接 local-service 失败");
+    if (!silent) {
+      ElMessage.error(err?.response?.data?.error || err?.message || "连接 local-service 失败");
+    }
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
+  schedulePoll();
+}
+
+function hasActiveCollectJobs() {
+  return collectJobs.value.some((j) => j.status === "running");
+}
+
+function schedulePoll() {
+  if (pollTimer) window.clearInterval(pollTimer);
+  const interval = hasActiveCollectJobs() ? 2000 : 8000;
+  pollTimer = window.setInterval(() => {
+    refreshAll({ silent: true });
+    refreshExtensionSetup();
+  }, interval);
 }
 
 async function onStartCollect(row) {
+  if (!row?.id) return;
+  const idx = collectJobs.value.findIndex((item) => item.id === row.id);
+  if (idx >= 0) {
+    collectJobs.value[idx] = {
+      ...collectJobs.value[idx],
+      status: "running",
+      error_message: "",
+    };
+  }
+  schedulePoll();
   const loadingMsg = ElMessage.info({
-    message: row.status === "running" ? "正在重新启动采集…" : "正在启动采集，请稍候…",
+    message:
+      row.status === "running" || row.status === "failed"
+        ? "正在继续采集，将滚动搜索页加载更多视频…"
+        : "正在启动采集，请稍候…",
     duration: 0,
   });
   try {
     await startCollectJob(row.id);
     loadingMsg.close();
     ElMessage.success("采集已开始，请保持抖音标签页激活");
-    await refreshAll();
+    await refreshAll({ silent: true });
   } catch (err) {
     loadingMsg.close();
     ElMessage.error(err?.response?.data?.error || err?.message || "启动失败");
+    await refreshAll({ silent: true });
   }
 }
 
@@ -365,12 +395,8 @@ async function onDeleteCollect(row) {
 
 onMounted(async () => {
   desktopMode.value = await isDesktopMode();
-  void refreshAll();
+  await refreshAll();
   void refreshExtensionSetup();
-  pollTimer = window.setInterval(() => {
-    refreshAll();
-    refreshExtensionSetup();
-  }, 8000);
 });
 
 onUnmounted(() => {

@@ -127,7 +127,10 @@ export async function dispatchDouyinLabCommand(
     case "plugin_lab.ensure_search_multi_column":
       return ensureSearchMultiColumnLayout();
     case "plugin_lab.prepare_search_video":
-      return prepareSearchForVideoClick((payload ?? {}) as { skip_restore?: boolean });
+      return prepareSearchForVideoClick((payload ?? {}) as {
+        skip_restore?: boolean;
+        fresh_search?: boolean;
+      });
     case "plugin_lab.swipe_search_feed_next":
       return swipeSearchFeedNext();
     case "plugin_lab.search_video_dom_click":

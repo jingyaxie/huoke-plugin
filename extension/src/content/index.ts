@@ -103,7 +103,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     try {
       await ensureInjected();
-      if (isPluginLabContentAction(command.action)) {
+      if (
+        isPluginLabContentAction(command.action) ||
+        command.action.startsWith("plugin_lab.")
+      ) {
         const data = await dispatchPluginLabCommand(command.action, command.payload);
         sendResponse({ ok: true, data });
         return;

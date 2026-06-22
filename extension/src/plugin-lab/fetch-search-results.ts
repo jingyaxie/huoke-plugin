@@ -25,6 +25,10 @@ import { detectSearchLayoutMode, ensureSearchMultiColumnLayout } from "./search-
 export interface FetchSearchResultsPayload {
   limit?: number;
   api_timeout_ms?: number;
+  /** 分页滚动后抓数：不滚回顶部，并等待 API 缓存条目数超过 baseline_count */
+  preserve_scroll_position?: boolean;
+  /** 与 preserve_scroll_position 联用：仅当截获条目数大于该值时才视为成功 */
+  baseline_count?: number;
 }
 
 export interface DomSearchResultItem {
@@ -51,12 +55,35 @@ async function scrollSearchResultsIntoView(): Promise<void> {
 async function collectViaApi(
   limit: number,
   timeoutMs: number,
+  options: { minItems?: number; waitForGrowth?: boolean } = {},
 ): Promise<{ items: SearchApiItem[]; eventsSeen: number; lastBodyKind?: string }> {
   enableSearchNetworkHook();
 
-  let items = (await getLastSearchApiResults()) ?? [];
-  if (!items.length) {
-    items = await waitForSearchApiResults({ timeoutMs, minItems: 1 });
+  const minItems = Math.max(1, options.minItems ?? 1);
+  const initialDebug = await getSearchApiDebug();
+  const initialEvents = initialDebug.eventsSeen ?? 0;
+  const initialItems = (await getLastSearchApiResults()) ?? [];
+  const initialCount = initialItems.length;
+
+  let items = initialItems;
+
+  if (options.waitForGrowth) {
+    const growthTimeout = Math.min(timeoutMs, 8_000);
+    const deadline = Date.now() + growthTimeout;
+    while (Date.now() < deadline) {
+      const debug = await getSearchApiDebug();
+      const next = (await getLastSearchApiResults()) ?? [];
+      if (
+        next.length > initialCount ||
+        (debug.eventsSeen ?? 0) > initialEvents
+      ) {
+        items = next;
+        break;
+      }
+      await sleep(250);
+    }
+  } else if (!items.length || items.length < minItems) {
+    items = await waitForSearchApiResults({ timeoutMs, minItems });
   }
 
   const debug = await getSearchApiDebug();
@@ -68,7 +95,11 @@ async function collectViaApi(
 }
 
 /** DOM 兜底：仅在 API 完全截获不到时使用（坐标点击，aweme_id 可能缺失） */
-async function collectViaDom(limit: number): Promise<{
+async function collectViaDom(
+  limit: number,
+  preserveScroll = false,
+  indexOffset = 0,
+): Promise<{
   items: DomSearchResultItem[];
   onSearchPage: boolean;
   linkCount: number;
@@ -76,7 +107,9 @@ async function collectViaDom(limit: number): Promise<{
 }> {
   const onSearchPage = isSearchResultsPage();
   if (onSearchPage) rememberSearchResultsUrl();
-  await scrollSearchResultsIntoView();
+  if (!preserveScroll) {
+    await scrollSearchResultsIntoView();
+  }
 
   let cards = await waitForSearchResultCards(12);
   if (cards.length === 0) {
@@ -92,7 +125,7 @@ async function collectViaDom(limit: number): Promise<{
     const clickTarget = pickSearchCardClickTarget(card);
 
     items.push({
-      index: items.length + 1,
+      index: indexOffset + items.length + 1,
       title: pickCardTitle(card) || `搜索结果 ${items.length + 1}`,
       author: pickCardAuthor(card),
       url: awemeId ? buildCardUrl(awemeId, link) : null,
@@ -137,6 +170,9 @@ export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}
     2000,
     Math.min(Number(payload.api_timeout_ms ?? DEFAULT_API_TIMEOUT_MS), 30_000),
   );
+  const preserveScroll = Boolean(payload.preserve_scroll_position);
+  const baselineCount = Math.max(0, Number(payload.baseline_count ?? 0));
+  const minApiItems = preserveScroll && baselineCount > 0 ? baselineCount + 1 : 1;
 
   let layoutNote = "";
   if (isSearchResultsPage() && (detectSearchLayoutMode() === "single" || isFeedOverlayOpen())) {
@@ -164,10 +200,17 @@ export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}
     }
   }
 
-  const apiResult = await collectViaApi(limit, apiTimeoutMs);
+  const apiResult = await collectViaApi(limit, apiTimeoutMs, {
+    minItems: minApiItems,
+    waitForGrowth: preserveScroll && baselineCount > 0,
+  });
   const feedOpen = isFeedOverlayOpen();
 
-  if (apiResult.items.length > 0) {
+  const apiHasNewItems =
+    apiResult.items.length > 0 &&
+    (!preserveScroll || baselineCount <= 0 || apiResult.items.length > baselineCount);
+
+  if (apiHasNewItems) {
     return {
       ok: true,
       count: apiResult.items.length,
@@ -190,7 +233,7 @@ export async function fetchSearchResults(payload: FetchSearchResultsPayload = {}
     };
   }
 
-  const domResult = await collectViaDom(limit);
+  const domResult = await collectViaDom(limit, preserveScroll, baselineCount);
   const items = domResult.items;
 
   return {

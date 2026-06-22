@@ -16,6 +16,9 @@ pub fn bridge_action_for(action_id: &str) -> Option<&'static str> {
         "click_profile_video" => Some("plugin_lab.click_profile_video"),
         "prepare_search_for_video" => Some("plugin_lab.prepare_search_video"),
         "swipe_search_feed_next" => Some("plugin_lab.swipe_search_feed_next"),
+        "prepare_feed_for_swipe" => Some("plugin_lab.prepare_feed_for_swipe"),
+        "recover_search_feed" => Some("plugin_lab.recover_search_feed"),
+        "search_video_probe" => Some("plugin_lab.search_video_probe"),
         "prepare_profile_for_video" => Some("plugin_lab.prepare_profile_video"),
         "fetch_profile_videos" => Some("plugin_lab.fetch_profile_videos"),
         "back_to_profile" => Some("plugin_lab.back_to_profile"),
@@ -99,6 +102,9 @@ pub fn supported_actions() -> &'static [&'static str] {
         "click_profile_video",
         "prepare_search_for_video",
         "swipe_search_feed_next",
+        "prepare_feed_for_swipe",
+        "recover_search_feed",
+        "search_video_probe",
         "prepare_profile_for_video",
         "fetch_profile_videos",
         "back_to_profile",
@@ -216,6 +222,16 @@ fn normalize_fetch_search_results_payload(payload: Value) -> Value {
     if let Some(ms) = payload.get("api_timeout_ms").and_then(|v| v.as_i64()) {
         out["api_timeout_ms"] = json!(ms);
     }
+    if payload
+        .get("preserve_scroll_position")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        out["preserve_scroll_position"] = json!(true);
+    }
+    if let Some(n) = payload.get("baseline_count").and_then(|v| v.as_i64()) {
+        out["baseline_count"] = json!(n);
+    }
     if let Some(platform) = payload.get("platform").and_then(|v| v.as_str()) {
         if !platform.trim().is_empty() {
             out["platform"] = json!(platform);
@@ -253,6 +269,13 @@ fn normalize_click_search_video_payload(payload: Value) -> Value {
         if !id.trim().is_empty() {
             out["aweme_id"] = Value::from(id);
         }
+    }
+    if payload
+        .get("fresh_search")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        out["fresh_search"] = json!(true);
     }
     if let Some(platform) = payload.get("platform").and_then(|v| v.as_str()) {
         if !platform.trim().is_empty() {
