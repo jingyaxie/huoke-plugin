@@ -6,6 +6,9 @@
     <template #dropdown>
       <el-dropdown-menu>
         <el-dropdown-item command="view">查看数据</el-dropdown-item>
+        <el-dropdown-item command="evaluate" :disabled="!canEvaluate">
+          评估评论
+        </el-dropdown-item>
         <el-dropdown-item command="start" :disabled="!canStart">
           {{ row.status === "paused" ? "继续采集" : "开始采集" }}
         </el-dropdown-item>
@@ -33,6 +36,10 @@ const canStart = computed(
 );
 
 const canPause = computed(() => props.row.status === "running");
+
+const canEvaluate = computed(
+  () => Number(props.row.comment_count || 0) > 0 && props.row.status !== "running",
+);
 
 const canDelete = computed(() =>
   ["pending", "paused", "failed", "completed"].includes(props.row.status),

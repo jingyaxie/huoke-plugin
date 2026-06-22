@@ -131,11 +131,15 @@ fn normalize_input_search_text_payload(payload: Value) -> Value {
         .or_else(|| payload.get("keyword").and_then(|v| v.as_str()))
         .unwrap_or("");
 
-    json!({
+    let mut out = json!({
         "platform": platform,
         "search_text": search_text,
         "focus_first": true,
-    })
+    });
+    if let Some(delay) = payload.get("char_delay_ms") {
+        out["char_delay_ms"] = delay.clone();
+    }
+    out
 }
 
 fn normalize_swipe_page_payload(payload: Value) -> Value {
@@ -223,7 +227,21 @@ fn normalize_click_search_video_payload(payload: Value) -> Value {
             .and_then(|v| v.as_i64())
             .or_else(|| payload.get("index").and_then(|v| v.as_i64()))
             .unwrap_or(1),
+        "use_detail_window": payload
+            .get("use_detail_window")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
+        "open_strategy": payload
+            .get("open_strategy")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("auto"),
     });
+    if let Some(url) = payload.get("video_url").and_then(|v| v.as_str()) {
+        if !url.trim().is_empty() {
+            out["video_url"] = Value::from(url);
+        }
+    }
     if let Some(rect) = payload.get("rect") {
         out["rect"] = rect.clone();
     }

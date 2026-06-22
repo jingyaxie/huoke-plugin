@@ -32,7 +32,7 @@ export async function runPluginLabBackgroundCommand(command: BridgeMessage): Pro
     case "plugin_lab.click_profile_video":
       return clickProfileVideoBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_comment_btn":
-      return clickCommentButtonBackground();
+      return clickCommentButtonBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.reply_comment":
       return replyCommentBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_dm_btn":

@@ -1,4 +1,4 @@
-import { attachDebugger, detachDebugger } from "./real-mouse";
+import { withTabDebugger } from "./real-mouse";
 import { ingestSearchApiResponse, isSearchResultApi } from "./search-api";
 
 let listenerReady = false;
@@ -68,19 +68,19 @@ function ensureDebuggerListener(): void {
 
 export async function withSearchNetworkCapture<T>(tabId: number, run: () => Promise<T>): Promise<T> {
   ensureDebuggerListener();
-  await attachDebugger(tabId);
-  try {
+  return withTabDebugger(tabId, async () => {
     await chrome.debugger.sendCommand({ tabId }, "Network.enable", {
       maxResourceBufferSize: 1024 * 1024 * 8,
       maxTotalBufferSize: 1024 * 1024 * 16,
     });
-    return await run();
-  } finally {
     try {
-      await chrome.debugger.sendCommand({ tabId }, "Network.disable");
-    } catch {
-      // ignore
+      return await run();
+    } finally {
+      try {
+        await chrome.debugger.sendCommand({ tabId }, "Network.disable");
+      } catch {
+        // ignore
+      }
     }
-    await detachDebugger(tabId);
-  }
+  });
 }

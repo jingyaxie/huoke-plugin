@@ -255,6 +255,7 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
 
     case "plugin_lab.click_comment_btn":
     case "plugin_lab.comment_sidebar_probe":
+    case "plugin_lab.activate_comment_sidebar":
     case "plugin_lab.scroll_and_collect_comments":
     case "plugin_lab.send_comment":
     case "plugin_lab.reply_comment":
@@ -264,16 +265,21 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
     case "plugin_lab.reply_comment_type":
     case "plugin_lab.click_comment_avatar": {
       const platform = activePlatformId();
+      const standaloneVideoProbeActions = new Set([
+        "plugin_lab.click_comment_btn",
+        "plugin_lab.comment_sidebar_probe",
+        "plugin_lab.activate_comment_sidebar",
+      ]);
       if (platform === "xiaohongshu" && isXhsNotePage()) {
         const ready = isXhsCommentReady();
-        if (!ready && targetAction !== "plugin_lab.click_comment_btn") {
+        if (!ready && !standaloneVideoProbeActions.has(targetAction)) {
           return fail(targetAction, required, "小红书笔记页评论区未就绪", { is_standalone_video: true });
         }
         return pass(targetAction, required, { is_standalone_video: true, sidebar_ready: ready });
       }
       if (platform === "kuaishou" && isKsVideoPage()) {
         const ready = isKsCommentReady();
-        if (!ready && targetAction !== "plugin_lab.click_comment_btn") {
+        if (!ready && !standaloneVideoProbeActions.has(targetAction)) {
           return fail(targetAction, required, "快手视频页评论区未就绪", { is_standalone_video: true });
         }
         return pass(targetAction, required, { is_standalone_video: true, sidebar_ready: ready });
@@ -281,7 +287,7 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
       const sidebar = probeCommentSidebar();
       if (sidebar.is_standalone_video) {
         const canExecute =
-          targetAction === "plugin_lab.click_comment_btn"
+          standaloneVideoProbeActions.has(targetAction)
           || sidebar.sidebar_ready
           || sidebar.sidebar_active
           || (sidebar.comment_item_count ?? 0) > 0;

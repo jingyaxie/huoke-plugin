@@ -1,4 +1,6 @@
 import { humanClick, randDelay, sleep } from "./search-input";
+import { readLabSearchUrl } from "./lab-context";
+import { detectPlatformFromUrl } from "./platform-hosts";
 
 const CLOSE_SELECTORS = [
   '[data-e2e="close-icon"]',
@@ -6,6 +8,10 @@ const CLOSE_SELECTORS = [
   'button[aria-label="关闭"]',
   '[class*="close-btn"]',
 ] as const;
+
+function isStandaloneVideoPage(url = location.href): boolean {
+  return /\/video\/\d/i.test(url);
+}
 
 function feedDetailOpen(): boolean {
   return (
@@ -25,8 +31,32 @@ function findCloseButton(): HTMLElement | null {
   return null;
 }
 
-/** 步骤 19：关闭视频详情 / Feed 浮层 */
+/** 步骤 19：关闭视频详情 / Feed 浮层 / 工作窗独立 /video/ 页 */
 export async function closeVideoDetail() {
+  if (isStandaloneVideoPage()) {
+    const platform = detectPlatformFromUrl(location.href) ?? "douyin";
+    const storedSearch = await readLabSearchUrl(platform);
+    if (storedSearch && !storedSearch.includes("/video/")) {
+      location.assign(storedSearch);
+      await sleep(randDelay(900, 1400));
+    } else {
+      history.back();
+      await sleep(randDelay(700, 1100));
+    }
+    if (!isStandaloneVideoPage()) {
+      return {
+        ok: true,
+        method: storedSearch ? "navigate_search" : "history_back",
+        url: location.href,
+        message: "已离开独立视频页",
+      };
+    }
+    if (platform === "douyin") {
+      location.assign("https://www.douyin.com");
+      await sleep(randDelay(900, 1400));
+    }
+  }
+
   if (!feedDetailOpen()) {
     return {
       ok: true,

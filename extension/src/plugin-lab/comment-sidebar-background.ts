@@ -1,8 +1,7 @@
 import { resolveLabTabForAction } from "./resolve-lab-tab";
 import {
-  attachDebugger,
+  withTabDebugger,
   clickMouse,
-  detachDebugger,
   moveMouse,
 } from "./real-mouse";
 import { humanPace } from "./search-input";
@@ -34,7 +33,12 @@ function sidebarReady(probe: SidebarProbe): boolean {
 }
 
 async function probe(tabId: number): Promise<SidebarProbe> {
-  return (await sendContentPluginLabCommand(tabId, "plugin_lab.comment_sidebar_probe", {})) as SidebarProbe;
+  return (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.comment_sidebar_probe",
+    {},
+    { skipPreflight: true },
+  )) as SidebarProbe;
 }
 
 async function activateViaContent(tabId: number): Promise<{
@@ -89,8 +93,7 @@ async function tryCdpCommentClick(
     return { status, method };
   }
 
-  await attachDebugger(tabId);
-  try {
+  await withTabDebugger(tabId, async () => {
     for (let attempt = 0; attempt < 6 && !sidebarReady(status); attempt += 1) {
       const primary = (status.icon_targets ?? targets)[0];
       if (!primary) break;
@@ -105,9 +108,7 @@ async function tryCdpCommentClick(
       if (sidebarReady(status)) break;
       await sleep(humanPace.beforeCommentAction());
     }
-  } finally {
-    await detachDebugger(tabId);
-  }
+  });
 
   return { status, method };
 }
@@ -169,12 +170,21 @@ async function activateStandaloneComments(tabId: number, tab: chrome.tabs.Tab) {
 }
 
 /** 步骤 10：CDP 真实鼠标打开评论区，失败则 content DOM 兜底 */
-export async function clickCommentButtonBackground() {
-  const tab = await resolveLabTabForAction("plugin_lab.click_comment_btn");
+export async function clickCommentButtonBackground(payload: Record<string, unknown> = {}) {
+  const platformHint = String(payload.platform ?? "").trim() || undefined;
+  const tab = await resolveLabTabForAction("plugin_lab.click_comment_btn", platformHint);
   if (!tab.id) throw new Error("target tab has no id");
   const tabId = tab.id;
 
-  let status = await probe(tabId);
+  let status: SidebarProbe | null = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    status = await probe(tabId);
+    if (status.is_standalone_video || status.is_search_feed || status.feed_open) break;
+    await sleep(900 + attempt * 400);
+  }
+  if (!status) {
+    throw new Error("comment sidebar probe failed");
+  }
 
   if (status.is_standalone_video) {
     return activateStandaloneComments(tabId, tab);

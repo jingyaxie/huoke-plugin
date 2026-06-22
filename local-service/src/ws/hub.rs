@@ -70,15 +70,17 @@ impl BridgeHub {
     pub fn connected_extension_version(&self) -> Option<String> {
         self.inner
             .connected_extension_version
-            .blocking_lock()
-            .clone()
+            .try_lock()
+            .ok()
+            .and_then(|guard| guard.clone())
     }
 
     pub fn connected_extension_build_id(&self) -> Option<String> {
         self.inner
             .connected_extension_build_id
-            .blocking_lock()
-            .clone()
+            .try_lock()
+            .ok()
+            .and_then(|guard| guard.clone())
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<BridgeMessage> {
@@ -185,8 +187,12 @@ impl BridgeHub {
         if let Ok(mut active) = self.inner.active_extension_id.try_lock() {
             *active = None;
         }
-        *self.inner.connected_extension_version.blocking_lock() = None;
-        *self.inner.connected_extension_build_id.blocking_lock() = None;
+        if let Ok(mut version) = self.inner.connected_extension_version.try_lock() {
+            *version = None;
+        }
+        if let Ok(mut build_id) = self.inner.connected_extension_build_id.try_lock() {
+            *build_id = None;
+        }
         self.inner.extension_client_count.store(0, Ordering::Relaxed);
         info!("bridge hub reset on boot");
     }
@@ -220,6 +226,7 @@ impl BridgeHub {
     }
 
     /// 新插件握手成功后：关闭并移除其它所有 WS，只保留当前这一条。
+    /// 若已有活跃插件连接仍在线，拒绝重复握手，避免任务执行中 WS 被抢占。
     async fn adopt_single_extension(&self, client_id: &str) {
         {
             let active = self.inner.active_extension_id.lock().await;
@@ -230,6 +237,25 @@ impl BridgeHub {
                 }
                 self.sync_extension_count(&guard, Some(client_id));
                 return;
+            }
+
+            if let Some(active_id) = active.as_deref() {
+                let guard = self.inner.clients.lock().await;
+                if guard
+                    .iter()
+                    .any(|c| c.id == active_id && c.is_extension)
+                {
+                    drop(guard);
+                    let mut guard = self.inner.clients.lock().await;
+                    if let Some(dup) = guard.iter().find(|c| c.id == client_id) {
+                        Self::kick_client(dup);
+                    }
+                    guard.retain(|c| c.id != client_id);
+                    info!(
+                        "bridge: ignored duplicate extension handshake from {client_id}, keeping active {active_id}"
+                    );
+                    return;
+                }
             }
         }
 

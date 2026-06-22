@@ -17,6 +17,7 @@ pub struct CaptureService {
     hub: BridgeHub,
     default_daily_quota: i64,
     job_runs: JobRunRegistry,
+    data_dir: std::path::PathBuf,
 }
 
 impl CaptureService {
@@ -25,12 +26,14 @@ impl CaptureService {
         hub: BridgeHub,
         default_daily_quota: i64,
         job_runs: JobRunRegistry,
+        data_dir: std::path::PathBuf,
     ) -> Self {
         Self {
             db,
             hub,
             default_daily_quota,
             job_runs,
+            data_dir,
         }
     }
 
@@ -124,6 +127,13 @@ impl CaptureService {
                     "job {job_id}: stored {inserted} comments for content {content_id} ({})",
                     adapter.id()
                 );
+                if inserted > 0 {
+                    crate::evaluation::spawn_evaluate_job(
+                        self.db.clone(),
+                        self.data_dir.clone(),
+                        job_id.clone(),
+                    );
+                }
             }
         }
 
@@ -136,6 +146,7 @@ impl CaptureService {
             self.hub.clone(),
             self.default_daily_quota,
             self.job_runs.clone(),
+            self.data_dir.clone(),
             job_id,
             generation,
         );

@@ -2,6 +2,17 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+let debuggerQueue: Promise<void> = Promise.resolve();
+
+function enqueueDebugger<T>(fn: () => Promise<T>): Promise<T> {
+  const run = debuggerQueue.then(() => fn());
+  debuggerQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export async function attachDebugger(tabId: number) {
   try {
     await chrome.debugger.attach({ tabId }, "1.3");
@@ -17,6 +28,18 @@ export async function detachDebugger(tabId: number) {
   } catch {
     // ignore
   }
+}
+
+/** Serialize CDP attach across search capture, video click, and comment open */
+export async function withTabDebugger<T>(tabId: number, fn: () => Promise<T>): Promise<T> {
+  return enqueueDebugger(async () => {
+    await attachDebugger(tabId);
+    try {
+      return await fn();
+    } finally {
+      await detachDebugger(tabId);
+    }
+  });
 }
 
 export async function moveMouse(tabId: number, x: number, y: number) {

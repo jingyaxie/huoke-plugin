@@ -16,7 +16,7 @@ export async function findSearchBox(payload: FindSearchBoxPayload = {}) {
       ? (payload.platform as ReturnType<typeof detectPlatformFromUrl>)
       : detectPlatformFromUrl();
 
-  const match = (await waitForSearchInput(platform, 8, 500)) ?? findSearchInputMatch(platform);
+  const match = (await waitForSearchInput(platform, 12, 500)) ?? findSearchInputMatch(platform);
   if (!match) {
     return {
       found: false,

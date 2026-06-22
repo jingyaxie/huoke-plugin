@@ -10,104 +10,108 @@
     @closed="resetState"
   >
     <div v-if="job" class="outreach-body">
-      <div class="view-tabs">
-        <el-radio-group v-model="activeView" size="small" @change="page = 1">
-          <el-radio-button
-            v-for="item in viewOptions"
-            :key="item.value"
-            :value="item.value"
-          >
-            {{ item.label }} ({{ item.count }})
-          </el-radio-button>
-        </el-radio-group>
-      </div>
-
-      <div class="outreach-toolbar">
-        <span class="toolbar-label">评论筛选</span>
-        <el-input
-          v-model="keyword"
-          placeholder="输入原评论、评论内容、私信内容关键词"
-          clearable
-          @keyup.enter="page = 1"
-        />
-        <el-select v-model="actionType" style="width: 140px" @change="page = 1">
-          <el-option label="全部类型" value="all" />
-          <el-option label="评论" value="comment" />
-          <el-option label="私信" value="dm" />
-        </el-select>
-        <el-button type="primary" @click="page = 1">查询</el-button>
-      </div>
-
-      <div class="summary-grid">
-        <div><span class="summary-label">任务名称</span><div>{{ rowModel?.name || "—" }}</div></div>
-        <div><span class="summary-label">渠道</span><div>{{ platformLabel(rowModel?.platform) }}</div></div>
-        <div><span class="summary-label">视频发布时间</span><div>{{ publishLabel }}</div></div>
-        <div><span class="summary-label">采集几天内评论</span><div>{{ commentDaysLabel }}</div></div>
-      </div>
-
-      <el-alert
-        v-if="emptyHint"
-        type="warning"
-        :closable="false"
-        :title="emptyHint"
-        show-icon
-        class="empty-hint"
-      />
-
-      <el-table v-loading="loading || tableLoading" :data="pageRows" stripe empty-text="暂无触达数据">
-        <el-table-column prop="nickname" label="用户昵称" width="120" show-overflow-tooltip />
-        <el-table-column label="头像" width="72">
-          <template #default="{ row }">
-            <UserAvatar :src="row.avatar" :fallback="avatarInitial(row.nickname)" :size="28" />
-          </template>
-        </el-table-column>
-        <el-table-column prop="comment_at" label="评论时间" width="140">
-          <template #default="{ row }">{{ formatJobTime(row.comment_at) }}</template>
-        </el-table-column>
-        <el-table-column prop="video_title" label="视频名称" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="comment_content" label="原评论" min-width="160" show-overflow-tooltip />
-        <el-table-column label="精准评论" width="88">
-          <template #default="{ row }">
-            <el-tag :type="row.is_precise ? 'success' : 'info'" size="small">
-              {{ row.is_precise ? "是" : "否" }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="evaluation_reason" label="评估说明" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="reply_content" label="评论内容" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="dm_content" label="私信内容" min-width="140" show-overflow-tooltip />
-        <el-table-column v-if="showOutreachStatus" label="触达状态" width="100">
-          <template #default="{ row }">
-            <el-tag
-              :type="String(row.outreach_status).toLowerCase() === 'ok' ? 'success' : 'danger'"
-              size="small"
+      <div class="outreach-header">
+        <div class="view-tabs">
+          <el-radio-group v-model="activeView" size="small" @change="page = 1">
+            <el-radio-button
+              v-for="item in viewOptions"
+              :key="item.value"
+              :value="item.value"
             >
-              {{ String(row.outreach_status).toLowerCase() === "ok" ? "成功" : "失败" }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          v-if="showOutreachStatus"
-          prop="outreach_error"
-          label="失败原因"
-          min-width="160"
-          show-overflow-tooltip
+              {{ item.label }} ({{ item.count }})
+            </el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <div class="outreach-toolbar">
+          <span class="toolbar-label">评论筛选</span>
+          <el-input
+            v-model="keyword"
+            placeholder="输入原评论、评论内容、私信内容关键词"
+            clearable
+            @keyup.enter="page = 1"
+          />
+          <el-select v-model="actionType" style="width: 140px" @change="page = 1">
+            <el-option label="全部类型" value="all" />
+            <el-option label="评论" value="comment" />
+            <el-option label="私信" value="dm" />
+          </el-select>
+          <el-button type="primary" @click="page = 1">查询</el-button>
+        </div>
+
+        <div class="summary-grid">
+          <div><span class="summary-label">任务名称</span><div>{{ rowModel?.name || "—" }}</div></div>
+          <div><span class="summary-label">渠道</span><div>{{ platformLabel(rowModel?.platform) }}</div></div>
+          <div><span class="summary-label">视频发布时间</span><div>{{ publishLabel }}</div></div>
+          <div><span class="summary-label">采集几天内评论</span><div>{{ commentDaysLabel }}</div></div>
+        </div>
+
+        <el-alert
+          v-if="emptyHint"
+          type="warning"
+          :closable="false"
+          :title="emptyHint"
+          show-icon
+          class="empty-hint"
         />
-        <el-table-column prop="location_text" label="位置" width="100" show-overflow-tooltip />
-        <el-table-column prop="executed_at" label="触达时间" width="140">
-          <template #default="{ row }">{{ formatJobTime(row.executed_at) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
-          <template #default="{ row }">
-            <el-button v-if="row.video_url" link type="primary" size="small" @click="openLink(row.video_url)">
-              查看视频
-            </el-button>
-            <el-button v-if="row.profile_url" link type="primary" size="small" @click="openLink(row.profile_url)">
-              查看主页
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      </div>
+
+      <div class="outreach-table-wrap">
+        <el-table v-loading="loading || tableLoading" :data="pageRows" stripe empty-text="暂无触达数据">
+          <el-table-column prop="nickname" label="用户昵称" width="120" show-overflow-tooltip />
+          <el-table-column label="头像" width="72">
+            <template #default="{ row }">
+              <UserAvatar :src="row.avatar" :fallback="avatarInitial(row.nickname)" :size="28" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="comment_at" label="评论时间" width="140">
+            <template #default="{ row }">{{ formatJobTime(row.comment_at) }}</template>
+          </el-table-column>
+          <el-table-column prop="video_title" label="视频名称" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="comment_content" label="原评论" min-width="160" show-overflow-tooltip />
+          <el-table-column label="精准评论" width="88">
+            <template #default="{ row }">
+              <el-tag :type="row.is_precise ? 'success' : 'info'" size="small">
+                {{ row.is_precise ? "是" : "否" }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="evaluation_reason" label="评估说明" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="reply_content" label="评论内容" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="dm_content" label="私信内容" min-width="140" show-overflow-tooltip />
+          <el-table-column v-if="showOutreachStatus" label="触达状态" width="100">
+            <template #default="{ row }">
+              <el-tag
+                :type="String(row.outreach_status).toLowerCase() === 'ok' ? 'success' : 'danger'"
+                size="small"
+              >
+                {{ String(row.outreach_status).toLowerCase() === "ok" ? "成功" : "失败" }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-if="showOutreachStatus"
+            prop="outreach_error"
+            label="失败原因"
+            min-width="160"
+            show-overflow-tooltip
+          />
+          <el-table-column prop="location_text" label="位置" width="100" show-overflow-tooltip />
+          <el-table-column prop="executed_at" label="触达时间" width="140">
+            <template #default="{ row }">{{ formatJobTime(row.executed_at) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="140" fixed="right">
+            <template #default="{ row }">
+              <el-button v-if="row.video_url" link type="primary" size="small" @click="openLink(row.video_url)">
+                查看视频
+              </el-button>
+              <el-button v-if="row.profile_url" link type="primary" size="small" @click="openLink(row.profile_url)">
+                查看主页
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
 
       <div class="pager-row">
         <span class="pager-text">
@@ -259,6 +263,23 @@ function resetState() {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  height: 100%;
+  min-height: 0;
+}
+
+.outreach-header {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.outreach-table-wrap {
+  flex: 1;
+  min-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
 }
 
 .view-tabs {
@@ -299,6 +320,7 @@ function resetState() {
 }
 
 .pager-row {
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -317,9 +339,33 @@ function resetState() {
   box-sizing: border-box;
 }
 
+.outreach-dialog.el-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: min(88vh, 920px);
+  margin: 6vh auto;
+}
+
+.outreach-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin-right: 0;
+}
+
+.outreach-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 8px;
+}
+
 @media (max-width: 900px) {
   .outreach-dialog-overlay.el-overlay .el-overlay-dialog {
     padding-left: 0;
+  }
+
+  .outreach-dialog.el-dialog {
+    max-height: 92vh;
+    margin: 4vh auto;
   }
 }
 </style>

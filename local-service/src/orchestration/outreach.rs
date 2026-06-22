@@ -18,11 +18,13 @@ pub struct InlineOutreachRunner<'a> {
 
 impl<'a> InlineOutreachRunner<'a> {
     pub async fn run(&self, job_id: &str, cfg: &JobConfig) -> Result<OutreachStats, String> {
+        let precise_only = self.db.job_has_evaluated_comments(job_id)?;
         let eligible = self.db.list_eligible_comments_for_outreach(
             job_id,
             cfg.comment_days,
             0,
             cfg.target_count.max(10) * 3,
+            precise_only,
         )?;
         if eligible.is_empty() {
             return Ok(OutreachStats::default());

@@ -39,7 +39,15 @@ const AWEME_ID_ATTRS = [
 export function isSearchResultsPage(url = location.href): boolean {
   try {
     const parsed = new URL(url);
-    return /\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(parsed.pathname);
+    const path = parsed.pathname.toLowerCase();
+    if (/\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(path)) return true;
+    if (path.includes("/search")) return true;
+    for (const key of ["keyword", "q", "search_key", "searchKey", "search_keyword", "type"]) {
+      const value = parsed.searchParams.get(key)?.trim() ?? "";
+      if (value && key !== "type") return true;
+      if (key === "type" && /general|video|note/i.test(value)) return true;
+    }
+    return false;
   } catch {
     return /\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(url);
   }

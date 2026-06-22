@@ -62,6 +62,7 @@ pub struct CollectJob {
     pub reply_count: i64,
     pub dm_count: i64,
     pub follow_count: i64,
+    pub precise_count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<serde_json::Value>,
 }
@@ -100,6 +101,12 @@ pub struct CapturedComment {
     pub digg_count: i64,
     pub create_time: Option<i64>,
     pub created_at: i64,
+    pub is_precise: bool,
+    pub evaluation_reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evaluation_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evaluated_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -173,6 +180,11 @@ impl Database {
                 create_time INTEGER,
                 raw_json TEXT,
                 created_at INTEGER NOT NULL,
+                avatar_url TEXT NOT NULL DEFAULT '',
+                is_precise INTEGER NOT NULL DEFAULT 0,
+                evaluation_reason TEXT NOT NULL DEFAULT '',
+                evaluation_score REAL,
+                evaluated_at INTEGER,
                 UNIQUE(job_id, comment_id)
             );
             "#,
@@ -209,6 +221,22 @@ impl Database {
             "ALTER TABLE captured_comments ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''",
             [],
         );
+        let _ = conn.execute(
+            "ALTER TABLE captured_comments ADD COLUMN is_precise INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE captured_comments ADD COLUMN evaluation_reason TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE captured_comments ADD COLUMN evaluation_score REAL",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE captured_comments ADD COLUMN evaluated_at INTEGER",
+            [],
+        );
         Ok(())
     }
 
@@ -234,6 +262,7 @@ impl Database {
     ) -> Result<CollectJob, String> {
         let (video_count, comment_count) = self.counts_for_job(&id)?;
         let (reply_count, dm_count, follow_count) = self.interaction_counts_for_job(&id)?;
+        let precise_count = self.count_precise_comments_for_job(&id)?;
         Ok(CollectJob {
             id,
             platform,
@@ -252,11 +281,12 @@ impl Database {
             reply_count,
             dm_count,
             follow_count,
+            precise_count,
             config: Self::parse_config_json(config_json),
         })
     }
 
-    fn now_ms() -> i64 {
+    pub fn now_ms() -> i64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -375,6 +405,74 @@ impl Database {
             )?);
         }
         Ok(jobs)
+    }
+
+    pub fn count_precise_comments_for_job(&self, job_id: &str) -> Result<i64, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM captured_comments WHERE job_id = ?1 AND is_precise = 1",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn job_has_evaluated_comments(&self, job_id: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM captured_comments WHERE job_id = ?1 AND evaluated_at IS NOT NULL",
+                params![job_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count > 0)
+    }
+
+    pub fn list_unevaluated_comments(
+        &self,
+        job_id: &str,
+        limit: i64,
+    ) -> Result<Vec<CapturedComment>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, avatar_url, digg_count, create_time, created_at, is_precise, evaluation_reason, evaluation_score, evaluated_at
+                 FROM captured_comments WHERE job_id = ?1 AND evaluated_at IS NULL AND parent_comment_id IS NULL
+                 ORDER BY create_time DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![job_id, limit.clamp(1, 5000)], map_comment_row)
+            .map_err(|e| e.to_string())?;
+        rows.map(|row| row.map_err(|e| e.to_string())).collect()
+    }
+
+    pub fn update_comment_evaluation(
+        &self,
+        job_id: &str,
+        comment_id: &str,
+        is_precise: bool,
+        reason: &str,
+        score: Option<f64>,
+        evaluated_at: i64,
+    ) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let changed = conn
+            .execute(
+                "UPDATE captured_comments SET is_precise = ?1, evaluation_reason = ?2, evaluation_score = ?3, evaluated_at = ?4
+                 WHERE job_id = ?5 AND comment_id = ?6",
+                params![
+                    if is_precise { 1 } else { 0 },
+                    reason,
+                    score,
+                    evaluated_at,
+                    job_id,
+                    comment_id,
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(changed > 0)
     }
 
     fn counts_for_job(&self, job_id: &str) -> Result<(i64, i64), String> {
@@ -696,6 +794,7 @@ impl Database {
         comment_days: i64,
         min_digg: i64,
         limit: i64,
+        precise_only: bool,
     ) -> Result<Vec<CapturedComment>, String> {
         let all = self.list_comments_for_job(job_id, None, limit.clamp(1, 2000))?;
         let day = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -740,6 +839,7 @@ impl Database {
             .filter(|c| crate::filters::within_days(c.create_time, comment_days))
             .filter(|c| !touched_comments.contains(&c.comment_id))
             .filter(|c| !touched_users.contains(&c.user_id))
+            .filter(|c| !precise_only || c.is_precise)
             .collect();
         eligible.sort_by(|a, b| b.digg_count.cmp(&a.digg_count));
         eligible.truncate(limit.clamp(1, 500) as usize);
@@ -779,7 +879,11 @@ impl Database {
                        sec_uid = excluded.sec_uid,
                        avatar_url = CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE avatar_url END,
                        digg_count = excluded.digg_count,
-                       raw_json = excluded.raw_json",
+                       raw_json = excluded.raw_json,
+                       is_precise = CASE WHEN excluded.content != content THEN 0 ELSE is_precise END,
+                       evaluation_reason = CASE WHEN excluded.content != content THEN '' ELSE evaluation_reason END,
+                       evaluation_score = CASE WHEN excluded.content != content THEN NULL ELSE evaluation_score END,
+                       evaluated_at = CASE WHEN excluded.content != content THEN NULL ELSE evaluated_at END",
                     params![
                         Uuid::new_v4().to_string(),
                         job_id,
@@ -841,7 +945,7 @@ impl Database {
         if let Some(aweme_id) = aweme_id {
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, avatar_url, digg_count, create_time, created_at
+                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, avatar_url, digg_count, create_time, created_at, is_precise, evaluation_reason, evaluation_score, evaluated_at
                      FROM captured_comments WHERE job_id = ?1 AND aweme_id = ?2
                      ORDER BY create_time DESC LIMIT ?3",
                 )
@@ -855,7 +959,7 @@ impl Database {
         } else {
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, avatar_url, digg_count, create_time, created_at
+                    "SELECT id, job_id, aweme_id, comment_id, parent_comment_id, content, username, user_id, sec_uid, avatar_url, digg_count, create_time, created_at, is_precise, evaluation_reason, evaluation_score, evaluated_at
                      FROM captured_comments WHERE job_id = ?1
                      ORDER BY create_time DESC LIMIT ?2",
                 )
@@ -886,5 +990,9 @@ fn map_comment_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CapturedComment>
         digg_count: row.get(10)?,
         create_time: row.get(11)?,
         created_at: row.get(12)?,
+        is_precise: row.get::<_, i64>(13).unwrap_or(0) != 0,
+        evaluation_reason: row.get(14).unwrap_or_default(),
+        evaluation_score: row.get(15).ok(),
+        evaluated_at: row.get(16).ok(),
     })
 }

@@ -9,6 +9,8 @@ pub mod filters;
 pub mod job_config;
 pub mod job_run;
 pub mod lab_commands;
+pub mod evaluation;
+pub mod llm_client;
 pub mod llm_settings;
 pub mod orchestration;
 pub mod outreach;

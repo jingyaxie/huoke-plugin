@@ -92,6 +92,13 @@
 
         <TaskInteractionFields v-model="settings" />
 
+        <TaskEvaluationSection
+          v-model:target-customer="form.targetCustomer"
+          v-model:accept-description="form.acceptDescription"
+          v-model:reject-signals="form.rejectSignals"
+          v-model:expanded="form.evaluationExpanded"
+        />
+
         <el-form-item label="创建后执行">
           <el-switch
             v-model="form.autoStart"
@@ -120,6 +127,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import TaskInteractionFields from "./TaskInteractionFields.vue";
 import TaskPresetSelect from "./TaskPresetSelect.vue";
+import TaskEvaluationSection from "./TaskEvaluationSection.vue";
 import { createCollectJob, fetchCollectCapabilities } from "../api/localService";
 import { mergeExtensionCapabilities, isExtensionCollectPlatform } from "../config/extensionPlatformCapabilities";
 import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/presets";
@@ -127,6 +135,8 @@ import {
   FALLBACK_COMMENT_DAYS_OPTIONS,
   FALLBACK_PUBLISH_TIME_OPTIONS,
   computeAutoOutreach,
+  buildEvaluationPayload,
+  defaultEvaluation,
   listManualModeOptions,
   loadExtensionAutoStartPref,
   saveExtensionAutoStartPref,
@@ -163,6 +173,10 @@ const form = reactive({
   publishTimeRange: "unlimited",
   commentDays: 3,
   autoStart: loadExtensionAutoStartPref(true),
+  targetCustomer: "",
+  acceptDescription: "",
+  rejectSignals: "",
+  evaluationExpanded: false,
 });
 
 const manualModeOptions = listManualModeOptions(null);
@@ -238,6 +252,15 @@ async function reloadPresets() {
   selectedDmPresetIds.value = dmPresets.value.map((row) => row.id);
 }
 
+function evaluationPayload(taskName) {
+  const custom = buildEvaluationPayload({
+    targetCustomer: form.targetCustomer,
+    acceptDescription: form.acceptDescription,
+    rejectSignals: form.rejectSignals,
+  });
+  return defaultEvaluation(taskName, custom);
+}
+
 function resetForm() {
   form.intent = "account_home";
   form.platform = "douyin";
@@ -246,6 +269,10 @@ function resetForm() {
   form.publishTimeRange = "unlimited";
   form.commentDays = 3;
   form.autoStart = loadExtensionAutoStartPref(true);
+  form.targetCustomer = "";
+  form.acceptDescription = "";
+  form.rejectSignals = "";
+  form.evaluationExpanded = false;
 }
 
 async function submit() {
@@ -308,6 +335,7 @@ async function submit() {
         followPerDay: settings.value.follow_per_day,
         dmPerDay: settings.value.dm_per_day,
       }),
+      evaluation: evaluationPayload(taskName),
       auto_start: form.autoStart,
     });
     ElMessage.success(

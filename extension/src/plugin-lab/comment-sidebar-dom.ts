@@ -11,6 +11,7 @@ const COMMENT_ICON_SELECTORS = [
   '[data-e2e="feed-comment-icon"]',
   '[data-e2e="comment-icon"]',
   '[data-e2e="detail-tab-comment"]',
+  '[data-e2e="browse-comment-icon"]',
 ] as const;
 
 /** 禁止误点的互动按钮（收藏/点赞/分享等） */

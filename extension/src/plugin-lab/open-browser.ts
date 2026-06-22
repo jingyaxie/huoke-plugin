@@ -2,6 +2,8 @@ import type { PlatformId } from "../shared/protocol";
 import { ensureContentScript } from "../background/command-router";
 import { detectPlatformFromUrl, isPlatformUrl } from "./platform-hosts";
 import { pinLabSession, readLabSession } from "./lab-context";
+import { closeDetailWindow } from "./detail-window";
+import { isUsablePlatformTab } from "./platforms/shared/tab-health";
 import { log, warn } from "../shared/logger";
 
 const PLATFORM_URLS: Record<PlatformId, string> = {
@@ -93,8 +95,10 @@ function needsJobStartReset(url: string | undefined, platform: PlatformId): bool
       if (!parsed.hostname.includes("douyin.com")) return true;
       if (/\/video\/\d/i.test(url) || /\/note\/\d/i.test(url)) return true;
       if (/\/user\//i.test(url)) return true;
-      if (/modal_id=\d/i.test(url)) return true;
-      if (/\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(parsed.pathname)) return true;
+      // 搜索结果页（含 modal_id 浮层）保持不动，避免任务开始时「重复搜索」
+      if (/\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(parsed.pathname) || /modal_id=\d/i.test(url)) {
+        return false;
+      }
       return false;
     } catch {
       return true;
@@ -122,18 +126,9 @@ function needsJobStartReset(url: string | undefined, platform: PlatformId): bool
   return false;
 }
 
-/** 等待 content script 就绪（超时后不阻塞 open_browser 返回） */
-async function ensureContentScriptReady(tabId: number, timeoutMs = 10_000) {
-  try {
-    await Promise.race([
-      ensureContentScript(tabId),
-      sleep(timeoutMs).then(() => {
-        throw new Error("content script warmup timeout");
-      }),
-    ]);
-  } catch (err) {
-    warn("content script warmup incomplete", tabId, err);
-  }
+/** 等待 content script 就绪（统一走 command-router 注入/重载逻辑） */
+async function ensureContentScriptReady(tabId: number) {
+  await ensureContentScript(tabId);
 }
 
 async function sleep(ms: number) {
@@ -198,6 +193,7 @@ async function resolvePinnedSessionTab(platform: PlatformId): Promise<chrome.tab
     const tab = await chrome.tabs.get(session.tabId);
     if (!tab.id || !isPlatformUrl(tab.url)) return undefined;
     if (detectPlatformFromUrl(tab.url) !== platform) return undefined;
+    if (!isUsablePlatformTab(tab)) return undefined;
     return tab;
   } catch {
     return undefined;
@@ -213,7 +209,8 @@ async function findWorkWindowTab(platform: PlatformId): Promise<chrome.tabs.Tab 
         (tab) =>
           tab.url &&
           isPlatformUrl(tab.url) &&
-          detectPlatformFromUrl(tab.url) === platform,
+          detectPlatformFromUrl(tab.url) === platform &&
+          isUsablePlatformTab(tab),
       );
       if (matches.length > 0) {
         return matches.find((tab) => tab.active) ?? matches[0];
@@ -225,11 +222,28 @@ async function findWorkWindowTab(platform: PlatformId): Promise<chrome.tabs.Tab 
   return undefined;
 }
 
-/** 仅复用已注册的平台工作窗标签，不占用用户日常浏览窗口 */
+/** 无工作窗会话时，复用任意已登录且非验证码的平台标签（比新建窗口快） */
+async function findAnyUsablePlatformTab(platform: PlatformId): Promise<chrome.tabs.Tab | undefined> {
+  const patterns = PLATFORM_TAB_PATTERNS[platform] ?? PLATFORM_TAB_PATTERNS.douyin;
+  const tabs = await chrome.tabs.query({ url: patterns });
+  const usable = tabs.filter(
+    (tab) =>
+      tab.url &&
+      isPlatformUrl(tab.url) &&
+      detectPlatformFromUrl(tab.url) === platform &&
+      isUsablePlatformTab(tab),
+  );
+  if (usable.length === 0) return undefined;
+  return usable.find((tab) => tab.active) ?? usable[0];
+}
+
+/** 仅复用已注册的平台工作窗标签；无会话时降级到任意可用标签 */
 async function findExistingPlatformTab(platform: PlatformId): Promise<chrome.tabs.Tab | undefined> {
   const pinned = await resolvePinnedSessionTab(platform);
   if (pinned) return pinned;
-  return findWorkWindowTab(platform);
+  const work = await findWorkWindowTab(platform);
+  if (work) return work;
+  return findAnyUsablePlatformTab(platform);
 }
 
 async function resolveLeftHalfBounds(): Promise<WindowBounds> {
@@ -364,6 +378,10 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
   async function openInExistingTab(existing: chrome.tabs.Tab): Promise<OpenBrowserResult> {
     if (!existing.id) throw new Error("target tab has no id");
 
+    if (resetToStart && !customUrl) {
+      await closeDetailWindow(platform).catch(() => undefined);
+    }
+
     let bounds: WindowBounds | undefined;
     if (existing.windowId !== undefined) {
       bounds = await tryApplyLeftHalfLayout(existing.windowId);
@@ -371,7 +389,7 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
     await focusTab(existing);
 
     const shouldReset =
-      resetToStart && !customUrl && needsJobStartReset(existing.url, platform);
+      resetToStart && !customUrl && (needsJobStartReset(existing.url, platform) || !isUsablePlatformTab(existing));
     const navigatedToCustom = Boolean(customUrl && existing.url !== customUrl);
     const navigated = navigatedToCustom || shouldReset;
 
@@ -385,9 +403,15 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
     }
 
     const refreshed = await waitForPlatformUrl(existing.id, platform);
-    await pinLabSession(refreshed, platform);
-    await ensureContentScriptReady(refreshed.id!);
-    return buildResult(platform, refreshed, {
+    let readyTab = refreshed;
+    if (!isUsablePlatformTab(readyTab) && !customUrl) {
+      await chrome.tabs.update(existing.id, { url: startUrl });
+      await waitForTabLoad(existing.id, 10_000);
+      readyTab = await chrome.tabs.get(existing.id);
+    }
+    await pinLabSession(readyTab, platform);
+    await ensureContentScriptReady(readyTab.id!);
+    return buildResult(platform, readyTab, {
       opened: false,
       newWindow: false,
       bounds,
@@ -407,9 +431,14 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
   }
 
   const { tab, bounds, newWindow } = await createPlatformWindow(url);
-  if (waitLoad) await waitForTabLoad(tab.id!, 8_000);
+  if (waitLoad) await waitForTabLoad(tab.id!, 10_000);
 
-  const refreshed = await waitForPlatformUrl(tab.id!, platform);
+  let refreshed = await waitForPlatformUrl(tab.id!, platform);
+  if (!isUsablePlatformTab(refreshed)) {
+    await chrome.tabs.update(tab.id!, { url: startUrl });
+    await waitForTabLoad(tab.id!, 10_000);
+    refreshed = await chrome.tabs.get(tab.id!);
+  }
   await pinLabSession(refreshed, platform);
   await ensureContentScriptReady(refreshed.id!);
   return buildResult(platform, refreshed, {

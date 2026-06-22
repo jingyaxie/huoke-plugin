@@ -87,6 +87,10 @@ pub fn list_platform_capabilities() -> Value {
 
 /// 解析插件 lab 返回的搜索结果（items/results），兼容各平台 content_id 格式。
 pub fn parse_plugin_lab_search_results(platform: &str, resp: &Value) -> Vec<ParsedVideo> {
+    if normalize_platform(platform) == "douyin" {
+        return crate::douyin::parser::parse_fetch_search_results(resp);
+    }
+
     let adapter = get_platform_adapter(platform);
     let root = resp.get("data").unwrap_or(resp);
     let items = root

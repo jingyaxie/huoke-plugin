@@ -1,11 +1,15 @@
 import { type BridgeMessage } from "../shared/protocol";
+import { backgroundCommandTimeoutMs } from "../shared/command-timeouts";
 import { log, warn, error } from "../shared/logger";
 import { extensionVersion, extensionBuildId } from "../shared/runtime";
 import { CONTENT_MESSAGE } from "../shared/constants";
 import { routeCommandToTab } from "./command-router";
 import { isPluginLabBackgroundAction, runPluginLabBackgroundCommand } from "../plugin-lab";
-import { prepareSearchForVideoBackground } from "../plugin-lab/search-video-background";
-import { closeVideoDetailBackground } from "../plugin-lab/detail-window";
+import {
+  prepareSearchForVideoBackground,
+  closeVideoDetailBackground,
+} from "../plugin-lab/platforms/route-background";
+import { isUsablePlatformTab } from "../plugin-lab/platforms/shared/tab-health";
 import { clearLabSession } from "../plugin-lab/lab-context";
 
 log("service worker boot", extensionVersion(), extensionBuildId());
@@ -160,11 +164,9 @@ async function runCommand(command: BridgeMessage): Promise<{ ok: boolean; data?:
 
   if (command.action === "huoke.diag.tabs") {
     try {
-      const tabs = await chrome.tabs.query({
-        url: ["https://www.douyin.com/*", "https://*.douyin.com/*"],
-      });
+      const tabs = await chrome.tabs.query({ url: PLATFORM_TAB_PATTERNS });
       const rows = [];
-      for (const tab of tabs.slice(0, 5)) {
+      for (const tab of tabs.slice(0, 12)) {
         if (!tab.id) continue;
         let probe: unknown = null;
         let ping: unknown = null;
@@ -187,7 +189,9 @@ async function runCommand(command: BridgeMessage): Promise<{ ok: boolean; data?:
         rows.push({
           id: tab.id,
           url: tab.url,
+          title: tab.title,
           active: tab.active,
+          blocked: !isUsablePlatformTab(tab),
           probe,
           probeError,
           ping,
@@ -281,7 +285,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "huoke:run-command" && message.command) {
     const command = message.command as BridgeMessage;
-    const timeoutMs = command.action === "plugin_lab.open_browser" ? 12_000 : 50_000;
+    const timeoutMs = backgroundCommandTimeoutMs(command.action);
     let responded = false;
     const timer = setTimeout(() => {
       if (responded) return;

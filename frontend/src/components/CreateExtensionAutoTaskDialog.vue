@@ -73,7 +73,7 @@
 
         <el-form-item label="预设抓取数量" required>
           <el-input-number v-model="form.targetCount" :min="1" :max="500" />
-          <p class="field-hint">建议单次控制在 30–100 条；采集完成后可在任务详情查看评论线索。</p>
+          <p class="field-hint">建议单次控制在 30–100 条；采集完成后将用大模型评估评论并标记精准客户。</p>
         </el-form-item>
 
         <el-form-item label="单批扫描视频上限">
@@ -101,6 +101,14 @@
         </el-row>
 
         <TaskInteractionFields v-model="settings" />
+
+        <TaskEvaluationSection
+          v-model:eval-template-id="form.evalTemplateId"
+          v-model:target-customer="form.targetCustomer"
+          v-model:accept-description="form.acceptDescription"
+          v-model:reject-signals="form.rejectSignals"
+          v-model:expanded="form.evaluationExpanded"
+        />
 
         <el-form-item label="创建后执行">
           <el-switch
@@ -130,6 +138,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import TaskInteractionFields from "./TaskInteractionFields.vue";
 import TaskPresetSelect from "./TaskPresetSelect.vue";
+import TaskEvaluationSection from "./TaskEvaluationSection.vue";
 import { createCollectJob, fetchCollectCapabilities } from "../api/localService";
 import { mergeExtensionCapabilities, isExtensionCollectPlatform } from "../config/extensionPlatformCapabilities";
 import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/presets";
@@ -138,6 +147,8 @@ import {
   FALLBACK_COMMENT_DAYS_OPTIONS,
   FALLBACK_PUBLISH_TIME_OPTIONS,
   computeAutoOutreach,
+  buildEvaluationPayload,
+  defaultEvaluation,
   loadExtensionAutoStartPref,
   saveExtensionAutoStartPref,
 } from "../utils/huokeTaskForm";
@@ -169,6 +180,11 @@ const form = reactive({
   targetCount: 50,
   crawlVideoLimit: 10,
   autoStart: loadExtensionAutoStartPref(true),
+  evalTemplateId: "",
+  targetCustomer: "",
+  acceptDescription: "",
+  rejectSignals: "",
+  evaluationExpanded: false,
 });
 
 const publishOptions = FALLBACK_PUBLISH_TIME_OPTIONS;
@@ -202,6 +218,16 @@ function keywordList() {
     .split(/[,，\s]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function evaluationPayload() {
+  const custom = buildEvaluationPayload({
+    evalTemplateId: form.evalTemplateId,
+    targetCustomer: form.targetCustomer,
+    acceptDescription: form.acceptDescription,
+    rejectSignals: form.rejectSignals,
+  });
+  return defaultEvaluation(keywordList()[0] || form.name, custom);
 }
 
 async function loadDialogData() {
@@ -243,6 +269,11 @@ function resetForm() {
   form.targetCount = 50;
   form.crawlVideoLimit = 10;
   form.autoStart = loadExtensionAutoStartPref(true);
+  form.evalTemplateId = "";
+  form.targetCustomer = "";
+  form.acceptDescription = "";
+  form.rejectSignals = "";
+  form.evaluationExpanded = false;
 }
 
 async function submit() {
@@ -315,6 +346,7 @@ async function submit() {
         followPerDay: settings.value.follow_per_day,
         dmPerDay: settings.value.dm_per_day,
       }),
+      evaluation: evaluationPayload(),
       auto_start: form.autoStart,
     });
     ElMessage.success(

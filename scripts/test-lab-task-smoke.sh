@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # 轻量化任务冒烟：通过采集任务 API 驱动 plugin-lab 步骤（非直接调实验室 API）
-# 顺序：小红书 → 快手
-# 用法: bash scripts/test-lab-task-smoke.sh [小红书关键词] [快手关键词]
+# 顺序：抖音 → 小红书 → 快手
+# 用法: bash scripts/test-lab-task-smoke.sh [抖音关键词] [小红书关键词] [快手关键词]
 # 前置: local-service 已启动 + Chrome 已加载 extension/dist 且已登录对应平台
 set -euo pipefail
 
 PORT="${HUOKE_LOCAL_PORT:-18766}"
 BASE="http://127.0.0.1:${PORT}"
-XHS_KEYWORD="${1:-护肤}"
-KS_KEYWORD="${2:-美食}"
+DY_KEYWORD="${1:-健身}"
+XHS_KEYWORD="${2:-护肤}"
+KS_KEYWORD="${3:-美食}"
 PASS=0
 FAIL=0
 
@@ -71,7 +72,7 @@ EOF
   curl -fsS -X POST "${BASE}/api/douyin/jobs/${job_id}/start" >/dev/null
   echo "  已启动，轮询中…"
 
-  result="$(wait_job "$job_id" "$label" 72)"
+  result="$(wait_job "$job_id" "$label" 90)"
   status="$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))")"
   videos="$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin).get('video_count',0))")"
   comments="$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin).get('comment_count',0))")"
@@ -105,12 +106,12 @@ EOF
   return 1
 }
 
-echo "=== 实验室任务驱动冒烟（小红书 → 快手）==="
+echo "=== 实验室任务驱动冒烟（抖音 → 小红书 → 快手）==="
 echo "BASE=${BASE}"
-echo "xhs_keyword=${XHS_KEYWORD}  ks_keyword=${KS_KEYWORD}"
+echo "dy_keyword=${DY_KEYWORD}  xhs_keyword=${XHS_KEYWORD}  ks_keyword=${KS_KEYWORD}"
 echo ""
 
-echo "[1/3] 检查 local-service"
+echo "[1/4] 检查 local-service"
 if ! curl -fsS -m 3 "${BASE}/health" >/dev/null 2>&1; then
   bad "local-service 未响应 ${BASE}/health"
   exit 1
@@ -118,7 +119,14 @@ fi
 ok "local-service /health"
 
 echo ""
-echo "[2/3] 检查插件连接"
+echo "[2/4] 初始化插件会话"
+curl -fsS -X POST "${BASE}/bridge/command" \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"huoke.runtime.init","payload":{},"wait":true,"timeout_ms":60000}' >/dev/null
+ok "lab session cleared"
+
+echo ""
+echo "[3/4] 检查插件连接"
 CLIENTS="$(curl -fsS "${BASE}/bridge/status" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('extension_clients', d.get('connected_clients',0)))")"
 if [[ "$CLIENTS" == "0" ]]; then
@@ -128,8 +136,10 @@ fi
 ok "extension connected (clients=${CLIENTS})"
 
 echo ""
-echo "[3/3] 创建并运行轻量化采集任务"
+echo "[4/4] 创建并运行轻量化采集任务"
 set +e
+run_platform_job "douyin" "$DY_KEYWORD" "抖音"
+DY_RC=$?
 run_platform_job "xiaohongshu" "$XHS_KEYWORD" "小红书"
 XHS_RC=$?
 run_platform_job "kuaishou" "$KS_KEYWORD" "快手"
@@ -139,8 +149,9 @@ set -e
 echo ""
 echo "========== 汇总 =========="
 echo "PASS=${PASS}  FAIL=${FAIL}"
+echo "抖音 RC=${DY_RC}  小红书 RC=${XHS_RC}  快手 RC=${KS_RC}"
 if [[ "$FAIL" -gt 0 ]]; then
   echo "部分阶段未通过。搜索阶段通过即表示任务已成功驱动实验室 open/search/fetch 流程。"
   exit 1
 fi
-echo "小红书、快手任务驱动实验室流程均通过。"
+echo "抖音、小红书、快手任务驱动实验室流程均通过。"

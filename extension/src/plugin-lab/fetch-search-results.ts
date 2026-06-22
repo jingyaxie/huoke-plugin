@@ -11,6 +11,7 @@ import {
   serializeCardRect,
   waitForSearchResultCards,
 } from "./search-results-dom";
+import { sleep } from "./search-input";
 import { rememberSearchResultsUrl } from "./search-feed-open";
 import {
   enableSearchNetworkHook,
@@ -38,7 +39,12 @@ export interface DomSearchResultItem {
 
 export type SearchResultItem = SearchApiItem | DomSearchResultItem;
 
-const DEFAULT_API_TIMEOUT_MS = 12_000;
+const DEFAULT_API_TIMEOUT_MS = 20_000;
+
+async function scrollSearchResultsIntoView(): Promise<void> {
+  window.scrollTo({ top: 0, behavior: "auto" });
+  await sleep(300);
+}
 
 /** API 截获：优先读 hook 缓存，必要时轮询等待 search/single 响应 */
 async function collectViaApi(
@@ -69,7 +75,12 @@ async function collectViaDom(limit: number): Promise<{
 }> {
   const onSearchPage = isSearchResultsPage();
   if (onSearchPage) rememberSearchResultsUrl();
-  const cards = onSearchPage ? await waitForSearchResultCards() : collectSearchResultCards();
+  await scrollSearchResultsIntoView();
+
+  let cards = await waitForSearchResultCards(12);
+  if (cards.length === 0) {
+    cards = collectSearchResultCards();
+  }
 
   const items: DomSearchResultItem[] = [];
 

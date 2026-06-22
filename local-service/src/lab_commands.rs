@@ -56,6 +56,10 @@ impl<'a> LabCommands<'a> {
 
     pub async fn run_keyword_search(&self, keyword: &str, publish_days: i64) -> Result<Value, String> {
         let platform = self.platform.clone();
+        // 清理上次任务遗留的独立窗 / Feed 浮层 / 工作窗 /video/ 页，避免无法输入搜索
+        let _ = self.close_video_detail().await;
+        simulate::pause(Duration::from_millis(600)).await;
+
         // 与插件实验室单步流程一致：1 打开 → 3~7 搜索 →（可选）4~5 筛选
         self.action(
             "open_browser",
@@ -63,18 +67,57 @@ impl<'a> LabCommands<'a> {
                 "platform": platform,
                 "reuse_existing": true,
                 "reset_to_start": true,
-                "wait_load": true,
             }),
         )
         .await?;
-        simulate::pause(Duration::from_secs(2)).await;
+        simulate::pause(Duration::from_secs(3)).await;
 
-        self.action("find_search_box", json!({ "platform": platform }))
-            .await?;
+        const MAX_SEARCH_ATTEMPTS: u32 = 4;
+        let mut last_err = String::new();
+        let mut search_ready = false;
+        for attempt in 1..=MAX_SEARCH_ATTEMPTS {
+            match self
+                .action("find_search_box", json!({ "platform": platform }))
+                .await
+            {
+                Ok(result) if Self::search_box_ready(&result) => {
+                    if attempt > 1 {
+                        warn!("find_search_box succeeded on attempt {attempt}");
+                    }
+                    search_ready = true;
+                    break;
+                }
+                Ok(result) => {
+                    last_err = result
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("search box not found")
+                        .to_string();
+                }
+                Err(err) => {
+                    last_err = err;
+                }
+            }
+            if attempt < MAX_SEARCH_ATTEMPTS {
+                warn!("find_search_box attempt {attempt} failed: {last_err}, retrying…");
+                simulate::pause(Duration::from_secs(4)).await;
+            }
+        }
+        if !search_ready {
+            return Err(if last_err.is_empty() {
+                "search box not found".into()
+            } else {
+                last_err
+            });
+        }
 
         self.action(
             "input_search_text",
-            json!({ "platform": platform, "search_text": keyword }),
+            json!({
+                "platform": platform,
+                "search_text": keyword,
+                "char_delay_ms": { "min": 60, "max": 140 },
+            }),
         )
         .await?;
 
@@ -83,16 +126,34 @@ impl<'a> LabCommands<'a> {
         // hook 必须在点击搜索之前开启，否则首屏 search API 抓不到
         self.enable_network_hook().await?;
 
-        let submit = self.action("click_search_btn", json!({})).await?;
-        if !Self::lab_ok(&submit) {
+        let submit = self
+            .action(
+                "click_search_btn",
+                json!({ "platform": platform, "search_text": keyword }),
+            )
+            .await?;
+        if !Self::lab_ok(&submit) && Self::search_result_count(&submit) == 0 {
             return Ok(submit);
         }
 
-        // 等待进入 jingxuan/search 结果页（与实验室手动操作间隔一致）
+        // 等待进入搜索结果页并加载首屏数据
         simulate::pause(Duration::from_secs(5)).await;
 
         // 导航后 hook 状态会重置，再 enable 一次
         self.enable_network_hook().await?;
+        simulate::pause(Duration::from_secs(1)).await;
+
+        // 统一在 step8 抓结果（不在此处滑动，避免搜索完成后反复 scroll）
+        let search_payload = match self
+            .action(
+                "fetch_search_results",
+                json!({ "limit": 30, "api_timeout_ms": 12_000 }),
+            )
+            .await
+        {
+            Ok(fetch) if Self::search_result_count(&fetch) > 0 => fetch,
+            Ok(_) | Err(_) => submit,
+        };
 
         if publish_days > 0 {
             let _ = self.action("click_filter_btn", json!({})).await;
@@ -106,7 +167,7 @@ impl<'a> LabCommands<'a> {
             simulate::pause(Duration::from_secs(2)).await;
         }
 
-        Ok(submit)
+        Ok(search_payload)
     }
 
     pub async fn close_video_detail(&self) -> Result<Value, String> {
@@ -114,7 +175,11 @@ impl<'a> LabCommands<'a> {
     }
 
     pub async fn prepare_search_for_video(&self) -> Result<Value, String> {
-        self.action("prepare_search_for_video", json!({})).await
+        self.action(
+            "prepare_search_for_video",
+            json!({ "platform": self.platform }),
+        )
+        .await
     }
 
     pub async fn click_search_video(
@@ -122,13 +187,21 @@ impl<'a> LabCommands<'a> {
         video_index: i64,
         rect: Option<Value>,
         aweme_id: Option<&str>,
+        video_url: Option<&str>,
     ) -> Result<Value, String> {
-        let mut payload = json!({ "video_index": video_index.max(1) });
+        let mut payload = json!({
+            "video_index": video_index.max(1),
+            "use_detail_window": self.platform == "douyin",
+            "open_strategy": "auto",
+        });
         if let Some(rect) = rect {
             payload["rect"] = rect;
         }
         if let Some(id) = aweme_id.filter(|s| !s.trim().is_empty()) {
             payload["aweme_id"] = json!(id);
+        }
+        if let Some(url) = video_url.filter(|s| !s.trim().is_empty()) {
+            payload["video_url"] = json!(url);
         }
         self.action("click_search_video", payload).await
     }
@@ -136,7 +209,10 @@ impl<'a> LabCommands<'a> {
     pub async fn fetch_search_results(&self, limit: i64) -> Result<Value, String> {
         self.action(
             "fetch_search_results",
-            json!({ "limit": limit.clamp(1, 50) }),
+            json!({
+                "limit": limit.clamp(1, 50),
+                "api_timeout_ms": 25_000,
+            }),
         )
         .await
     }
@@ -205,7 +281,6 @@ impl<'a> LabCommands<'a> {
                 "platform": self.platform,
                 "url": url,
                 "reuse_existing": reuse_existing,
-                "wait_load": true,
             }),
         )
         .await
@@ -220,7 +295,7 @@ impl<'a> LabCommands<'a> {
     }
 
     pub async fn open_comment_sidebar(&self) -> Result<Value, String> {
-        self.action("click_comment_btn", json!({})).await
+        self.action("click_comment_btn", json!({ "platform": self.platform })).await
     }
 
     pub async fn scroll_comments(
@@ -376,10 +451,20 @@ impl<'a> LabCommands<'a> {
         self.action("send_dm", json!({ "dm_text": text })).await
     }
 
-    async fn action(&self, action_id: &str, payload: Value) -> Result<Value, String> {
+    async fn action(&self, action_id: &str, mut payload: Value) -> Result<Value, String> {
         let bridge_action = plugin_lab::bridge_action_for(action_id).ok_or_else(|| {
             format!("unsupported plugin-lab action: {action_id}")
         })?;
+        if payload
+            .get("platform")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .is_empty()
+        {
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("platform".to_string(), json!(self.platform));
+            }
+        }
         let normalized = plugin_lab::normalize_payload(action_id, payload);
         self.hub
             .request_command(bridge_action, normalized, action_timeout(action_id))
@@ -389,17 +474,41 @@ impl<'a> LabCommands<'a> {
     fn lab_ok(data: &Value) -> bool {
         data.get("ok").and_then(|v| v.as_bool()).unwrap_or(true)
     }
+
+    fn search_box_ready(data: &Value) -> bool {
+        if !Self::lab_ok(data) {
+            return false;
+        }
+        data.get("found").and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    fn search_result_count(data: &Value) -> usize {
+        data.get("count")
+            .and_then(|v| v.as_u64())
+            .or_else(|| {
+                data.get("items")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len() as u64)
+            })
+            .or_else(|| {
+                data.get("results")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len() as u64)
+            })
+            .unwrap_or(0) as usize
+    }
 }
 
 fn action_timeout(action_id: &str) -> Duration {
     match action_id {
-        "input_search_text" | "scroll_and_collect_comments" | "click_search_btn" => {
+        "input_search_text" | "find_search_box" | "scroll_and_collect_comments" | "click_search_btn" => {
             Duration::from_secs(120)
         }
         "click_search_video" => Duration::from_secs(90),
         "click_profile_video" => Duration::from_secs(90),
         "reply_comment" | "input_dm_text" => Duration::from_secs(60),
-        "open_browser" => Duration::from_secs(45),
+        "open_browser" => Duration::from_secs(120),
+        "fetch_search_results" => Duration::from_secs(120),
         "swipe_page" => Duration::from_secs(20),
         _ => Duration::from_secs(45),
     }

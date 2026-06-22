@@ -71,6 +71,61 @@ impl InteractionSettings {
 
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct EvaluationConfig {
+    pub product_or_service: Option<String>,
+    pub target_customer: Option<String>,
+    pub accept_description: Option<String>,
+    pub reject_signals: Vec<String>,
+}
+
+impl EvaluationConfig {
+    pub fn from_config(cfg: &Value) -> Self {
+        let eval = cfg.get("evaluation").unwrap_or(cfg);
+        let reject_signals = eval
+            .get("reject_signals")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            product_or_service: eval
+                .get("product_or_service")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            target_customer: eval
+                .get("target_customer")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            accept_description: eval
+                .get("accept_description")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            reject_signals,
+        }
+    }
+
+    pub fn with_keyword_fallback(mut self, keyword: &str) -> Self {
+        if self.product_or_service.is_none() {
+            let kw = keyword.trim();
+            if !kw.is_empty() {
+                self.product_or_service = Some(kw.to_string());
+            }
+        }
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct JobConfig {
     pub intent: String,
@@ -86,6 +141,7 @@ pub struct JobConfig {
     pub dm_presets: Vec<PresetRef>,
     pub auto_start: bool,
     pub auto_outreach: bool,
+    pub evaluation: EvaluationConfig,
 }
 
 impl JobConfig {
@@ -157,7 +213,7 @@ impl JobConfig {
             .get("auto_outreach")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
-        let _ = keyword;
+        let evaluation = EvaluationConfig::from_config(cfg).with_keyword_fallback(keyword);
         Self {
             intent,
             input_url,
@@ -172,6 +228,7 @@ impl JobConfig {
             dm_presets,
             auto_start,
             auto_outreach,
+            evaluation,
         }
     }
 

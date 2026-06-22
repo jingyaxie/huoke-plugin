@@ -40,6 +40,11 @@ export async function fetchCollectCapabilities() {
   return data;
 }
 
+export async function evaluateCollectJob(jobId) {
+  const { data } = await localService.post(`/api/douyin/jobs/${jobId}/evaluate`);
+  return data;
+}
+
 export async function listCollectJobs() {
   const { data } = await localService.get("/api/douyin/jobs");
   return data;

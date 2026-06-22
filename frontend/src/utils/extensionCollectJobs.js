@@ -58,7 +58,7 @@ export function extensionJobMetrics(job) {
   return {
     requested_target: extensionJobTargetCount(job),
     produced_total: Number(job?.comment_count || 0),
-    progress_precise: 0,
+    progress_precise: Number(job?.precise_count || 0),
     comment_count: Number(job?.reply_count || 0),
     dm_count: Number(job?.dm_count || 0),
     follow_count: Number(job?.follow_count || 0),
@@ -68,11 +68,30 @@ export function extensionJobMetrics(job) {
 export function extensionMetricViewCount(job, view) {
   if (!job) return 0;
   if (view === OUTREACH_METRIC_VIEWS.ALL) return Number(job.comment_count || 0);
-  if (view === OUTREACH_METRIC_VIEWS.PRECISE) return 0;
+  if (view === OUTREACH_METRIC_VIEWS.PRECISE) return Number(job.precise_count || 0);
   if (view === OUTREACH_METRIC_VIEWS.REPLY) return Number(job.reply_count || 0);
   if (view === OUTREACH_METRIC_VIEWS.DM) return Number(job.dm_count || 0);
   if (view === OUTREACH_METRIC_VIEWS.FOLLOW) return Number(job.follow_count || 0);
   return 0;
+}
+
+export function computeExtensionDashboard(jobs) {
+  const rows = jobs || [];
+  const runningTasks = rows.filter((row) => row.status === "running").length;
+  const queuedTasks = rows.filter((row) => row.status === "pending").length;
+  const totalLeads = rows.reduce((sum, row) => sum + Number(row.comment_count || 0), 0);
+  const preciseCustomers = rows.reduce((sum, row) => sum + Number(row.precise_count || 0), 0);
+  const replyCount = rows.reduce((sum, row) => sum + Number(row.reply_count || 0), 0);
+  const dmCount = rows.reduce((sum, row) => sum + Number(row.dm_count || 0), 0);
+  const followCount = rows.reduce((sum, row) => sum + Number(row.follow_count || 0), 0);
+  return {
+    running_tasks: runningTasks,
+    queued_tasks: queuedTasks,
+    precise_customers: preciseCustomers,
+    total_leads: totalLeads,
+    dm_count: dmCount,
+    follow_count: followCount + replyCount,
+  };
 }
 
 export function buildAgentJobFromCollectJob(collectJob, { comments = [], videos = [], interactions = [] } = {}) {
@@ -110,8 +129,9 @@ export function buildAgentJobFromCollectJob(collectJob, { comments = [], videos 
       video_title: videoMeta.title,
       video_url: videoMeta.url,
       profile_url: douyinProfileUrl(comment.sec_uid),
-      is_precise: false,
-      evaluation_reason: "",
+      is_precise: Boolean(comment.is_precise),
+      evaluation_reason: comment.evaluation_reason || "",
+      evaluation_score: comment.evaluation_score ?? null,
       reply_content: outreach.has_reply ? "已回复" : "",
       dm_content: outreach.has_dm ? "已私信" : "",
       executed_at: outreach.executed_at || null,

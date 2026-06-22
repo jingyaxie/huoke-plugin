@@ -22,12 +22,38 @@ use crate::ws::BridgeHub;
 
 const JOB_PAUSED: &str = "__job_paused__";
 
+/// 插件已打开可采评论的视频上下文：Feed 浮层 / 右侧独立窗 / 工作窗 /video/ 页
+fn video_ready_for_collect(resp: &serde_json::Value) -> bool {
+    if resp.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        return false;
+    }
+    if resp.get("is_search_feed").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    if resp.get("detail_window").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    if resp.get("is_content_detail").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    if resp.get("is_standalone_video").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    if resp.get("feed_open").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    resp.get("url")
+        .and_then(|v| v.as_str())
+        .is_some_and(|u| u.contains("/video/") || u.contains("/short-video/"))
+}
+
 pub struct JobOrchestrator {
     pub db: Database,
     pub hub: BridgeHub,
     pub default_daily_quota: i64,
     pub job_runs: JobRunRegistry,
     pub generation: u64,
+    pub data_dir: std::path::PathBuf,
 }
 
 impl JobOrchestrator {
@@ -65,6 +91,18 @@ impl JobOrchestrator {
                 if self.is_job_paused(job_id)? {
                     info!("job {job_id} paused");
                     return Ok(());
+                }
+                let job = self.db.get_job(job_id)?;
+                if let Err(err) = crate::evaluation::evaluate_job_comments(
+                    &self.db,
+                    &self.data_dir,
+                    job_id,
+                    &job.keyword,
+                    &cfg.evaluation,
+                )
+                .await
+                {
+                    warn!("job {job_id}: comment evaluation error: {err}");
                 }
                 if cfg.should_run_auto_outreach() {
                     let runner = InlineOutreachRunner {
@@ -126,8 +164,9 @@ impl JobOrchestrator {
         let search_result = lab
             .run_keyword_search(&search_kw, cfg.filter_publish_days_for_ui())
             .await?;
+        let videos_preview = parse_plugin_lab_search_results(&job.platform, &search_result);
         let ok = search_result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
-        if !ok {
+        if !ok && videos_preview.is_empty() {
             let msg = search_result
                 .get("message")
                 .and_then(|v| v.as_str())
@@ -274,10 +313,8 @@ impl JobOrchestrator {
         let lab = LabCommands::new(&self.hub, &job.platform);
         if cfg.intent == "account_home" {
             let _ = lab.prepare_profile_for_video().await;
-        } else {
-            let _ = lab.prepare_search_for_video().await;
+            simulate::pause(Duration::from_millis(500)).await;
         }
-        simulate::pause(Duration::from_millis(500)).await;
 
         while self.db.count_comments_for_job(job_id)? < cfg.target_count && pass < 3 {
             self.bail_if_paused(job_id)?;
@@ -327,11 +364,13 @@ impl JobOrchestrator {
             if self.db.count_comments_for_job(job_id)? >= cfg.target_count {
                 break;
             }
-            let lab = LabCommands::new(&self.hub, &job.platform);
-            let _ = lab
-                .scroll_comments(4, job.max_comments_per_video, cfg.comment_days)
-                .await;
-            simulate::pause(Duration::from_secs(3)).await;
+            if opened_videos > 0 {
+                let lab = LabCommands::new(&self.hub, &job.platform);
+                let _ = lab
+                    .scroll_comments(4, job.max_comments_per_video, cfg.comment_days)
+                    .await;
+                simulate::pause(Duration::from_secs(3)).await;
+            }
         }
 
         let count = self.db.count_comments_for_job(job_id)?;
@@ -363,8 +402,28 @@ impl JobOrchestrator {
             .unwrap_or_default();
         let source = if videos.is_empty() {
             info!("job {job_id}: step 7 had no items, falling back to fetch_search_results (lab step 8)");
-            let resp = lab.fetch_search_results(30).await?;
-            videos = parse_plugin_lab_search_results(platform, &resp);
+            let mut last_resp = serde_json::Value::Null;
+            for attempt in 1..=2u32 {
+                let resp = lab.fetch_search_results(30).await?;
+                last_resp = resp.clone();
+                videos = parse_plugin_lab_search_results(platform, &resp);
+                if !videos.is_empty() {
+                    if attempt > 1 {
+                        warn!("job {job_id}: fetch_search_results succeeded on attempt {attempt}");
+                    }
+                    break;
+                }
+                if attempt < 2 {
+                    warn!("job {job_id}: fetch_search_results empty, scroll once and retry");
+                    let _ = lab.swipe_search_results(1).await;
+                    simulate::pause(std::time::Duration::from_secs(1)).await;
+                }
+            }
+            if videos.is_empty() && !last_resp.is_null() {
+                if let Some(msg) = last_resp.get("message").and_then(|v| v.as_str()) {
+                    warn!("job {job_id}: fetch_search_results message: {msg}");
+                }
+            }
             "step8"
         } else {
             "step7"
@@ -469,31 +528,34 @@ impl JobOrchestrator {
                 "job {job_id}: opened profile video #{video_index} mode={:?}",
                 clicked.get("mode").and_then(|v| v.as_str())
             );
-        } else if is_dom_poster_aweme_id(&video.aweme_id) {
-            let index = dom_poster_index(&video.aweme_id).unwrap_or(1);
-            let aweme_hint = parse_aweme_id_from_page_url(&video.video_url);
-            let clicked = lab.click_search_video(index, None, aweme_hint.as_deref()).await?;
-            let ok = clicked.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-            let detail_window = clicked
-                .get("detail_window")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let feed_open = clicked
-                .get("is_search_feed")
-                .and_then(|v| v.as_bool())
-                .or_else(|| clicked.get("feed_open").and_then(|v| v.as_bool()))
-                .unwrap_or(false);
-            if !ok || (!feed_open && !detail_window) {
+        } else if cfg.intent == "keyword_auto" || is_dom_poster_aweme_id(&video.aweme_id) {
+            let index = if is_dom_poster_aweme_id(&video.aweme_id) {
+                dom_poster_index(&video.aweme_id).unwrap_or(video_index)
+            } else {
+                video_index
+            };
+            let aweme_hint = if is_dom_poster_aweme_id(&video.aweme_id) {
+                parse_aweme_id_from_page_url(&video.video_url)
+            } else {
+                Some(video.aweme_id.clone())
+            };
+            let video_url = (!video.video_url.is_empty()).then_some(video.video_url.as_str());
+            let clicked = lab
+                .click_search_video(index, None, aweme_hint.as_deref(), video_url)
+                .await?;
+            let ready = video_ready_for_collect(&clicked);
+            if !ready {
                 let msg = clicked
                     .get("message")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("video feed did not open after click");
+                    .unwrap_or("failed to open video for comment collection");
                 return Err(msg.to_string());
             }
             info!(
-                "job {job_id}: opened search video #{index} mode={:?} attempt={:?}",
+                "job {job_id}: opened video #{index} mode={:?} feed={} detail_window={}",
                 clicked.get("mode").and_then(|v| v.as_str()),
-                clicked.get("attempt").and_then(|v| v.as_u64())
+                clicked.get("is_search_feed").and_then(|v| v.as_bool()).unwrap_or(false),
+                clicked.get("detail_window").and_then(|v| v.as_bool()).unwrap_or(false),
             );
         } else {
             // 优先用 DB 中的 video_url 直达详情，避免依赖搜索结果页 DOM 索引
@@ -570,6 +632,13 @@ impl JobOrchestrator {
                 "job {job_id}: stored {inserted} comments for aweme {aweme_id} via {capture_method} (stopped={:?})",
                 scroll_resp.get("stopped_reason").and_then(|v| v.as_str())
             );
+            if inserted > 0 {
+                crate::evaluation::spawn_evaluate_job(
+                    self.db.clone(),
+                    self.data_dir.clone(),
+                    job_id.to_string(),
+                );
+            }
         } else if existing_for_aweme == 0 && api_cached == 0 {
             warn!(
                 "job {job_id}: scroll returned 0 persistable comments for aweme {} — {:?}",
@@ -664,6 +733,7 @@ pub fn spawn_job(
     hub: BridgeHub,
     default_daily_quota: i64,
     job_runs: JobRunRegistry,
+    data_dir: std::path::PathBuf,
     job_id: String,
     generation: u64,
 ) {
@@ -673,6 +743,7 @@ pub fn spawn_job(
         default_daily_quota,
         job_runs,
         generation,
+        data_dir,
     });
     tokio::spawn(async move {
         if let Err(err) = orchestrator.run_job(&job_id).await {

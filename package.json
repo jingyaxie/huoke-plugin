@@ -6,6 +6,7 @@
   "scripts": {
     "setup": "bash scripts/setup.sh --install",
     "dev": "bash scripts/dev.sh",
+    "restart:service": "bash scripts/restart-local-service.sh",
     "verify": "bash scripts/verify.sh",
     "bundle": "bash scripts/prepare-bundle.sh",
     "build:mac": "bash scripts/build-desktop-mac.sh",

@@ -1,73 +1,107 @@
-import { detectPlatformFromUrl } from "./platform-hosts";
-import { dispatchKuaishouLabCommand } from "./platforms/kuaishou/lab";
-import { dispatchXiaohongshuLabCommand } from "./platforms/xiaohongshu/lab";
-import { probeLabReadiness, probeLabPageSnapshot } from "./lab-readiness";
-import { clickFilterButton } from "./click-filter-btn";
-import { clickFilterOverlay, type ClickFilterOverlayPayload } from "./click-filter-overlay";
-import { isPluginLabBackgroundAction } from "./background-actions";
-import { clickCommentAvatar, type ClickCommentAvatarPayload } from "./click-comment-avatar";
+/**
+ * 抖音插件实验室 — content 层独立实现（与 xhs/ks 同级，不共用业务 switch）
+ */
+import { clickFilterButton } from "../../click-filter-btn";
+import { clickFilterOverlay, type ClickFilterOverlayPayload } from "../../click-filter-overlay";
+import { clickCommentAvatar, type ClickCommentAvatarPayload } from "../../click-comment-avatar";
 import {
   clickCommentButtonFallback,
   probeCommentSidebar,
   activateCommentSidebar,
-} from "./comment-sidebar-dom";
-import { clickDmButton } from "./click-dm-btn";
-import { probeDmButton, probeDmInput, probeDmSendButton, probeDmSendVerify, typeDmTextFallback } from "./dm-dom";
-import { clickFollowButton } from "./click-follow-btn";
-import { prepareSearchCapture, submitSearchClick } from "./click-search-btn";
+} from "../../comment-sidebar-dom";
+import { clickDmButton } from "../../click-dm-btn";
+import {
+  probeDmButton,
+  probeDmInput,
+  probeDmSendButton,
+  probeDmSendVerify,
+  typeDmTextFallback,
+} from "../../dm-dom";
+import { clickFollowButton } from "../../click-follow-btn";
+import { prepareSearchCapture, submitSearchClick } from "../../click-search-btn";
 import {
   clickSearchVideoFallback,
   clickSearchVideoInContent,
   prepareSearchForVideoClick,
   probeSearchVideoCard,
-} from "./search-video-dom";
+} from "../../search-video-dom";
 import {
   backToProfileList,
   clickProfileVideoAtIndex,
   prepareProfileForVideoClick,
   probeProfileVideoCard,
-} from "./profile-video-dom";
-import { fetchProfileVideos } from "./fetch-profile-videos";
-import { closeVideoDetail } from "./close-video-detail";
-import { findFilterOptionPoint, probeFilterDom } from "./filter-dom";
-import { fetchSearchResults, type FetchSearchResultsPayload } from "./fetch-search-results";
-import { findAndFocusSearchBox } from "./find-search-box";
-import { inputSearchText, type InputSearchTextPayload } from "./input-search-text";
+} from "../../profile-video-dom";
+import { fetchProfileVideos } from "../../fetch-profile-videos";
+import { closeVideoDetail } from "../../close-video-detail";
+import { findFilterOptionPoint, probeFilterDom } from "../../filter-dom";
+import { fetchSearchResults, type FetchSearchResultsPayload } from "../../fetch-search-results";
+import { findAndFocusSearchBox } from "../../find-search-box";
+import { inputSearchText, type InputSearchTextPayload } from "../../input-search-text";
 import {
   hoverReplyCommentTarget,
   probeReplyCommentTargets,
   probeReplyInput,
   typeReplyCommentText,
-} from "./reply-comment-dom";
-import { type ResolveCommentPayload } from "./resolve-comment-item";
-import { scrollAndCollectComments, type ScrollCollectCommentsPayload } from "./scroll-collect-comments";
-import { sendComment } from "./send-comment";
-import { sendDm } from "./send-dm";
-import { swipePage, type SwipePagePayload } from "./swipe-page";
-import { probeSearchContextDom } from "./search-context-probe";
+} from "../../reply-comment-dom";
+import { type ResolveCommentPayload } from "../../resolve-comment-item";
+import { scrollAndCollectComments, type ScrollCollectCommentsPayload } from "../../scroll-collect-comments";
+import { sendComment } from "../../send-comment";
+import { sendDm } from "../../send-dm";
+import { swipePage, type SwipePagePayload } from "../../swipe-page";
 
-/**
- * 小红书/快手先走平台 lab；未覆盖的步骤回落到下方共享 switch（抖音主实现 + 通用搜索输入）。
- * 对接小红书时抖音正常，靠的就是这个 fallback，不能改成「纯平台路由、无兜底」。
- */
-export async function dispatchPluginLabCommand(action: string, payload: unknown): Promise<unknown> {
-  const platform = detectPlatformFromUrl(location.href);
-  if (platform === "xiaohongshu") {
-    const routed = await dispatchXiaohongshuLabCommand(action, payload);
-    if (routed !== undefined) return routed;
-  }
-  if (platform === "kuaishou") {
-    const routed = await dispatchKuaishouLabCommand(action, payload);
-    if (routed !== undefined) return routed;
-  }
+const HANDLED = new Set([
+  "plugin_lab.swipe_page",
+  "plugin_lab.find_search_box",
+  "plugin_lab.input_search_text",
+  "plugin_lab.click_filter_btn",
+  "plugin_lab.click_filter_overlay",
+  "plugin_lab.search_prepare",
+  "plugin_lab.search_submit",
+  "plugin_lab.fetch_search_results",
+  "plugin_lab.prepare_search_video",
+  "plugin_lab.search_video_dom_click",
+  "plugin_lab.click_search_video",
+  "plugin_lab.search_video_probe",
+  "plugin_lab.comment_sidebar_probe",
+  "plugin_lab.activate_comment_sidebar",
+  "plugin_lab.click_comment_btn",
+  "plugin_lab.scroll_and_collect_comments",
+  "plugin_lab.send_comment",
+  "plugin_lab.click_comment_avatar",
+  "plugin_lab.click_follow_btn",
+  "plugin_lab.click_dm_btn",
+  "plugin_lab.dm_button_probe",
+  "plugin_lab.dm_input_probe",
+  "plugin_lab.input_dm_text",
+  "plugin_lab.dm_send_probe",
+  "plugin_lab.dm_send_verify",
+  "plugin_lab.send_dm",
+  "plugin_lab.fetch_profile_videos",
+  "plugin_lab.prepare_profile_video",
+  "plugin_lab.click_profile_video",
+  "plugin_lab.profile_video_dom_click",
+  "plugin_lab.profile_video_probe",
+  "plugin_lab.back_to_profile",
+  "plugin_lab.close_video_detail",
+  "plugin_lab.filter_probe",
+  "plugin_lab.filter_find_option",
+  "plugin_lab.reply_comment_probe",
+  "plugin_lab.reply_comment_hover",
+  "plugin_lab.reply_comment_input_probe",
+  "plugin_lab.reply_comment_type",
+]);
+
+export function isDouyinLabAction(action: string): boolean {
+  return HANDLED.has(action);
+}
+
+export async function dispatchDouyinLabCommand(
+  action: string,
+  payload: unknown,
+): Promise<unknown | undefined> {
+  if (!isDouyinLabAction(action)) return undefined;
 
   switch (action) {
-    case "plugin_lab.preflight":
-      return probeLabReadiness((payload ?? {}) as { target_action?: string });
-    case "plugin_lab.page_snapshot":
-      return probeLabPageSnapshot();
-    case "plugin_lab.search_context_dom_probe":
-      return probeSearchContextDom();
     case "plugin_lab.swipe_page":
       return swipePage((payload ?? {}) as SwipePagePayload);
     case "plugin_lab.find_search_box":
@@ -163,10 +197,6 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
     case "plugin_lab.reply_comment_type":
       return typeReplyCommentText((payload ?? {}) as { reply_text?: string; text?: string });
     default:
-      throw new Error(`unsupported plugin_lab content action: ${action}`);
+      return undefined;
   }
-}
-
-export function isPluginLabContentAction(action: string): boolean {
-  return action.startsWith("plugin_lab.") && !isPluginLabBackgroundAction(action);
 }

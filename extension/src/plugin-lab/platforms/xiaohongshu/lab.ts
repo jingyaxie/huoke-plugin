@@ -1,4 +1,7 @@
+import { findAndFocusSearchBox } from "../../find-search-box";
+import { inputSearchText, type InputSearchTextPayload } from "../../input-search-text";
 import { findSearchInputMatch, humanClick, isVisible, randDelay, sleep } from "../../search-input";
+import { swipePage, type SwipePagePayload } from "../../swipe-page";
 import { rememberPlatformSearchUrl, restorePlatformSearchList } from "../../search-session";
 import { buildSearchResultPayload } from "../shared/content-item";
 import {
@@ -373,6 +376,9 @@ export function xhsUnsupportedOutreach(action: string) {
 }
 
 const HANDLED = new Set([
+  "plugin_lab.swipe_page",
+  "plugin_lab.find_search_box",
+  "plugin_lab.input_search_text",
   "plugin_lab.search_prepare",
   "plugin_lab.search_submit",
   "plugin_lab.click_search_btn",
@@ -423,6 +429,12 @@ export async function dispatchXiaohongshuLabCommand(
   if (!isXiaohongshuLabAction(action)) return undefined;
 
   switch (action) {
+    case "plugin_lab.swipe_page":
+      return swipePage((payload ?? {}) as SwipePagePayload);
+    case "plugin_lab.find_search_box":
+      return findAndFocusSearchBox((payload ?? {}) as Record<string, unknown>);
+    case "plugin_lab.input_search_text":
+      return inputSearchText((payload ?? {}) as InputSearchTextPayload);
     case "plugin_lab.search_prepare":
       return xhsPrepareSearchCapture();
     case "plugin_lab.search_submit":

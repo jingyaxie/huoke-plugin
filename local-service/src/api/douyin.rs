@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::db::{CollectJob, JobStatus};
-use crate::job_config::{build_config_json, InteractionSettings, PresetRef};
+use crate::job_config::{build_config_json, InteractionSettings, JobConfig, PresetRef};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -59,6 +59,8 @@ pub struct CreateJobRequest {
     pub auto_start: Option<bool>,
     #[serde(default = "default_auto_outreach")]
     pub auto_outreach: bool,
+    #[serde(default)]
+    pub evaluation: Option<serde_json::Value>,
 }
 
 fn default_auto_outreach() -> bool {
@@ -183,6 +185,16 @@ pub async fn create_job(
         "auto_start": body.auto_start.unwrap_or(false),
         "auto_outreach": body.auto_outreach,
     });
+    let mut obj = base_config
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    if let Some(eval) = body.evaluation {
+        if !eval.is_null() {
+            obj.insert("evaluation".into(), eval);
+        }
+    }
+    let base_config = serde_json::Value::Object(obj);
     let config_json = build_config_json(&base_config, &comment_presets, &dm_presets);
 
     let stored_keyword = if job_type == "manual" {
@@ -269,6 +281,33 @@ pub async fn list_job_interactions(
         .list_interactions_for_job(&job_id, query.limit.clamp(1, 5000))
         .map_err(internal_error)?;
     Ok(Json(json!({ "job_id": job_id, "interactions": interactions })))
+}
+
+pub async fn evaluate_job(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let job = state.db.get_job(&job_id).map_err(|_| not_found())?;
+    let cfg = JobConfig::from_job(&job);
+    let stats = crate::evaluation::evaluate_job_comments(
+        &state.db,
+        &state.data_dir,
+        &job_id,
+        &job.keyword,
+        &cfg.evaluation,
+    )
+    .await
+    .map_err(internal_error)?;
+    let precise_count = state
+        .db
+        .count_precise_comments_for_job(&job_id)
+        .map_err(internal_error)?;
+    Ok(Json(json!({
+        "job_id": job_id,
+        "evaluated": stats.evaluated,
+        "precise": stats.precise,
+        "precise_count": precise_count,
+    })))
 }
 
 pub async fn start_job(

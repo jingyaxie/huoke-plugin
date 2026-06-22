@@ -7,9 +7,42 @@ import { detectPlatformFromUrl, isPlatformUrl } from "../plugin-lab/platform-hos
 import { getPluginLabAdapter, normalizePlatformId, tabQueryPatternsForPlatform } from "../plugin-lab/platforms/registry";
 import { log, warn } from "../shared/logger";
 import { extensionVersion } from "../shared/runtime";
+import { waitForTabLoad, sleep } from "../plugin-lab/platforms/shared/tab-load";
+import { isUsablePlatformTab } from "../plugin-lab/platforms/shared/tab-health";
 
-async function sleep(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+function resolveIsolatedContentScriptFiles(): string[] {
+  const manifest = typeof chrome.runtime.getManifest === "function"
+    ? chrome.runtime.getManifest()
+    : null;
+  if (!manifest) return [];
+
+  const entries = manifest.content_scripts ?? [];
+  const isolatedEntry = entries.find((entry) => {
+    const js = entry.js ?? [];
+    return js.some((file) => file.includes("loader") || file.includes("bootstrap"));
+  });
+  const js = isolatedEntry?.js ?? [];
+  const loader = js.find((file) => file.includes("loader"));
+  const bootstrap = js.find((file) => file.includes("bootstrap"));
+
+  const war = manifest.web_accessible_resources ?? [];
+  const resources = war.flatMap((entry) => {
+    if (typeof entry === "string") return [entry];
+    return entry.resources ?? [];
+  });
+  const chunk = resources.find(
+    (resource) => /index\.ts-[A-Za-z0-9_-]+\.js$/.test(resource) && !resource.includes("loader"),
+  );
+
+  if (loader) return [loader];
+  if (bootstrap) return [bootstrap];
+  if (chunk) return [chunk];
+  return js;
+}
+
+async function waitForTabReady(tabId: number, timeoutMs = 12_000): Promise<void> {
+  await waitForTabLoad(tabId, timeoutMs);
+  await sleep(400);
 }
 
 async function focusTab(tab: chrome.tabs.Tab) {
@@ -116,14 +149,15 @@ async function pingContentScript(tabId: number): Promise<{ ok?: boolean; version
 }
 
 function pingVersionMatches(pongVersion?: string): boolean {
-  if (!pongVersion) return false;
+  if (!pongVersion) return true;
   const expected = extensionVersion();
+  if (expected === "unknown") return true;
   return pongVersion === expected || pongVersion.startsWith(`${expected}+`);
 }
 
 async function waitForContentScript(
   tabId: number,
-  maxAttempts = 5,
+  maxAttempts = 10,
 ): Promise<{ ok: boolean; pong: { ok?: boolean; version?: string } | null }> {
   let lastPong: { ok?: boolean; version?: string } | null = null;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -131,31 +165,26 @@ async function waitForContentScript(
     if (lastPong?.ok) {
       return { ok: true, pong: lastPong };
     }
-    await sleep(attempt === 0 ? 300 : 600);
+    await sleep(attempt === 0 ? 350 : 700);
   }
   return { ok: false, pong: lastPong };
 }
 
 async function injectContentScripts(tabId: number): Promise<string | null> {
-  const manifest = typeof chrome.runtime.getManifest === "function"
-    ? chrome.runtime.getManifest()
-    : null;
-  const files =
-    manifest?.content_scripts
-      ?.flatMap((entry) => entry.js ?? [])
-      .filter((file) => file.includes("bootstrap") || file.includes("loader")) ?? [];
+  const files = resolveIsolatedContentScriptFiles();
   if (files.length === 0) {
     return "no isolated-world content scripts in manifest";
   }
 
+  await waitForTabReady(tabId);
   warn("injecting content script into tab", tabId, files.join(", "));
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
       files,
     });
-    await sleep(1200);
-    const ready = await waitForContentScript(tabId, 8);
+    await sleep(1500);
+    const ready = await waitForContentScript(tabId, 12);
     if (ready.ok) return null;
     return "content script injected but ping failed";
   } catch (err) {
@@ -166,6 +195,19 @@ async function injectContentScripts(tabId: number): Promise<string | null> {
 }
 
 export async function ensureContentScript(tabId: number) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!isUsablePlatformTab(tab)) {
+      throw new Error(
+        `platform tab blocked (captcha/verify) — complete verification manually, then retry: ${tab.title ?? tab.url ?? tabId}`,
+      );
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("platform tab blocked")) {
+      throw err;
+    }
+  }
+
   let pong = await pingContentScript(tabId);
   if (pong?.ok && pingVersionMatches(pong.version)) {
     return;
@@ -180,8 +222,8 @@ export async function ensureContentScript(tabId: number) {
       extensionVersion(),
     );
     await chrome.tabs.reload(tabId);
-    await sleep(2500);
-    const afterReload = await waitForContentScript(tabId, 8);
+    await waitForTabReady(tabId, 14_000);
+    const afterReload = await waitForContentScript(tabId, 12);
     if (afterReload.ok) return;
     pong = afterReload.pong;
   }
@@ -192,8 +234,8 @@ export async function ensureContentScript(tabId: number) {
 
     warn("script inject failed, reloading tab", tabId, injectError);
     await chrome.tabs.reload(tabId);
-    await sleep(3000);
-    const afterReload = await waitForContentScript(tabId, 8);
+    await waitForTabReady(tabId, 14_000);
+    const afterReload = await waitForContentScript(tabId, 12);
     if (afterReload.ok) return;
     pong = afterReload.pong;
 

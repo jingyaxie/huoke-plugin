@@ -46,7 +46,7 @@ const ACTION_CONTEXT: Record<string, { context: LabPageContext; strict?: boolean
   "plugin_lab.fetch_search_results": { context: "search", strict: true },
   "plugin_lab.prepare_search_video": { context: "search", strict: false },
   "plugin_lab.search_video_dom_click": { context: "search", strict: true },
-  "plugin_lab.swipe_page": { context: "platform" },
+  "plugin_lab.swipe_page": { context: "search", strict: true },
   "plugin_lab.click_search_video": { context: "search", strict: true },
   "plugin_lab.search_video_probe": { context: "search", strict: true },
   "plugin_lab.fetch_profile_videos": { context: "profile", strict: true },
@@ -305,6 +305,10 @@ export async function filterWorkWindowTabs(
     if (!session) continue;
     allowedTabIds.add(session.tabId);
     if (session.windowId >= 0) allowedWindowIds.add(session.windowId);
+    if (session.detailTabId !== undefined) allowedTabIds.add(session.detailTabId);
+    if (session.detailWindowId !== undefined && session.detailWindowId >= 0) {
+      allowedWindowIds.add(session.detailWindowId);
+    }
   }
 
   if (allowedTabIds.size === 0 && allowedWindowIds.size === 0) return [];

@@ -18,6 +18,8 @@ const SKIP_PREFLIGHT = new Set([
   "plugin_lab.back_to_profile",
   "plugin_lab.prepare_search_video",
   "plugin_lab.close_video_detail",
+  "plugin_lab.comment_sidebar_probe",
+  "plugin_lab.activate_comment_sidebar",
 ]);
 
 export class LabPreflightError extends Error {

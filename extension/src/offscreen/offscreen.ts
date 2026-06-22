@@ -1,4 +1,5 @@
 import { DEFAULT_WS_URL, createMessage, type BridgeMessage } from "../shared/protocol";
+import { backgroundCommandTimeoutMs } from "../shared/command-timeouts";
 import { log, warn, error } from "../shared/logger";
 import { extensionVersion, extensionBuildId } from "../shared/runtime";
 
@@ -168,11 +169,9 @@ function sendRunCommandOnce(
 
 async function runCommandViaBackground(
   command: BridgeMessage,
-  timeoutMs = 55_000,
 ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-  const actionTimeout =
-    command.action === "plugin_lab.open_browser" ? 12_000 : timeoutMs;
-  const maxAttempts = command.action === "plugin_lab.open_browser" ? 3 : 2;
+  const actionTimeout = backgroundCommandTimeoutMs(command.action);
+  const maxAttempts = command.action === "plugin_lab.open_browser" ? 1 : 2;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {

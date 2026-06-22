@@ -37,6 +37,7 @@ pub fn build_app_state(config: &AppConfig) -> AppState {
         hub.clone(),
         default_daily_quota,
         job_runs.clone(),
+        config.data_dir.clone(),
     ));
     capture.spawn_event_listener();
     let outreach = Arc::new(OutreachService::new(
@@ -86,6 +87,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/douyin/jobs/:job_id/interactions",
             get(api::douyin::list_job_interactions),
+        )
+        .route(
+            "/api/douyin/jobs/:job_id/evaluate",
+            post(api::douyin::evaluate_job),
         )
         .route(
             "/api/douyin/jobs/:job_id/start",

@@ -33,7 +33,44 @@ function findSearchButton(): HTMLElement | null {
 }
 
 function isSearchResultsPage(url = location.href): boolean {
-  return /\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(url);
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+    if (/\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(path)) return true;
+    if (path.includes("/search")) return true;
+    for (const key of ["keyword", "q", "search_key", "searchKey", "search_keyword"]) {
+      if (parsed.searchParams.get(key)?.trim()) return true;
+    }
+    return false;
+  } catch {
+    return /\/search\/|\/jingxuan\/search\/|\/root\/search\//i.test(url);
+  }
+}
+
+function normalizeKeyword(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim();
+}
+
+function keywordsMatch(a: string, b: string): boolean {
+  const left = normalizeKeyword(a);
+  const right = normalizeKeyword(b);
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+function extractSearchKeywordFromUrl(url = location.href): string {
+  try {
+    const parsed = new URL(url);
+    const pathMatch = decodeURIComponent(parsed.pathname).match(/\/search\/([^/?#]+)/i);
+    if (pathMatch?.[1]) return normalizeKeyword(pathMatch[1]);
+    for (const key of ["keyword", "q", "search_key", "searchKey", "search_keyword"]) {
+      const value = parsed.searchParams.get(key);
+      if (value?.trim()) return normalizeKeyword(decodeURIComponent(value));
+    }
+  } catch {
+    // ignore malformed URL
+  }
+  return "";
 }
 
 export function buildSearchResultPayload(
@@ -59,11 +96,38 @@ export async function prepareSearchCapture() {
   return { ok: true, message: "search hook ready" };
 }
 
-/** 步骤 7 提交：仅点击搜索，不在 content 内等待接口（避免跳转打断） */
-export async function submitSearchClick() {
+export interface SubmitSearchClickPayload {
+  keyword?: string;
+  search_text?: string;
+}
+
+/** 步骤 7 提交：点击搜索；若已在搜索结果页且关键词未变则跳过 */
+export async function submitSearchClick(payload: SubmitSearchClickPayload = {}) {
   const beforeUrl = location.href;
   const inputMatch = findSearchInputMatch("douyin");
   const button = findSearchButton();
+  const inputValue = normalizeKeyword(inputMatch?.input?.value ?? "");
+  const expectedKeyword = normalizeKeyword(String(payload.search_text ?? payload.keyword ?? inputValue));
+  const urlKeyword = extractSearchKeywordFromUrl(beforeUrl);
+
+  const sameKeywordAsUrl =
+    expectedKeyword &&
+    urlKeyword &&
+    keywordsMatch(expectedKeyword, urlKeyword) &&
+    keywordsMatch(inputValue || expectedKeyword, urlKeyword);
+
+  if (isSearchResultsPage(location.href) && sameKeywordAsUrl) {
+    rememberSearchResultsUrl(location.href);
+    return {
+      ok: true,
+      method: "skip_already_on_results",
+      selector: inputMatch?.selector ?? "",
+      url: location.href,
+      on_search_page: true,
+      keyword: inputValue || expectedKeyword || undefined,
+      message: "已在搜索结果页且关键词一致，跳过重复搜索",
+    };
+  }
 
   if (button) {
     humanClick(button);

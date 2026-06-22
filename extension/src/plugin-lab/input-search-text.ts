@@ -2,6 +2,7 @@ import {
   activateSearchInput,
   detectPlatformFromUrl,
   findSearchInputMatch,
+  sleep,
   typeIntoSearchInput,
   waitForSearchInput,
 } from "./search-input";
@@ -26,7 +27,7 @@ export async function inputSearchText(payload: InputSearchTextPayload = {}) {
       ? (payload.platform as ReturnType<typeof detectPlatformFromUrl>)
       : detectPlatformFromUrl();
 
-  let match = (await waitForSearchInput(platform, 4, 400)) ?? findSearchInputMatch(platform);
+  let match = (await waitForSearchInput(platform, 12, 500)) ?? findSearchInputMatch(platform);
   if (!match) {
     const probe = await findSearchBox({ platform });
     if (!probe.found) {
@@ -62,7 +63,21 @@ export async function inputSearchText(payload: InputSearchTextPayload = {}) {
   }
 
   const typedChars = await typeIntoSearchInput(input, text, payload.char_delay_ms);
-  const finalValue = (input.value ?? "").trim();
+  let finalValue = (input.value ?? "").trim();
+  if (finalValue !== text) {
+    // React 受控输入偶发丢字，用一次性赋值兜底
+    const proto =
+      input instanceof HTMLTextAreaElement
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (setter) setter.call(input, text);
+    else input.value = text;
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, data: text }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await sleep(120);
+    finalValue = (input.value ?? "").trim();
+  }
   if (finalValue !== text) {
     throw new Error(`input_search_text: value mismatch "${finalValue}" != "${text}"`);
   }

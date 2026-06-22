@@ -91,6 +91,15 @@
                 />
               </template>
             </el-table-column>
+            <el-table-column label="精准客户" width="88" align="right">
+              <template #default="{ row }">
+                <MetricLink
+                  :value="row.precise_count || 0"
+                  :clickable="Number(row.precise_count) > 0"
+                  @click="openCollectData(row, 'precise')"
+                />
+              </template>
+            </el-table-column>
             <el-table-column label="评论数" width="80" align="right">
               <template #default="{ row }">
                 <MetricLink
@@ -158,12 +167,13 @@ import ExtensionVersionAlert from "../../components/ExtensionVersionAlert.vue";
 import MetricLink from "../../components/MetricLink.vue";
 import {
   deleteCollectJob,
+  evaluateCollectJob,
   fetchBridgeStatus,
   listCollectJobs,
   pauseCollectJob,
   startCollectJob,
 } from "../../api/localService";
-import { extensionJobTargetCount, loadCollectJobForModal } from "../../utils/extensionCollectJobs";
+import { extensionJobTargetCount, computeExtensionDashboard, loadCollectJobForModal } from "../../utils/extensionCollectJobs";
 import {
   getExtensionSetupStatus,
   isDesktopMode,
@@ -195,23 +205,7 @@ const bridgeTagType = computed(() =>
   Number(bridgeStatus.value.connected_clients || 0) > 0 ? "success" : "warning",
 );
 
-const dashboard = computed(() => {
-  const jobs = collectJobs.value || [];
-  const runningJobs = jobs.filter((row) => row.status === "running").length;
-  const queued = jobs.filter((row) => row.status === "pending").length;
-  const totalComments = jobs.reduce((sum, row) => sum + Number(row.comment_count || 0), 0);
-  const totalReplies = jobs.reduce((sum, row) => sum + Number(row.reply_count || 0), 0);
-  const totalDm = jobs.reduce((sum, row) => sum + Number(row.dm_count || 0), 0);
-  const totalFollow = jobs.reduce((sum, row) => sum + Number(row.follow_count || 0), 0);
-  return {
-    running_tasks: runningJobs,
-    queued_tasks: queued,
-    precise_customers: 0,
-    total_leads: totalComments,
-    dm_count: totalDm,
-    follow_count: totalFollow + totalReplies,
-  };
-});
+const dashboard = computed(() => computeExtensionDashboard(collectJobs.value));
 
 function jobDisplayName(row) {
   return row.name || `关键词获客-${row.keyword}`;
@@ -220,6 +214,7 @@ function jobDisplayName(row) {
 async function openCollectData(row, view = "all") {
   const countMap = {
     all: row.comment_count,
+    precise: row.precise_count,
     reply: row.reply_count,
     dm: row.dm_count,
     follow: row.follow_count,
@@ -268,9 +263,22 @@ function statusTagType(status) {
 
 function onCollectJobAction(row, action) {
   if (action === "view") openCollectData(row, "all");
+  else if (action === "evaluate") onEvaluateCollect(row);
   else if (action === "start") onStartCollect(row);
   else if (action === "pause") onPauseCollect(row);
   else if (action === "delete") onDeleteCollect(row);
+}
+
+async function onEvaluateCollect(row) {
+  try {
+    ElMessage.info("正在按任务评估标准识别精准客户…");
+    const result = await evaluateCollectJob(row.id);
+    const precise = Number(result?.precise_count ?? result?.precise ?? 0);
+    ElMessage.success(`评估完成：${precise} 条精准客户 / ${result?.evaluated ?? 0} 条已评估`);
+    await refreshAll();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.error || err?.message || "评估失败");
+  }
 }
 
 function formatTime(ts) {
