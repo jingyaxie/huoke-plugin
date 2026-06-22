@@ -61,10 +61,7 @@
 
     <el-card shadow="never" class="list-card panel-block">
       <template #header>
-        <div class="card-header">
-          <span>关键词采集</span>
-          <el-button type="primary" size="small" @click="createCollectOpen = true">+ 创建任务</el-button>
-        </div>
+        <span>关键词采集</span>
       </template>
       <div class="task-list-scroll">
       <el-table v-loading="loading" :data="collectJobs" empty-text="暂无采集任务">
@@ -463,12 +460,6 @@ onUnmounted(() => {
 
 .panel-block {
   width: 100%;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .quota-hint {
