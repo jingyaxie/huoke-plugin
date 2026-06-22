@@ -1,4 +1,4 @@
-/** 云端客户后台导航（对齐 AI/code/backend customer_ui NAV_SECTIONS） */
+/** 云端客户后台导航（对齐 AI customer_ui 管理员可见 H5 菜单，不含已下线/组员专属入口） */
 
 export function getPortalBaseUrl() {
   return (import.meta.env.VITE_PORTAL_BASE_URL || "https://www.tanjiyunai.com").replace(/\/+$/, "");
@@ -12,20 +12,11 @@ export const CLOUD_NAV_SECTIONS = [
   },
   {
     label: "账号管理",
-    items: [
-      { key: "account_list", label: "账号列表", to: "/cloud/accounts", h5Path: "/customer/accounts" },
-      { key: "staff_binding", label: "员工账号绑定", to: "/cloud/staff-binding", h5Path: "/customer/staff-binding" },
-    ],
+    items: [{ key: "account_list", label: "账号列表", to: "/cloud/accounts", h5Path: "/customer/accounts" }],
   },
   {
     label: "AI客服管理",
     items: [
-      { key: "wechat_bindings_v2", label: "账号绑定中心", to: "/cloud/service/bindings-v2", h5Path: "/customer/service/bindings-v2" },
-      { key: "wechat_workbench_v2", label: "客服工作台", to: "/cloud/service/workbench-v2", h5Path: "/customer/service/workbench-v2" },
-      { key: "wechat_assets_v2", label: "会话资产中心", to: "/cloud/service/assets-v2", h5Path: "/customer/service/assets-v2" },
-      { key: "account_usage", label: "多账号使用情况", to: "/cloud/service/account-usage", h5Path: "/customer/service/account-usage" },
-      { key: "interaction_messages", label: "历史交互信息", to: "/cloud/service/interactions", h5Path: "/customer/service/interactions" },
-      { key: "sensitive_words", label: "过滤词管理", to: "/cloud/service/sensitive-words", h5Path: "/customer/service/sensitive-words" },
       { key: "materials", label: "素材管理", to: "/cloud/service/materials", h5Path: "/customer/service/materials" },
       { key: "agent_list", label: "智能体管理", to: "/cloud/agents", h5Path: "/customer/agents" },
       { key: "knowledge_bases", label: "知识库管理", to: "/cloud/knowledge-bases", h5Path: "/customer/knowledge-bases" },
