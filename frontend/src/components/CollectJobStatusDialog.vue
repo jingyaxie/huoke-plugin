@@ -4,6 +4,10 @@
     :title="brief?.title || '任务状态'"
     width="560px"
     destroy-on-close
+    append-to-body
+    align-center
+    :z-index="4100"
+    modal-class="collect-status-dialog-overlay"
     class="collect-status-dialog"
     @closed="onClosed"
   >
@@ -86,9 +90,13 @@ function onClosed() {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  background: #fff;
 }
 
 .status-section {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
   padding: 12px 14px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
@@ -129,6 +137,7 @@ function onClosed() {
   line-height: 1.6;
   color: #334155;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .stats-list,
@@ -142,5 +151,49 @@ function onClosed() {
 
 .next-list li + li {
   margin-top: 6px;
+}
+</style>
+
+<style>
+/* 弹层挂载在 body；提高层级，避免表格 fixed 列穿透 */
+.collect-status-dialog-overlay.el-overlay {
+  z-index: 4100 !important;
+}
+
+.collect-status-dialog-overlay.el-overlay .el-overlay-dialog {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+.collect-status-dialog.el-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: min(88vh, 720px);
+  margin: 0 !important;
+  overflow: hidden;
+  background: #fff;
+}
+
+.collect-status-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin-right: 0;
+  background: #fff;
+}
+
+.collect-status-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #fff;
+}
+
+.collect-status-dialog .el-dialog__footer {
+  flex-shrink: 0;
+  background: #fff;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 </style>

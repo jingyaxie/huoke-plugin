@@ -44,7 +44,11 @@
 
         <el-form-item v-if="effectiveIntent === 'account_home'" label="扫描视频数">
           <el-input-number v-model="form.crawlVideoLimit" :min="1" :max="20" />
-          <p class="field-hint">主页模式下每轮最多打开多少个作品抓评论（插件模式上限 20）。</p>
+          <p class="field-hint">仅主页模式：每轮最多打开多少个作品抓评论（插件模式上限 20）。单条视频无需此项。</p>
+        </el-form-item>
+
+        <el-form-item v-if="effectiveIntent === 'single_video'" label="采集范围">
+          <p class="field-hint field-hint-only">单条视频模式：打开视频详情页，点击评论按钮，只采集该视频评论（不走 Feed）。</p>
         </el-form-item>
 
         <el-form-item label="视频发布时间">
@@ -145,6 +149,7 @@ import {
   deriveManualTaskName,
   detectManualUrlIntent,
   manualUrlIntentHint,
+  normalizeManualInputUrl,
   validateManualTaskUrl,
 } from "../utils/manualTaskForm";
 import { validateTaskPresetSelection } from "../utils/presetSelection";
@@ -192,7 +197,7 @@ const urlLabel = computed(() => (effectiveIntent.value === "single_video" ? "视
 const urlPlaceholder = computed(() =>
   effectiveIntent.value === "account_home"
     ? "粘贴博主账号主页链接（支持 v.douyin.com 短链），系统将从主页获取视频列表并抓取评论"
-    : "粘贴单条视频详情页链接",
+    : "粘贴视频链接（/video/xxx、v.douyin.com 短链，或 ?vid= 分享链）",
 );
 const platformHint = computed(() => {
   const disabled = platformOptions.value.filter((row) => !row.collect).map((row) => row.label);
@@ -295,9 +300,15 @@ async function submit() {
   }
 
   const intent = effectiveIntent.value;
-  const inputUrl = form.inputUrl.trim();
+  const inputUrl = normalizeManualInputUrl(
+    form.inputUrl.trim(),
+    intent,
+    form.platform,
+  );
   const taskName = deriveManualTaskName(inputUrl, intent);
-  const limitVideos = Math.min(20, Math.max(1, form.crawlVideoLimit));
+  const limitVideos = intent === "single_video"
+    ? 1
+    : Math.min(20, Math.max(1, form.crawlVideoLimit));
   const maxCommentsPerVideo = intent === "single_video" ? 200 : 80;
 
   submitting.value = true;
@@ -323,7 +334,9 @@ async function submit() {
       input_url: inputUrl,
       limit_videos: limitVideos,
       max_comments_per_video: maxCommentsPerVideo,
-      target_count: limitVideos * maxCommentsPerVideo,
+      target_count: intent === "single_video"
+        ? maxCommentsPerVideo
+        : limitVideos * maxCommentsPerVideo,
       publish_time_range: form.publishTimeRange,
       comment_days: form.commentDays,
       interaction: settings.value,

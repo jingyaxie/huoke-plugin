@@ -277,6 +277,13 @@ impl JobOrchestrator {
         let lab = LabCommands::new(&self.hub, &job.platform);
         let adapter = crate::platforms::get_platform_adapter(&job.platform);
         let open_url = adapter.normalize_manual_open_url(&input_url, &cfg.intent);
+
+        if cfg.intent == "single_video" && job.platform == "douyin" {
+            return self
+                .collect_douyin_single_video(job_id, job, cfg, &input_url, &open_url)
+                .await;
+        }
+
         // 复用平台工作窗（左侧半屏），与关键词任务一致；无工作窗时 open_browser 会新建
         lab.open_url(&open_url).await?;
         self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
@@ -577,6 +584,96 @@ impl JobOrchestrator {
         Ok(())
     }
 
+    /// 抖音单视频：打开独立详情页（含 v.douyin.com 短链）→ 点评论 → 采集，不走 Feed。
+    async fn collect_douyin_single_video(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+        input_url: &str,
+        open_url: &str,
+    ) -> Result<(), String> {
+        let lab = LabCommands::new(&self.hub, &job.platform);
+        let adapter = crate::platforms::get_platform_adapter(&job.platform);
+        let scroll_rounds =
+            scroll_rounds_for_video(job.max_comments_per_video, cfg.comment_days);
+
+        info!("job {job_id}: open douyin video detail (single_video, not feed)");
+        let open_resp = lab.open_douyin_video_detail(open_url).await?;
+        self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
+        lab.enable_network_hook().await?;
+        self.wait_if_not_paused(job_id, Duration::from_millis(1500)).await?;
+
+        let resolved_url = open_resp
+            .get("url")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(open_url);
+        let aweme_id = adapter
+            .extract_content_id_from_url(resolved_url)
+            .or_else(|| adapter.extract_content_id_from_url(input_url))
+            .unwrap_or_default();
+
+        if aweme_id.is_empty() {
+            return Err(
+                "failed to resolve video id — open Douyin video detail page (/video/) after short link redirect"
+                    .into(),
+            );
+        }
+
+        let canonical_url = if resolved_url.contains("/video/") {
+            resolved_url.to_string()
+        } else {
+            adapter.content_url(&aweme_id)
+        };
+        let video = ParsedVideo {
+            aweme_id: aweme_id.clone(),
+            video_url: canonical_url,
+            title: String::new(),
+            author: String::new(),
+            raw_json: None,
+        };
+        let _ = self.db.upsert_videos(job_id, &[video]);
+
+        info!(
+            "job {job_id}: collect comments on standalone video aweme={aweme_id}"
+        );
+        self.scroll_and_persist_video_detail_comments(
+            job_id,
+            job,
+            cfg,
+            &aweme_id,
+            scroll_rounds,
+        )
+        .await?;
+
+        if self.uses_precise_collect_target() {
+            let _ = self.evaluate_pending_comments(job_id, job, cfg).await;
+        }
+
+        let total = self.db.count_comments_for_job(job_id)?;
+        let progress = self.collect_progress_count(job_id)?;
+        if total == 0 {
+            return Err(
+                "no comments collected on video detail page — click comment icon failed or video has no comments"
+                    .into(),
+            );
+        }
+        if progress < cfg.target_count {
+            let label = self.collect_progress_label();
+            return Err(format!(
+                "仅识别到 {progress}/{} 条{label}（共采集 {total} 条评论）",
+                cfg.target_count
+            ));
+        }
+        info!(
+            "job {job_id}: single video done — {} {progress}/{} (total comments {total})",
+            self.collect_progress_label(),
+            cfg.target_count,
+        );
+        Ok(())
+    }
+
     fn aweme_comments_already_collected(&self, job_id: &str, aweme_id: &str) -> Result<bool, String> {
         Ok(self.db.count_comments_for_aweme(job_id, aweme_id)? > 0)
     }
@@ -588,6 +685,45 @@ impl JobOrchestrator {
         cfg: &JobConfig,
         aweme_hint: &str,
         scroll_rounds: i64,
+    ) -> Result<(), String> {
+        self.scroll_and_persist_comments(
+            job_id,
+            job,
+            cfg,
+            aweme_hint,
+            scroll_rounds,
+            "feed",
+        )
+        .await
+    }
+
+    async fn scroll_and_persist_video_detail_comments(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+        aweme_hint: &str,
+        scroll_rounds: i64,
+    ) -> Result<(), String> {
+        self.scroll_and_persist_comments(
+            job_id,
+            job,
+            cfg,
+            aweme_hint,
+            scroll_rounds,
+            "video_detail",
+        )
+        .await
+    }
+
+    async fn scroll_and_persist_comments(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+        aweme_hint: &str,
+        scroll_rounds: i64,
+        playback_mode: &str,
     ) -> Result<(), String> {
         self.bail_if_paused(job_id)?;
         let lab = LabCommands::new(&self.hub, &job.platform);
@@ -606,7 +742,11 @@ impl JobOrchestrator {
         let mut sidebar_ok = false;
         for attempt in 1..=3 {
             self.bail_if_paused(job_id)?;
-            let sidebar = lab.open_comment_sidebar().await?;
+            let sidebar = if playback_mode == "video_detail" {
+                lab.open_video_detail_comment_sidebar().await?
+            } else {
+                lab.open_feed_comment_sidebar().await?
+            };
             sidebar_ok = sidebar.get("ok").and_then(|v| v.as_bool()).unwrap_or(false)
                 || sidebar
                     .get("comment_item_count")
@@ -623,13 +763,21 @@ impl JobOrchestrator {
         }
         self.wait_human_if_not_paused(job_id, 1500, 2800).await?;
 
-        let scroll_resp = lab
-            .scroll_comments(
+        let scroll_resp = if playback_mode == "video_detail" {
+            lab.scroll_video_detail_comments(
                 scroll_rounds,
                 job.max_comments_per_video,
                 cfg.comment_days,
             )
-            .await?;
+            .await?
+        } else {
+            lab.scroll_feed_comments(
+                scroll_rounds,
+                job.max_comments_per_video,
+                cfg.comment_days,
+            )
+            .await?
+        };
         let page_url = scroll_resp.get("url").and_then(|v| v.as_str());
         let aweme_id = resolve_aweme_id_for_video(aweme_hint, "", page_url);
         let scroll_comments = parse_dom_scroll_comments(&scroll_resp);
@@ -674,8 +822,10 @@ impl JobOrchestrator {
             page_url,
         );
 
-        let _ = lab.prepare_feed_for_swipe().await;
-        self.wait_human_if_not_paused(job_id, 800, 1500).await?;
+        if playback_mode == "feed" {
+            let _ = lab.prepare_feed_for_swipe().await;
+            self.wait_human_if_not_paused(job_id, 800, 1500).await?;
+        }
         Ok(())
     }
 

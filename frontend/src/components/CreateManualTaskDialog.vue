@@ -167,7 +167,7 @@ import {
 } from "../utils/huokeTaskForm";
 import { buildManualPreflightPayload } from "../utils/huokeTaskPreflight";
 import { isStandaloneDouyinStrategy } from "../utils/acquisitionStrategy";
-import { deriveManualTaskName, detectManualUrlIntent, manualUrlIntentHint, validateManualTaskUrl } from "../utils/manualTaskForm";
+import { deriveManualTaskName, detectManualUrlIntent, manualUrlIntentHint, normalizeManualInputUrl, validateManualTaskUrl } from "../utils/manualTaskForm";
 import { validateTaskPresetSelection } from "../utils/presetSelection";
 
 const props = defineProps({
@@ -363,14 +363,16 @@ watch(
       preflightError.value = "";
       preflightAcknowledged.value = false;
       try {
+        const intent = effectiveIntent.value;
+        const inputUrl = normalizeManualInputUrl(form.inputUrl.trim(), intent, form.platform);
         const payload = buildManualPreflightPayload({
-          intent: effectiveIntent.value,
-          name: deriveManualTaskName(form.inputUrl, form.intent),
+          intent,
+          name: deriveManualTaskName(inputUrl, intent),
           platform: form.platform,
-          inputUrl: form.inputUrl.trim(),
+          inputUrl,
           commentDays: String(form.commentDays),
           publishTime: form.publishTimeRange,
-          crawlVideoLimit: form.crawlVideoLimit,
+          crawlVideoLimit: intent === "account_home" ? form.crawlVideoLimit : undefined,
           headless: browserModeToHeadless(form.browserMode),
           settings: settings.value,
           commentPresetIds: selectedCommentPresetIds.value,
@@ -453,14 +455,16 @@ async function submit() {
   try {
     syncRequestContext();
     await putInteractionSettings(settings.value).catch(() => {});
+    const intent = effectiveIntent.value;
+    const inputUrl = normalizeManualInputUrl(form.inputUrl.trim(), intent, form.platform);
     const payload = buildManualTaskPayload({
-      intent: effectiveIntent.value,
+      intent,
       name: taskName,
       platform: form.platform,
-      inputUrl: form.inputUrl.trim(),
+      inputUrl,
       commentDays: form.commentDays,
       publishTimeRange: form.publishTimeRange,
-      crawlVideoLimit: form.crawlVideoLimit,
+      crawlVideoLimit: intent === "account_home" ? form.crawlVideoLimit : undefined,
       headless: browserModeToHeadless(form.browserMode),
       settings: settings.value,
       commentPresetIds: selectedCommentPresetIds.value,

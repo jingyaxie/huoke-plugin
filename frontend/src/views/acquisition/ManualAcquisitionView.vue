@@ -93,7 +93,7 @@
           <el-table-column label="创建时间" width="160">
             <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="" width="56" align="center" fixed="right">
+          <el-table-column label="" width="56" align="center">
             <template #default="{ row }">
               <CollectJobRowActions :row="row" @action="onCollectJobAction(row, $event)" />
             </template>

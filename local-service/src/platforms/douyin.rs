@@ -66,6 +66,12 @@ impl PlatformCollectAdapter for DouyinCollectAdapter {
     }
 
     fn normalize_manual_open_url(&self, input_url: &str, intent: &str) -> String {
+        if intent == "single_video" {
+            if let Some(id) = extract_aweme_id_from_url(input_url) {
+                return self.content_url(&id);
+            }
+            return input_url.to_string();
+        }
         if intent != "account_home" {
             return input_url.to_string();
         }

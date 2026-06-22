@@ -30,6 +30,8 @@ export interface OpenBrowserPayload {
   wait_load?: boolean;
   /** 任务开始时若不在合法起始页，则导航到平台首页 */
   reset_to_start?: boolean;
+  /** 抖音短链等：导航后等待落到 /video/ 独立详情页 */
+  wait_video_detail?: boolean;
 }
 
 export interface OpenBrowserResult {
@@ -85,6 +87,48 @@ function shouldReuseExisting(payload: OpenBrowserPayload): boolean {
   if (payload.reuse_existing === false) return false;
   if (payload.new_tab === true) return false;
   return true;
+}
+
+function isDouyinVideoDetailUrl(url: string): boolean {
+  return /\/video\/\d{8,22}/i.test(url) || /\/note\/\d{8,22}/i.test(url);
+}
+
+function isDouyinShortLink(url: string): boolean {
+  return /v\.douyin\.com\//i.test(url);
+}
+
+async function waitForDouyinVideoDetail(tabId: number, timeoutMs = 16_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      const url = tab.url ?? "";
+      if (isDouyinVideoDetailUrl(url)) return url;
+    } catch {
+      break;
+    }
+    await sleep(280);
+  }
+  try {
+    return (await chrome.tabs.get(tabId)).url ?? "";
+  } catch {
+    return "";
+  }
+}
+
+async function maybeWaitVideoDetail(
+  tabId: number,
+  payload: OpenBrowserPayload,
+  navigatedUrl?: string,
+): Promise<void> {
+  const custom = String(payload.url ?? "").trim();
+  const shouldWait =
+    payload.wait_video_detail === true
+    || (payload.platform !== "xiaohongshu" && payload.platform !== "kuaishou" && isDouyinShortLink(custom));
+  if (!shouldWait) return;
+  await waitForTabLoad(tabId, 12_000);
+  await waitForDouyinVideoDetail(tabId, navigatedUrl && isDouyinShortLink(navigatedUrl) ? 18_000 : 12_000);
+  await sleep(600);
 }
 
 function needsJobStartReset(url: string | undefined, platform: PlatformId): boolean {
@@ -397,8 +441,11 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
       await chrome.tabs.update(existing.id, { url: targetUrl });
       if (waitLoad) await waitForTabLoad(existing.id, 8_000);
       else await waitForTabLoad(existing.id, 2_000);
+      await maybeWaitVideoDetail(existing.id, payload, targetUrl);
     } else if (waitLoad) {
       await waitForTabLoad(existing.id, 8_000);
+    } else if (payload.wait_video_detail && customUrl) {
+      await maybeWaitVideoDetail(existing.id, payload, customUrl);
     }
 
     const refreshed = await waitForPlatformUrl(existing.id, platform);
@@ -431,6 +478,7 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
 
   const { tab, bounds, newWindow } = await createPlatformWindow(url);
   if (waitLoad) await waitForTabLoad(tab.id!, 10_000);
+  if (tab.id) await maybeWaitVideoDetail(tab.id, payload, url);
 
   let refreshed = await waitForPlatformUrl(tab.id!, platform);
   if (!isUsablePlatformTab(refreshed)) {

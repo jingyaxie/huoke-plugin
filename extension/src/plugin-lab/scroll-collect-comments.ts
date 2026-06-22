@@ -1,9 +1,11 @@
 import { humanPace, sleep } from "./search-input";
+import { resolveEffectivePlaybackMode } from "./playback-mode";
 import {
   activateCommentSidebar,
   isCommentSidebarReadyForCollect,
 } from "./comment-sidebar-dom";
-import { isStandaloneVideoPage } from "./search-feed-open";
+import { scrollFeedCommentSidebar } from "./feed-comment-sidebar-dom";
+import { scrollVideoDetailCommentSidebar } from "./video-detail-comment-sidebar-dom";
 import {
   enableCommentNetworkHook,
   getAllCachedCommentApiItems,
@@ -64,49 +66,11 @@ function hasCommentEndMarker(): boolean {
   return false;
 }
 
-/** 对齐 Python `COMMENT_SIDEBAR_SCROLL_JS` */
-function scrollCommentSidebar(): boolean {
-  const items = document.querySelectorAll(COMMENT_ITEM_SELECTOR);
-  const anchors: Element[] = [];
-
-  if (items.length > 0) {
-    anchors.push(items[items.length - 1]);
-  }
-
-  const headers = document.querySelectorAll("div, span, p");
-  for (let i = 0; i < headers.length && i < 60; i += 1) {
-    const el = headers[i];
-    const text = (el.textContent ?? "").trim();
-    if (text.startsWith("全部评论")) {
-      anchors.push(el);
-      break;
-    }
-  }
-
-  const feed = document.querySelector('[data-e2e="feed-active-video"]');
-  if (feed) anchors.push(feed);
-
-  for (let a = 0; a < anchors.length; a += 1) {
-    let node: HTMLElement | null = anchors[a] as HTMLElement;
-    for (let depth = 0; depth < 12 && node; depth += 1) {
-      const sh = node.scrollHeight || 0;
-      const ch = node.clientHeight || 0;
-      if (sh > ch + 30) {
-        const before = node.scrollTop || 0;
-        const step = 240 + Math.floor(Math.random() * 140);
-        node.scrollTop = Math.min(before + step, sh);
-        if (node.scrollTop > before || sh > ch + 120) return true;
-      }
-      node = node.parentElement;
-    }
-  }
-
-  if (isStandaloneVideoPage()) {
-    window.scrollBy({ top: 280 + Math.floor(Math.random() * 120), behavior: "instant" });
-    return true;
-  }
-
-  return false;
+/** 按 playback_mode 在 Feed 侧栏或 /video/ 页滚动评论 */
+function scrollCommentSidebar(payload: Record<string, unknown> = {}): boolean {
+  return resolveEffectivePlaybackMode(payload) === "video_detail"
+    ? scrollVideoDetailCommentSidebar()
+    : scrollFeedCommentSidebar();
 }
 
 function nodeShortText(node: Element | null, maxLen = 300): string {
@@ -340,6 +304,7 @@ async function collectViaApi(
   maxRounds: number,
   maxComments: number,
   commentDays: number,
+  scrollPayload: Record<string, unknown>,
 ) {
   enableCommentNetworkHook();
 
@@ -366,7 +331,7 @@ async function collectViaApi(
     }
 
     const sizeBefore = merged.size;
-    if (scrollCommentSidebar()) scrolledRounds += 1;
+    if (scrollCommentSidebar(scrollPayload)) scrolledRounds += 1;
     await sleep(humanPace.commentScrollRound());
 
     await pollCommentApiCache({
@@ -413,6 +378,7 @@ async function collectViaDom(
   maxRounds: number,
   maxComments: number,
   commentDays: number,
+  scrollPayload: Record<string, unknown>,
 ) {
   const seen = new Set<string>();
   const comments: ReturnType<typeof parseCommentItem>[] = [];
@@ -453,7 +419,7 @@ async function collectViaDom(
       break;
     }
 
-    if (scrollCommentSidebar()) scrolledRounds += 1;
+    if (scrollCommentSidebar(scrollPayload)) scrolledRounds += 1;
     await sleep(humanPace.commentScrollRound());
     collectVisible();
 
@@ -523,6 +489,7 @@ export interface ScrollCollectCommentsPayload {
   scroll_rounds?: number;
   max_comments?: number;
   comment_days?: number;
+  playback_mode?: "feed" | "video_detail" | "auto";
 }
 
 /** 步骤 11：优先截获 comment/list API，失败再 DOM 解析可见评论 */
@@ -530,14 +497,15 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
   const maxRounds = Math.max(1, Math.min(Number(payload.scroll_rounds ?? 12), 60));
   const maxComments = Math.max(1, Math.min(Number(payload.max_comments ?? 80), 300));
   const commentDays = Math.max(0, Number(payload.comment_days ?? 0));
+  const scrollPayload = payload as Record<string, unknown>;
 
-  if (!isCommentSidebarReadyForCollect()) {
-    await activateCommentSidebar();
+  if (!isCommentSidebarReadyForCollect(scrollPayload)) {
+    await activateCommentSidebar(scrollPayload);
     await sleep(humanPace.afterCommentClick());
   }
 
   const awemeHint = extractAwemeIdFromLocation();
-  const apiResult = await collectViaApi(awemeHint, maxRounds, maxComments, commentDays);
+  const apiResult = await collectViaApi(awemeHint, maxRounds, maxComments, commentDays, scrollPayload);
 
   let merged = apiResult.items;
   let captureMethod: "api" | "dom" = "api";
@@ -545,7 +513,7 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
   let stoppedReason = apiResult.stoppedReason;
 
   if (merged.length === 0) {
-    const domResult = await collectViaDom(maxRounds, maxComments, commentDays);
+    const domResult = await collectViaDom(maxRounds, maxComments, commentDays, scrollPayload);
     merged = domResult.items;
     captureMethod = "dom";
     scrolledRounds = domResult.scrolledRounds;

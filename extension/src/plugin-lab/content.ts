@@ -120,11 +120,11 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
     case "plugin_lab.search_video_probe":
       return probeSearchVideoCard((payload ?? {}) as { video_index?: number; index?: number });
     case "plugin_lab.comment_sidebar_probe":
-      return probeCommentSidebar();
+      return probeCommentSidebar((payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.activate_comment_sidebar":
-      return activateCommentSidebar();
+      return activateCommentSidebar((payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_comment_btn":
-      return clickCommentButtonFallback();
+      return clickCommentButtonFallback((payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.scroll_and_collect_comments":
       return scrollAndCollectComments((payload ?? {}) as ScrollCollectCommentsPayload);
     case "plugin_lab.send_comment":

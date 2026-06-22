@@ -499,6 +499,20 @@ impl<'a> LabCommands<'a> {
         .await
     }
 
+    /// 打开抖音视频详情（含 v.douyin.com 短链），等待跳转到 /video/ 页
+    pub async fn open_douyin_video_detail(&self, url: &str) -> Result<Value, String> {
+        self.action(
+            "open_browser",
+            json!({
+                "platform": self.platform,
+                "url": url,
+                "reuse_existing": true,
+                "wait_video_detail": true,
+            }),
+        )
+        .await
+    }
+
     pub async fn open_video(&self, aweme_id: &str, video_url: Option<&str>) -> Result<Value, String> {
         let url = video_url
             .filter(|s| !s.trim().is_empty())
@@ -508,7 +522,23 @@ impl<'a> LabCommands<'a> {
     }
 
     pub async fn open_comment_sidebar(&self) -> Result<Value, String> {
-        self.action("click_comment_btn", json!({ "platform": self.platform })).await
+        self.open_feed_comment_sidebar().await
+    }
+
+    pub async fn open_feed_comment_sidebar(&self) -> Result<Value, String> {
+        self.action(
+            "click_comment_btn",
+            json!({ "platform": self.platform, "playback_mode": "feed" }),
+        )
+        .await
+    }
+
+    pub async fn open_video_detail_comment_sidebar(&self) -> Result<Value, String> {
+        self.action(
+            "click_comment_btn",
+            json!({ "platform": self.platform, "playback_mode": "video_detail" }),
+        )
+        .await
     }
 
     pub async fn scroll_comments(
@@ -517,12 +547,43 @@ impl<'a> LabCommands<'a> {
         max_comments: i64,
         comment_days: i64,
     ) -> Result<Value, String> {
+        self.scroll_feed_comments(rounds, max_comments, comment_days).await
+    }
+
+    pub async fn scroll_feed_comments(
+        &self,
+        rounds: i64,
+        max_comments: i64,
+        comment_days: i64,
+    ) -> Result<Value, String> {
+        self.scroll_comments_with_mode(rounds, max_comments, comment_days, "feed")
+            .await
+    }
+
+    pub async fn scroll_video_detail_comments(
+        &self,
+        rounds: i64,
+        max_comments: i64,
+        comment_days: i64,
+    ) -> Result<Value, String> {
+        self.scroll_comments_with_mode(rounds, max_comments, comment_days, "video_detail")
+            .await
+    }
+
+    async fn scroll_comments_with_mode(
+        &self,
+        rounds: i64,
+        max_comments: i64,
+        comment_days: i64,
+        playback_mode: &str,
+    ) -> Result<Value, String> {
         self.action(
             "scroll_and_collect_comments",
             json!({
                 "scroll_rounds": rounds.clamp(1, 60),
                 "max_comments": max_comments.clamp(10, 300),
                 "comment_days": comment_days.max(0),
+                "playback_mode": playback_mode,
             }),
         )
         .await

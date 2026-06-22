@@ -164,7 +164,11 @@ pub async fn create_job(
         return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": message }))));
     }
 
-    let limit_videos = body.limit_videos.clamp(1, 20);
+    let limit_videos = if job_type == "manual" && intent == "single_video" {
+        1
+    } else {
+        body.limit_videos.clamp(1, 20)
+    };
     let max_comments_per_video = body.max_comments_per_video.clamp(1, 500);
     let comment_presets = resolve_presets(body.comment_presets, body.comment_preset_ids);
     let dm_presets = resolve_presets(body.dm_presets, body.dm_preset_ids);

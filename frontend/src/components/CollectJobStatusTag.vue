@@ -14,11 +14,13 @@
     </el-button>
     <el-tag v-else size="small" :type="tagType">{{ label }}</el-tag>
 
-    <CollectJobStatusDialog
-      v-model="dialogOpen"
-      :brief="brief"
-      @continue="$emit('continue', row)"
-    />
+    <Teleport to="body">
+      <CollectJobStatusDialog
+        v-model="dialogOpen"
+        :brief="brief"
+        @continue="$emit('continue', row)"
+      />
+    </Teleport>
   </span>
 </template>
 

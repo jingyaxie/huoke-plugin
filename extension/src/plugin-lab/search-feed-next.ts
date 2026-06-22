@@ -1,8 +1,8 @@
 import {
-  clickCommentIconViaDom,
-  isCommentSidebarReadyForCollect,
-  probeCommentSidebar,
-} from "./comment-sidebar-dom";
+  clickFeedCommentIconViaDom,
+  isFeedCommentSidebarReadyForCollect,
+  probeFeedCommentSidebar,
+} from "./feed-comment-sidebar-dom";
 import { recoverProfileFeedFromAweme } from "./profile-video-dom";
 import {
   isDouyinFeedOverlay,
@@ -198,10 +198,10 @@ async function dismissCommentPanelForSwipe() {
   await focusFeedPlayer(player);
   await sleep(randDelay(180, 300));
 
-  if (!isCommentSidebarReadyForCollect()) return;
+  if (!isFeedCommentSidebarReadyForCollect()) return;
 
   if (inDouyinFeed) {
-    clickCommentIconViaDom();
+    clickFeedCommentIconViaDom();
     await sleep(randDelay(280, 420));
     await focusFeedPlayer(player);
     await sleep(randDelay(180, 280));
@@ -409,7 +409,7 @@ export async function swipeSearchFeedNext() {
     }
   }
 
-  const sidebar = probeCommentSidebar();
+  const sidebar = probeFeedCommentSidebar();
   return {
     ok: false,
     is_search_feed: feedOverlayReady(),

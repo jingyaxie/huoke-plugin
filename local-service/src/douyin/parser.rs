@@ -49,8 +49,11 @@ pub fn is_comment_api(url: &str) -> bool {
 pub fn extract_aweme_id_from_url(url: &str) -> Option<String> {
     if let Some(query) = url.split('?').nth(1) {
         for (key, value) in query.split('&').filter_map(|pair| pair.split_once('=')) {
-            if key == "aweme_id" && !value.is_empty() {
-                return Some(value.to_string());
+            if (key == "aweme_id" || key == "vid") && !value.is_empty() {
+                let id = value.trim();
+                if is_valid_aweme_id(id) {
+                    return Some(id.to_string());
+                }
             }
         }
     }
