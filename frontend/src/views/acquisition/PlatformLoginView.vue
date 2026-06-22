@@ -4,7 +4,7 @@
       <div>
         <h1 class="page-title">账号绑定</h1>
         <p class="page-subtitle">
-          安装盈小蚁后，先按下方说明配置 Chrome 插件，再登录抖音 / 小红书等平台账号。
+          安装盈小蚁后，先按下方说明配置 Chrome 插件，再登录抖音等平台账号。
         </p>
       </div>
       <div class="header-actions">

@@ -1,7 +1,9 @@
 import { isPlatformMonitorEnabled } from "./accountMonitorPreference";
 
-/** 本机获客账号绑定支持的渠道（不含快手） */
-export const BINDABLE_PLATFORMS = ["douyin", "xiaohongshu"];
+import { EXTENSION_UI_PLATFORM_IDS } from "../config/extensionPlatformCapabilities";
+
+/** 本机获客账号绑定支持的渠道（与 EXTENSION_UI_PLATFORM_IDS 对齐） */
+export const BINDABLE_PLATFORMS = [...EXTENSION_UI_PLATFORM_IDS];
 
 export const DISPLAY_PLATFORMS = BINDABLE_PLATFORMS;
 

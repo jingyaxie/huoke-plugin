@@ -1,6 +1,14 @@
 import { extensionJobTargetCount } from "./extensionCollectJobs";
 
+function isKeywordVideoLimitJob(row) {
+  const intent = String(row?.config?.intent || "").trim();
+  return intent === "keyword_auto" || String(row?.job_type || "") === "keyword";
+}
+
 export function collectJobProgress(row) {
+  if (isKeywordVideoLimitJob(row)) {
+    return Number(row?.video_count ?? 0);
+  }
   return Number(row?.precise_count ?? row?.comment_count ?? 0);
 }
 
@@ -69,8 +77,9 @@ export function getCollectJobStatusBrief(row) {
     };
   }
   if (status === "running") {
-    const progressText =
-      precise > 0
+    const progressText = isKeywordVideoLimitJob(row)
+      ? `已扫描视频 ${collectJobProgress(row)}${target > 0 ? ` / ${target}` : ""}（评论 ${comments}）`
+      : precise > 0
         ? `精准线索 ${precise}${target > 0 ? ` / 目标 ${target}` : ""}`
         : `评论 ${comments}${target > 0 ? ` / 目标约 ${target}` : ""}`;
     return {
@@ -85,7 +94,7 @@ export function getCollectJobStatusBrief(row) {
       can_continue: false,
     };
   }
-  if (status === "completed" && target > 0 && progress < target) {
+  if (status === "completed" && target > 0 && progress < target && !isKeywordVideoLimitJob(row)) {
     return {
       title: "已完成但未达目标",
       tone: "warning",

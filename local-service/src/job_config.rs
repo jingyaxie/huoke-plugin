@@ -237,8 +237,8 @@ impl JobConfig {
     }
 
     pub fn filter_publish_days_for_ui(&self) -> i64 {
-        // unlimited → None → 0，不点发布时间筛选
-        self.publish_days.unwrap_or(0)
+        // 视频发布时间筛选已下线，搜索页不再点发布时间筛选项
+        0
     }
 
     pub fn has_reply_presets(&self) -> bool {
@@ -259,6 +259,11 @@ impl JobConfig {
             || self.has_dm_presets()
             || self.interaction.follow_per_day > 0
             || self.interaction.dm_per_day > 0
+    }
+
+    /// 关键词自动获客：以扫描视频数（limit_videos）为完成条件，不以线索条数卡失败。
+    pub fn collects_by_video_limit(&self) -> bool {
+        self.intent == "keyword_auto"
     }
 
     pub fn reply_templates(&self) -> Vec<String> {
@@ -349,6 +354,7 @@ mod tests {
         assert_eq!(job_cfg.target_count, 80);
         assert_eq!(job_cfg.comment_days, 5);
         assert_eq!(job_cfg.publish_days, Some(7));
+        assert_eq!(job_cfg.filter_publish_days_for_ui(), 0);
         assert_eq!(job_cfg.search_keyword("团餐"), "深圳 团餐");
         assert!(job_cfg.has_reply_presets());
         assert!(job_cfg.should_run_auto_outreach());

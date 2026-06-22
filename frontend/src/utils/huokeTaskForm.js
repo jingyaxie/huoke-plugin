@@ -52,12 +52,15 @@ export function platformLabel(platform) {
   return "抖音";
 }
 
+import { listExtensionCollectPlatforms } from "../config/extensionPlatformCapabilities";
+
 export function listSupportedPlatforms(capabilities) {
+  const allowed = new Set(listExtensionCollectPlatforms());
   const platforms = capabilities?.platforms;
   if (Array.isArray(platforms) && platforms.length) {
-    return platforms.filter((item) => ["douyin", "xiaohongshu"].includes(item));
+    return platforms.filter((item) => allowed.has(item));
   }
-  return ["douyin", "xiaohongshu"];
+  return listExtensionCollectPlatforms();
 }
 
 export function getIntentSpecForTaskType(taskType, capabilities) {

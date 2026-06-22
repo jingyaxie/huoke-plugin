@@ -127,7 +127,7 @@ impl JobOrchestrator {
                 {
                     warn!("job {job_id}: comment evaluation error: {err}");
                 }
-                if self.uses_precise_collect_target() {
+                if self.uses_precise_collect_target() && !cfg.collects_by_video_limit() {
                     let precise = self.db.count_precise_comments_for_job(job_id)?;
                     if precise < cfg.target_count {
                         let total = self.db.count_comments_for_job(job_id)?;
@@ -198,7 +198,12 @@ impl JobOrchestrator {
 
         let lab = LabCommands::new(&self.hub, &job.platform);
         let existing_progress = self.collect_progress_count(job_id)?;
-        let resume_collect = existing_progress > 0 && existing_progress < cfg.target_count;
+        let resume_collect = if cfg.collects_by_video_limit() {
+            let videos_collected = self.db.count_distinct_comment_awemes_for_job(job_id)?;
+            videos_collected > 0 && videos_collected < job.limit_videos.max(1)
+        } else {
+            existing_progress > 0 && existing_progress < cfg.target_count
+        };
         let feed_collect = job.platform == "douyin" && cfg.intent == "keyword_auto";
 
         if resume_collect {
@@ -428,7 +433,7 @@ impl JobOrchestrator {
             if self.is_job_paused(job_id)? {
                 return Ok(());
             }
-            if self.collect_target_reached(job_id, cfg)? {
+            if self.collect_target_reached(job_id, job, cfg)? {
                 break;
             }
             if collected_videos >= max_videos {
@@ -565,10 +570,18 @@ impl JobOrchestrator {
         }
 
         let total = self.db.count_comments_for_job(job_id)?;
-        let progress = self.collect_progress_count(job_id)?;
         if total == 0 && collected_videos == 0 {
             return Err(fail_hint.into());
         }
+        if cfg.collects_by_video_limit() {
+            let videos_collected = self.db.count_distinct_comment_awemes_for_job(job_id)?;
+            info!(
+                "job {job_id}: video-limit collect done — {videos_collected}/{} videos scanned ({} comments, feed browsed {collected_videos} new)",
+                job.limit_videos, total
+            );
+            return Ok(());
+        }
+        let progress = self.collect_progress_count(job_id)?;
         if progress < cfg.target_count {
             let label = self.collect_progress_label();
             return Err(format!(
@@ -904,7 +917,7 @@ impl JobOrchestrator {
             simulate::pause(Duration::from_millis(500)).await;
         }
 
-        while !self.collect_target_reached(job_id, cfg)? && pass < 3 {
+        while !self.collect_target_reached(job_id, job, cfg)? && pass < 3 {
             self.bail_if_paused(job_id)?;
             if self.is_job_paused(job_id)? {
                 return Ok(());
@@ -913,7 +926,7 @@ impl JobOrchestrator {
             opened_videos = 0;
             for (index, video) in videos.iter().enumerate() {
                 self.bail_if_paused(job_id)?;
-                if self.collect_target_reached(job_id, cfg)? {
+                if self.collect_target_reached(job_id, job, cfg)? {
                     break;
                 }
                 if self.video_comments_already_collected(job_id, video)? {
@@ -975,7 +988,7 @@ impl JobOrchestrator {
                     }
                 }
             }
-            if self.collect_target_reached(job_id, cfg)? {
+            if self.collect_target_reached(job_id, job, cfg)? {
                 break;
             }
             if opened_videos > 0 {
@@ -1009,7 +1022,6 @@ impl JobOrchestrator {
         }
 
         let total = self.db.count_comments_for_job(job_id)?;
-        let progress = self.collect_progress_count(job_id)?;
         if total == 0 {
             if opened_videos == 0 {
                 return Err(if cfg.intent == "account_home" {
@@ -1022,6 +1034,15 @@ impl JobOrchestrator {
             }
             return Err("no comments captured — check login state and filters".into());
         }
+        if cfg.collects_by_video_limit() {
+            let videos_collected = self.db.count_distinct_comment_awemes_for_job(job_id)?;
+            info!(
+                "job {job_id}: video-limit collect done — {videos_collected}/{} videos ({} comments)",
+                job.limit_videos, total
+            );
+            return Ok(());
+        }
+        let progress = self.collect_progress_count(job_id)?;
         if progress < cfg.target_count {
             let pending = videos
                 .iter()
@@ -1071,7 +1092,16 @@ impl JobOrchestrator {
         }
     }
 
-    fn collect_target_reached(&self, job_id: &str, cfg: &JobConfig) -> Result<bool, String> {
+    fn collect_target_reached(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+    ) -> Result<bool, String> {
+        if cfg.collects_by_video_limit() {
+            let collected = self.db.count_distinct_comment_awemes_for_job(job_id)?;
+            return Ok(collected >= job.limit_videos.max(1));
+        }
         Ok(self.collect_progress_count(job_id)? >= cfg.target_count)
     }
 

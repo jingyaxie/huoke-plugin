@@ -1,7 +1,7 @@
 /** 插件 / 本机采集各平台能力（与 local-service GET /api/collect/capabilities 对齐） */
 
-/** 前端获客 UI 展示的渠道（快手暂隐藏） */
-export const EXTENSION_UI_PLATFORM_IDS = ["douyin", "xiaohongshu"];
+/** 前端获客 UI 展示的渠道（小红书、快手暂隐藏） */
+export const EXTENSION_UI_PLATFORM_IDS = ["douyin"];
 
 export const EXTENSION_PLATFORM_DEFINITIONS = [
   {
@@ -40,7 +40,7 @@ export const EXTENSION_PLATFORM_LOGIN_CARDS = [
     url: "https://www.xiaohongshu.com",
     desc: "adapter 已接入，能力逐步开放",
   },
-];
+].filter((row) => EXTENSION_UI_PLATFORM_IDS.includes(row.id));
 
 export function isExtensionUiVisiblePlatform(platform) {
   return EXTENSION_UI_PLATFORM_IDS.includes(String(platform || "").trim());

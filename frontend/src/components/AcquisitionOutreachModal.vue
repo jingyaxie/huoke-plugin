@@ -42,7 +42,6 @@
         <div class="summary-grid">
           <div><span class="summary-label">任务名称</span><div>{{ rowModel?.name || "—" }}</div></div>
           <div><span class="summary-label">渠道</span><div>{{ platformLabel(rowModel?.platform) }}</div></div>
-          <div><span class="summary-label">视频发布时间</span><div>{{ publishLabel }}</div></div>
           <div><span class="summary-label">采集几天内评论</span><div>{{ commentDaysLabel }}</div></div>
         </div>
 
@@ -204,12 +203,6 @@ const viewOptions = computed(() => {
 const showOutreachStatus = computed(() =>
   [OUTREACH_METRIC_VIEWS.REPLY, OUTREACH_METRIC_VIEWS.DM, OUTREACH_METRIC_VIEWS.FOLLOW].includes(activeView.value),
 );
-
-const publishLabel = computed(() => {
-  const map = { unlimited: "不限", "1d": "1天内", "3d": "3天内", "7d": "1周内", "180d": "半年内" };
-  const raw = String(rowModel.value?.config?.publish_time_range || "unlimited");
-  return map[raw] || raw;
-});
 
 const commentDaysLabel = computed(() => {
   const days = String(rowModel.value?.config?.comment_days ?? "3");

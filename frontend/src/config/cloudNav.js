@@ -15,7 +15,6 @@ export const LOCAL_NAV_SECTION = {
   label: "AI 获客（本机）",
   items: [
     { key: "auto_tasks", label: "自动获客", to: "/extension-bridge" },
-    { key: "manual_tasks", label: "手动获客", to: "/manual-tasks" },
     { key: "presets", label: "评论/私信预设", to: "/presets" },
     { key: "platform_login", label: "账号绑定", to: "/platform-login" },
   ],

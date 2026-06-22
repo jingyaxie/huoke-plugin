@@ -180,7 +180,13 @@ pub async fn create_job(
         "job_type": job_type,
         "intent": if job_type == "manual" { intent } else { "keyword_auto" },
         "input_url": input_url,
-        "target_count": body.target_count.unwrap_or(max_comments_per_video * limit_videos),
+        "target_count": body.target_count.unwrap_or_else(|| {
+            if job_type == "manual" {
+                max_comments_per_video * limit_videos
+            } else {
+                limit_videos
+            }
+        }),
         "region_code": body.region_code,
         "region_name": body.region_name,
         "publish_time_range": body.publish_time_range.unwrap_or_else(|| "unlimited".to_string()),
@@ -319,8 +325,17 @@ pub async fn start_job(
     Path(job_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let job = state.db.get_job(&job_id).map_err(|_| not_found())?;
-    if job.status == JobStatus::Completed {
+        if job.status == JobStatus::Completed {
         let cfg = JobConfig::from_job(&job);
+        if cfg.collects_by_video_limit() {
+            let videos_collected = state
+                .db
+                .count_distinct_comment_awemes_for_job(&job_id)
+                .map_err(internal_error)?;
+            if videos_collected >= job.limit_videos.max(1) {
+                return Ok(Json(json!({ "job_id": job_id, "status": "completed", "message": "already completed" })));
+            }
+        } else {
         let uses_precise = crate::llm_client::LlmClient::from_data_dir(&state.data_dir).is_some();
         let progress = if uses_precise {
             state
@@ -335,6 +350,7 @@ pub async fn start_job(
         };
         if progress >= cfg.target_count {
             return Ok(Json(json!({ "job_id": job_id, "status": "completed", "message": "already completed" })));
+        }
         }
     }
 

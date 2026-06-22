@@ -47,18 +47,6 @@
           <el-input v-model="form.keywords" placeholder="输入产品或服务关键词，例如：团餐配送" />
         </el-form-item>
 
-        <el-form-item label="视频发布时间">
-          <el-radio-group v-model="form.publishTimeRange">
-            <el-radio-button
-              v-for="item in publishOptions"
-              :key="item.value"
-              :value="item.value"
-            >
-              {{ item.label }}
-            </el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-
         <el-form-item label="采集几天内评论">
           <el-radio-group v-model="form.commentDays">
             <el-radio-button
@@ -71,14 +59,9 @@
           </el-radio-group>
         </el-form-item>
 
-        <el-form-item label="预设抓取数量" required>
-          <el-input-number v-model="form.targetCount" :min="1" :max="500" />
-          <p class="field-hint">建议单次控制在 30–100 条；采集完成后将用大模型评估评论并标记精准客户。</p>
-        </el-form-item>
-
-        <el-form-item label="单批扫描视频上限">
+        <el-form-item label="单批扫描视频上限" required>
           <el-input-number v-model="form.crawlVideoLimit" :min="1" :max="20" />
-          <p class="field-hint">每轮最多打开多少个视频采集评论（插件模式上限 20）。</p>
+          <p class="field-hint">每轮最多扫描多少个视频采集评论；扫满上限或搜索结果不足时即视为完成。</p>
         </el-form-item>
 
         <el-row :gutter="16">
@@ -145,7 +128,6 @@ import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/preset
 import {
   REGION_PRESETS,
   FALLBACK_COMMENT_DAYS_OPTIONS,
-  FALLBACK_PUBLISH_TIME_OPTIONS,
   computeAutoOutreach,
   buildEvaluationPayload,
   defaultEvaluation,
@@ -175,9 +157,7 @@ const form = reactive({
   regionCode: "",
   platform: "douyin",
   keywords: "",
-  publishTimeRange: "unlimited",
   commentDays: 3,
-  targetCount: 50,
   crawlVideoLimit: 10,
   autoStart: loadExtensionAutoStartPref(true),
   evalTemplateId: "",
@@ -187,7 +167,6 @@ const form = reactive({
   evaluationExpanded: false,
 });
 
-const publishOptions = FALLBACK_PUBLISH_TIME_OPTIONS;
 const commentOptions = FALLBACK_COMMENT_DAYS_OPTIONS;
 
 const regionName = computed(
@@ -264,9 +243,7 @@ function resetForm() {
   form.regionCode = "";
   form.platform = "douyin";
   form.keywords = "";
-  form.publishTimeRange = "unlimited";
   form.commentDays = 3;
-  form.targetCount = 50;
   form.crawlVideoLimit = 10;
   form.autoStart = loadExtensionAutoStartPref(true);
   form.evalTemplateId = "";
@@ -290,8 +267,8 @@ async function submit() {
     ElMessage.warning("请填写产品关键词");
     return;
   }
-  if (!form.targetCount || form.targetCount < 1) {
-    ElMessage.warning("预设抓取数量必须大于 0");
+  if (!form.crawlVideoLimit || form.crawlVideoLimit < 1) {
+    ElMessage.warning("单批扫描视频上限必须大于 0");
     return;
   }
   const presetError = validateTaskPresetSelection(
@@ -305,10 +282,6 @@ async function submit() {
   }
 
   const limitVideos = Math.min(20, Math.max(1, form.crawlVideoLimit));
-  const maxCommentsPerVideo = Math.min(
-    500,
-    Math.max(1, Math.ceil(form.targetCount / limitVideos)),
-  );
 
   submitting.value = true;
   try {
@@ -331,11 +304,9 @@ async function submit() {
       platform: form.platform,
       keyword: keywords[0],
       limit_videos: limitVideos,
-      max_comments_per_video: maxCommentsPerVideo,
-      target_count: form.targetCount,
+      max_comments_per_video: 50,
       region_code: form.regionCode || undefined,
       region_name: regionName.value || undefined,
-      publish_time_range: form.publishTimeRange,
       comment_days: form.commentDays,
       interaction: settings.value,
       comment_presets: commentPresetPayload,

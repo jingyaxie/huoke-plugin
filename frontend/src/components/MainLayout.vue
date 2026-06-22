@@ -418,8 +418,7 @@ onUnmounted(() => {
 
 .section-items {
   margin: 0 0 8px 10px;
-  padding: 2px 0 2px 12px;
-  border-left: 1px solid rgba(148, 163, 184, 0.24);
+  padding: 2px 0;
 }
 
 .nav-section.is-collapsed .section-title-btn {
@@ -461,14 +460,11 @@ onUnmounted(() => {
 }
 
 .nav-indicator {
-  position: absolute;
-  left: -13px;
-  top: 50%;
+  flex-shrink: 0;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: transparent;
-  transform: translateY(-50%);
 }
 
 .nav-link.active .nav-indicator {

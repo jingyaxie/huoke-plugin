@@ -49,6 +49,11 @@ function resolveVideoMeta(comment, videoByAweme, fallbackVideos) {
 }
 
 export function extensionJobTargetCount(job) {
+  const intent = String(job?.config?.intent || "").trim();
+  const jobType = String(job?.job_type || "").trim();
+  if (intent === "keyword_auto" || jobType === "keyword") {
+    return Number(job?.limit_videos || 0);
+  }
   const fromConfig = Number(job?.config?.target_count);
   if (Number.isFinite(fromConfig) && fromConfig > 0) return fromConfig;
   return Number(job?.limit_videos || 0) * Number(job?.max_comments_per_video || 0) || 0;

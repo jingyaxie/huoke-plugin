@@ -79,8 +79,8 @@
             <el-table-column label="产品关键词" min-width="120" show-overflow-tooltip>
               <template #default="{ row }">{{ row.keyword }}</template>
             </el-table-column>
-            <el-table-column label="预设抓取数量" width="112" align="right">
-              <template #default="{ row }">{{ extensionJobTargetCount(row) }}</template>
+            <el-table-column label="扫描视频上限" width="112" align="right">
+              <template #default="{ row }">{{ row.limit_videos || extensionJobTargetCount(row) }}</template>
             </el-table-column>
             <el-table-column label="实际抓取总线索" width="120" align="right">
               <template #default="{ row }">
