@@ -109,6 +109,18 @@ fn mock_lab_data(action: &str, payload: &Value) -> Value {
             "is_search_feed": true,
             "aweme_id": "sim_aweme_next"
         }),
+        "plugin_lab.swipe_video_detail_next" => json!({
+            "ok": true,
+            "simulated": true,
+            "is_standalone_video": true,
+            "aweme_id": "sim_aweme_detail_next"
+        }),
+        "plugin_lab.probe_video_detail" => json!({
+            "ok": true,
+            "simulated": true,
+            "is_standalone_video": true,
+            "aweme_id": "sim_aweme_detail_probe"
+        }),
         "plugin_lab.search_video_probe" => json!({
             "ok": true,
             "simulated": true,

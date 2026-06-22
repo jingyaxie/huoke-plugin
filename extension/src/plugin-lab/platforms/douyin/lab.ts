@@ -50,6 +50,11 @@ import { sendComment } from "../../send-comment";
 import { sendDm } from "../../send-dm";
 import { swipePage, type SwipePagePayload } from "../../swipe-page";
 import { swipeSearchFeedNext } from "../../search-feed-next";
+import {
+  swipeVideoDetailNext,
+  prepareVideoDetailForSwipe,
+  probeVideoDetailPlayback,
+} from "../../video-detail-next";
 
 const HANDLED = new Set([
   "plugin_lab.swipe_page",
@@ -63,6 +68,9 @@ const HANDLED = new Set([
   "plugin_lab.ensure_search_multi_column",
   "plugin_lab.prepare_search_video",
   "plugin_lab.swipe_search_feed_next",
+  "plugin_lab.swipe_video_detail_next",
+  "plugin_lab.prepare_video_detail_for_swipe",
+  "plugin_lab.probe_video_detail",
   "plugin_lab.search_video_dom_click",
   "plugin_lab.click_search_video",
   "plugin_lab.search_video_probe",
@@ -133,6 +141,12 @@ export async function dispatchDouyinLabCommand(
       });
     case "plugin_lab.swipe_search_feed_next":
       return swipeSearchFeedNext();
+    case "plugin_lab.swipe_video_detail_next":
+      return swipeVideoDetailNext();
+    case "plugin_lab.prepare_video_detail_for_swipe":
+      return prepareVideoDetailForSwipe();
+    case "plugin_lab.probe_video_detail":
+      return probeVideoDetailPlayback();
     case "plugin_lab.search_video_dom_click":
       return clickSearchVideoInContent((payload ?? {}) as {
         video_index?: number;

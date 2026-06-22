@@ -51,6 +51,11 @@ import {
   recoverDouyinFeedFromAweme,
   probeDouyinFeed,
 } from "./search-feed-next";
+import {
+  swipeVideoDetailNext,
+  prepareVideoDetailForSwipe,
+  probeVideoDetailPlayback,
+} from "./video-detail-next";
 import { probeSearchContextDom } from "./search-context-probe";
 
 /**
@@ -107,6 +112,12 @@ export async function dispatchPluginLabCommand(action: string, payload: unknown)
       );
     case "plugin_lab.probe_douyin_feed":
       return probeDouyinFeed();
+    case "plugin_lab.swipe_video_detail_next":
+      return swipeVideoDetailNext();
+    case "plugin_lab.prepare_video_detail_for_swipe":
+      return prepareVideoDetailForSwipe();
+    case "plugin_lab.probe_video_detail":
+      return probeVideoDetailPlayback();
     case "plugin_lab.search_video_dom_click":
       return clickSearchVideoInContent((payload ?? {}) as {
         video_index?: number;

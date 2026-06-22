@@ -8,6 +8,19 @@ import {
   getRowsForMetricView,
   OUTREACH_METRIC_VIEWS,
 } from "./acquisitionJobs";
+import { REGION_PRESETS } from "./huokeTaskForm";
+
+export function collectJobRegionLabel(job) {
+  const cfg = job?.config || {};
+  const name = String(cfg.region_name || cfg.region || "").trim();
+  if (name && name !== "不限地区" && name !== "全国") return name;
+  const code = String(cfg.region_code || "").trim();
+  if (code) {
+    const preset = REGION_PRESETS.find((row) => row.code === code);
+    if (preset?.name && preset.name !== "不限地区") return preset.name;
+  }
+  return "不限";
+}
 
 function douyinVideoUrl(awemeId) {
   const id = String(awemeId || "").trim();

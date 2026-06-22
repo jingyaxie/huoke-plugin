@@ -317,6 +317,45 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
       return feedResult;
     }
     if (feedOnly) {
+      const standaloneProbe = await probeVideo(tabId, { status_only: true });
+      if (standaloneProbe.is_standalone_video && isRealAwemeId(standaloneProbe.aweme_id)) {
+        return {
+          ok: true,
+          feed_open: false,
+          is_standalone_video: true,
+          is_search_feed: false,
+          mode: "standalone_same_tab",
+          video_index: videoIndex,
+          aweme_id: standaloneProbe.aweme_id,
+          url: standaloneProbe.url ?? tab.url ?? "",
+          message: "已在 /video/ 详情页，将使用详情页链式采集",
+        };
+      }
+
+      const resolved = await resolveSearchVideoUrl(tabId, videoIndex, {
+        ...enrichedPayload,
+        platform: PLATFORM,
+      });
+      if (resolved.url && isDouyinVideoPageUrl(resolved.url)) {
+        await chrome.tabs.update(tabId, { url: resolved.url });
+        await waitForTabLoad(tabId, 12_000);
+        await sleep(800);
+        const afterOpen = await probeVideo(tabId, { status_only: true });
+        if (afterOpen.is_standalone_video && isRealAwemeId(afterOpen.aweme_id)) {
+          return {
+            ok: true,
+            feed_open: false,
+            is_standalone_video: true,
+            is_search_feed: false,
+            mode: "standalone_navigate",
+            video_index: videoIndex,
+            aweme_id: afterOpen.aweme_id,
+            url: afterOpen.url ?? resolved.url,
+            message: "已打开 /video/ 详情页，将使用详情页链式采集",
+          };
+        }
+      }
+
       return feedResult;
     }
   }
@@ -493,5 +532,97 @@ export async function swipeSearchFeedNextBackground(
   return {
     ...contentResult,
     message: contentResult.message ?? "Feed 内未能切换到下一个视频（DOM+CDP）",
+  };
+}
+
+interface SwipeDetailResult {
+  ok?: boolean;
+  is_standalone_video?: boolean;
+  aweme_id?: string;
+  previous_aweme_id?: string | null;
+  method?: string;
+  url?: string;
+  message?: string;
+}
+
+async function probeVideoDetailAweme(tabId: number): Promise<VideoProbe> {
+  return (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.probe_video_detail",
+    { platform: PLATFORM },
+    { skipPreflight: true },
+  )) as VideoProbe;
+}
+
+/** /video/ 详情页内切下一个视频：DOM 手势优先，失败再用 CDP 拖拽 */
+export async function swipeVideoDetailNextBackground(
+  payload: Record<string, unknown> = {},
+): Promise<SwipeDetailResult> {
+  const tab = await resolveLabTabForAction("plugin_lab.swipe_video_detail_next", PLATFORM);
+  if (!tab.id) throw new Error("lab tab has no id");
+  const tabId = tab.id;
+
+  const status = await probeVideoDetailAweme(tabId);
+  if (!status.is_standalone_video) {
+    return {
+      ok: false,
+      is_standalone_video: false,
+      url: tab.url ?? "",
+      message: "不在 /video/ 详情页，无法详情页内切下一个视频",
+    };
+  }
+
+  const before = String(status.aweme_id ?? "").trim() || null;
+
+  const contentResult = (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.swipe_video_detail_next",
+    { ...payload, platform: PLATFORM },
+    { skipPreflight: true },
+  )) as SwipeDetailResult;
+  if (contentResult.ok) {
+    return { ...contentResult, method: contentResult.method ?? "content_dom" };
+  }
+
+  const sidebar = (await sendContentPluginLabCommand(
+    tabId,
+    "plugin_lab.comment_sidebar_probe",
+    { platform: PLATFORM, playback_mode: "video_detail" },
+    { skipPreflight: true },
+  )) as { video_player_center?: { x: number; y: number } | null };
+
+  const center = sidebar.video_player_center;
+  if (!center || typeof center.x !== "number" || typeof center.y !== "number") {
+    return contentResult;
+  }
+
+  await withTabDebugger(tabId, async () => {
+    await clickMouse(tabId, center.x, center.y);
+    await sleep(humanPace.posterClick());
+    await dragMouse(tabId, center.x, center.y + 150, center.x, center.y - 240, 12);
+    await sleep(humanPace.posterClick());
+    await pressKey(tabId, "ArrowDown", { code: "ArrowDown" });
+  });
+
+  for (let i = 0; i < 14; i += 1) {
+    await sleep(260);
+    const afterStatus = await probeVideoDetailAweme(tabId);
+    const after = String(afterStatus.aweme_id ?? "").trim();
+    if (after && after !== before) {
+      return {
+        ok: true,
+        is_standalone_video: true,
+        aweme_id: after,
+        previous_aweme_id: before,
+        method: "cdp_drag",
+        url: afterStatus.url ?? tab.url ?? "",
+        message: "已通过 CDP 拖拽在详情页内切换到下一个视频",
+      };
+    }
+  }
+
+  return {
+    ...contentResult,
+    message: contentResult.message ?? "详情页内未能切换到下一个视频（DOM+CDP）",
   };
 }

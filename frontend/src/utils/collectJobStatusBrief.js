@@ -5,6 +5,15 @@ function isKeywordVideoLimitJob(row) {
   return intent === "keyword_auto" || String(row?.job_type || "") === "keyword";
 }
 
+/** 关键词扫描任务是否已达「可视为成功」：扫够上限，或已完成且当前可见视频已扫完 */
+export function isKeywordVideoScanSuccess(row) {
+  if (!isKeywordVideoLimitJob(row)) return false;
+  const limit = extensionJobTargetCount(row);
+  const progress = collectJobProgress(row);
+  if (limit > 0 && progress >= limit) return true;
+  return row?.status === "completed" && progress > 0;
+}
+
 export function collectJobProgress(row) {
   if (isKeywordVideoLimitJob(row)) {
     return Number(row?.video_count ?? 0);
@@ -42,6 +51,9 @@ export function isCollectJobStatusClickable(row) {
   if (status === "running") return true;
   if (String(row?.error_message || "").trim()) return true;
   if (status === "completed") {
+    if (isKeywordVideoLimitJob(row)) {
+      return !isKeywordVideoScanSuccess(row);
+    }
     const target = extensionJobTargetCount(row);
     const progress = collectJobProgress(row);
     return target > 0 && progress < target;
@@ -77,6 +89,16 @@ export function getCollectJobStatusBrief(row) {
     };
   }
   if (status === "running") {
+    if (isKeywordVideoLimitJob(row) && target > 0 && progress >= target) {
+      return {
+        title: "扫描已达上限",
+        tone: "success",
+        summary: `已扫描 ${progress}/${target} 个视频，任务即将完成。`,
+        reason: "已达到设定的扫描视频上限，系统将自动结束采集。",
+        next_actions: [],
+        can_continue: false,
+      };
+    }
     const progressText = isKeywordVideoLimitJob(row)
       ? `已扫描视频 ${collectJobProgress(row)}${target > 0 ? ` / ${target}` : ""}（评论 ${comments}）`
       : precise > 0
@@ -90,6 +112,26 @@ export function getCollectJobStatusBrief(row) {
       next_actions: [
         "如需停止，请使用操作菜单中的「暂停」",
         "若长时间无进展，请在 chrome://extensions 重新加载 Huoke 扩展，再点「重新启动采集」",
+      ],
+      can_continue: false,
+    };
+  }
+  if (status === "completed" && isKeywordVideoScanSuccess(row)) {
+    const progressText =
+      target > 0 && progress >= target
+        ? `已扫描 ${progress}/${target} 个视频`
+        : `已扫描 ${progress}${target > 0 ? `/${target}` : ""} 个视频（当前搜索结果已全部处理）`;
+    return {
+      title: "采集完成",
+      tone: "success",
+      summary: `${progressText}，共 ${comments} 条评论${precise > 0 ? `，精准线索 ${precise} 条` : ""}。`,
+      reason:
+        target > 0 && progress < target
+          ? "当前关键词下可见视频已全部扫描，未达到上限但无可继续采集的视频。"
+          : "已达到设定的扫描视频上限。",
+      next_actions: [
+        "可在「实际抓取总线索」中查看评论详情",
+        "如需更多视频，可新建任务或提高「扫描视频上限」",
       ],
       can_continue: false,
     };

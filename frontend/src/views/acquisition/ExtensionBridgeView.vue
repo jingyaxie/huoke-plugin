@@ -76,6 +76,9 @@
             <el-table-column label="产品关键词" min-width="120" show-overflow-tooltip>
               <template #default="{ row }">{{ row.keyword }}</template>
             </el-table-column>
+            <el-table-column label="地区" width="88" show-overflow-tooltip>
+              <template #default="{ row }">{{ collectJobRegionLabel(row) }}</template>
+            </el-table-column>
             <el-table-column label="扫描视频上限" width="112" align="right">
               <template #default="{ row }">{{ row.limit_videos || extensionJobTargetCount(row) }}</template>
             </el-table-column>
@@ -162,7 +165,7 @@ import {
   pauseCollectJob,
   startCollectJob,
 } from "../../api/localService";
-import { extensionJobTargetCount, computeExtensionDashboard, loadCollectJobForModal } from "../../utils/extensionCollectJobs";
+import { extensionJobTargetCount, computeExtensionDashboard, loadCollectJobForModal, collectJobRegionLabel } from "../../utils/extensionCollectJobs";
 import { alertOutreachRiskIfZero } from "../../utils/outreachRisk";
 import {
   getExtensionSetupStatus,

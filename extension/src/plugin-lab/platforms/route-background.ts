@@ -15,6 +15,7 @@ interface PlatformBackgroundModule {
   prepareSearchForVideoBackground(payload: Record<string, unknown>): Promise<unknown>;
   closeVideoDetailBackground(payload: Record<string, unknown>): Promise<unknown>;
   swipeSearchFeedNextBackground?: (payload: Record<string, unknown>) => Promise<unknown>;
+  swipeVideoDetailNextBackground?: (payload: Record<string, unknown>) => Promise<unknown>;
 }
 
 const BACKGROUND_BY_PLATFORM: Record<LabPlatform, PlatformBackgroundModule> = {
@@ -72,5 +73,14 @@ export async function swipeSearchFeedNextBackground(payload: Record<string, unkn
       return mod.swipeSearchFeedNextBackground(enriched);
     }
     throw new Error("platform does not support swipe_search_feed_next in background");
+  });
+}
+
+export async function swipeVideoDetailNextBackground(payload: Record<string, unknown> = {}) {
+  return routeByLabTab("plugin_lab.swipe_video_detail_next", payload, (mod, enriched) => {
+    if (mod.swipeVideoDetailNextBackground) {
+      return mod.swipeVideoDetailNextBackground(enriched);
+    }
+    throw new Error("platform does not support swipe_video_detail_next in background");
   });
 }

@@ -302,9 +302,25 @@ impl<'a> LabCommands<'a> {
         .await
     }
 
+    pub async fn swipe_video_detail_next(&self) -> Result<Value, String> {
+        self.action(
+            "swipe_video_detail_next",
+            json!({ "platform": self.platform }),
+        )
+        .await
+    }
+
     pub async fn prepare_feed_for_swipe(&self) -> Result<Value, String> {
         self.action(
             "prepare_feed_for_swipe",
+            json!({ "platform": self.platform }),
+        )
+        .await
+    }
+
+    pub async fn prepare_video_detail_for_swipe(&self) -> Result<Value, String> {
+        self.action(
+            "prepare_video_detail_for_swipe",
             json!({ "platform": self.platform }),
         )
         .await
@@ -453,6 +469,70 @@ impl<'a> LabCommands<'a> {
 
     pub async fn probe_douyin_feed(&self) -> Result<Value, String> {
         self.action("probe_douyin_feed", json!({ "platform": self.platform })).await
+    }
+
+    pub async fn probe_video_detail(&self) -> Result<Value, String> {
+        self.action("probe_video_detail", json!({ "platform": self.platform })).await
+    }
+
+    /// 探测当前标签页是否已在 Feed 或 /video/ 播放页（优先详情页）
+    pub async fn probe_current_playback(&self) -> Result<Value, String> {
+        if let Ok(detail) = self.probe_video_detail().await {
+            if detail.get("is_standalone_video").and_then(|v| v.as_bool()) == Some(true) {
+                return Ok(detail);
+            }
+        }
+        if let Ok(feed) = self.probe_douyin_feed().await {
+            if feed.get("is_search_feed").and_then(|v| v.as_bool()) == Some(true)
+                || feed.get("ok").and_then(|v| v.as_bool()) == Some(true)
+            {
+                return Ok(feed);
+            }
+        }
+        if let Ok(page) = self
+            .hub
+            .request_command("get_page_info", json!({}), Duration::from_secs(8))
+            .await
+        {
+            let url = page.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            if url.contains("/video/") || url.contains("/short-video/") {
+                let aweme_id = url
+                    .split("/video/")
+                    .nth(1)
+                    .or_else(|| url.split("/short-video/").nth(1))
+                    .map(|s| s.split(['?', '#', '/']).next().unwrap_or("").trim())
+                    .filter(|s| !s.is_empty());
+                if let Some(id) = aweme_id {
+                    return Ok(json!({
+                        "ok": true,
+                        "is_standalone_video": true,
+                        "is_search_feed": false,
+                        "url": url,
+                        "aweme_id": id,
+                        "message": "detected /video/ playback from get_page_info",
+                    }));
+                }
+            }
+            if url.contains("modal_id=") {
+                let aweme_id = url
+                    .split("modal_id=")
+                    .nth(1)
+                    .map(|s| s.split(['&', '#']).next().unwrap_or("").trim())
+                    .filter(|s| !s.is_empty());
+                return Ok(json!({
+                    "ok": true,
+                    "is_search_feed": true,
+                    "feed_open": true,
+                    "url": url,
+                    "aweme_id": aweme_id,
+                    "message": "detected search feed from get_page_info",
+                }));
+            }
+        }
+        Ok(json!({
+            "ok": false,
+            "message": "not on feed or /video/ playback page",
+        }))
     }
 
     pub async fn fetch_profile_videos(&self, limit: i64) -> Result<Value, String> {
@@ -785,6 +865,7 @@ fn action_timeout(action_id: &str) -> Duration {
         "open_browser" => Duration::from_secs(120),
         "fetch_search_results" => Duration::from_secs(120),
         "swipe_search_feed_next" => Duration::from_secs(30),
+        "swipe_video_detail_next" => Duration::from_secs(30),
         "swipe_page" => Duration::from_secs(20),
         _ => Duration::from_secs(45),
     }
