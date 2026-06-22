@@ -60,7 +60,7 @@ impl<'a> LabCommands<'a> {
         let _ = self.close_video_detail().await;
         simulate::pause(Duration::from_millis(600)).await;
 
-        // 与插件实验室单步流程一致：1 打开 → 3~7 搜索 →（可选）4~5 筛选
+        // 1 打开 → 3~7 搜索 →（可选）4~5 筛选 → 8 抓结果（有筛选时先筛后抓）
         self.action(
             "open_browser",
             json!({
@@ -136,14 +136,30 @@ impl<'a> LabCommands<'a> {
             return Ok(submit);
         }
 
-        // 等待进入搜索结果页并加载首屏数据
+        // 等待进入搜索结果页
         simulate::pause(Duration::from_secs(5)).await;
 
-        // 导航后 hook 状态会重置，再 enable 一次
+        if publish_days > 0 {
+            if let Err(e) = self.action("click_filter_btn", json!({})).await {
+                warn!("click_filter_btn failed: {e}");
+            }
+            simulate::pause(Duration::from_millis(500)).await;
+            if let Err(e) = self
+                .action(
+                    "click_filter_overlay",
+                    json!({ "days": publish_days, "open_if_closed": true }),
+                )
+                .await
+            {
+                warn!("click_filter_overlay failed: {e}");
+            }
+            simulate::pause(Duration::from_secs(2)).await;
+        }
+
+        // 导航/筛选后 hook 会重置；抓数放在最后一步，确保拿到当前列表
         self.enable_network_hook().await?;
         simulate::pause(Duration::from_secs(1)).await;
 
-        // 统一在 step8 抓结果（不在此处滑动，避免搜索完成后反复 scroll）
         let search_payload = match self
             .action(
                 "fetch_search_results",
@@ -154,18 +170,6 @@ impl<'a> LabCommands<'a> {
             Ok(fetch) if Self::search_result_count(&fetch) > 0 => fetch,
             Ok(_) | Err(_) => submit,
         };
-
-        if publish_days > 0 {
-            let _ = self.action("click_filter_btn", json!({})).await;
-            simulate::pause(Duration::from_millis(500)).await;
-            let _ = self
-                .action(
-                    "click_filter_overlay",
-                    json!({ "days": publish_days, "open_if_closed": true }),
-                )
-                .await;
-            simulate::pause(Duration::from_secs(2)).await;
-        }
 
         Ok(search_payload)
     }
