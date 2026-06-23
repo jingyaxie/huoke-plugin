@@ -1,0 +1,2 @@
+function _(l){return l==="plugin_lab.open_browser"||l==="plugin_lab.find_search_box"||l==="plugin_lab.input_search_text"||l==="plugin_lab.click_search_btn"||l==="plugin_lab.fetch_search_results"||l==="plugin_lab.click_search_video"||l==="plugin_lab.click_profile_video"||l==="plugin_lab.click_comment_btn"||l==="plugin_lab.scroll_and_collect_comments"||l.startsWith("network.hook.")?12e4:55e3}export{_ as b};
+//# sourceMappingURL=command-timeouts-B-QJhlWb.js.map

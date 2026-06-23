@@ -229,6 +229,24 @@ export async function rememberLabSearchUrl(platform: string, url: string): Promi
   }
 }
 
+/** 新关键词任务开始前清除跨任务残留的搜索结果页 URL */
+export async function clearLabSearchUrl(platform: string): Promise<void> {
+  try {
+    const normalized = normalizePlatformId(platform);
+    const existing = await readLabSession(normalized);
+    if (existing) {
+      const next: LabSession = { ...existing };
+      delete next.searchUrl;
+      await chrome.storage.session.set({
+        [labSessionKey(normalized)]: next,
+      });
+    }
+    await chrome.storage.session.remove(`huoke:lab-search-url:${normalized}`);
+  } catch {
+    // ignore session storage failures
+  }
+}
+
 export async function readLabSearchUrl(platform: string): Promise<string> {
   try {
     const normalized = normalizePlatformId(platform);

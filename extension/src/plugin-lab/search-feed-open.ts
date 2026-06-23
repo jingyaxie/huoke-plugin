@@ -90,6 +90,14 @@ export function rememberSearchResultsUrl(url = location.href): void {
   void rememberPlatformSearchUrl(url, "douyin");
 }
 
+export function clearStoredSearchResultsUrl(): void {
+  try {
+    sessionStorage.removeItem(SEARCH_URL_STORAGE_KEY);
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
 export function readStoredSearchResultsUrl(): string {
   try {
     const stored = sessionStorage.getItem(SEARCH_URL_STORAGE_KEY)?.trim();

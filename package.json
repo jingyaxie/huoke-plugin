@@ -9,6 +9,7 @@
     "restart:service": "bash scripts/restart-local-service.sh",
     "verify": "bash scripts/verify.sh",
     "bundle": "bash scripts/prepare-bundle.sh",
+    "build:extension": "bash scripts/build-extension-release.sh",
     "build:mac": "bash scripts/build-desktop-mac.sh",
     "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-win.ps1",
     "test:collect": "bash scripts/test-douyin-collect.sh",

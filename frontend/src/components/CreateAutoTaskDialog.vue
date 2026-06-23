@@ -68,6 +68,10 @@
             v-model="form.keywords"
             placeholder="输入产品或服务关键词，例如：团餐配送"
           />
+          <p v-if="composedSearchKeyword" class="field-hint">
+            实际搜索词：<strong>{{ composedSearchKeyword }}</strong>
+            <span v-if="regionName">（{{ regionName }} + 关键词）</span>
+          </p>
         </el-form-item>
 
         <el-form-item v-if="hasAutoScopeField('publish_time_range', capabilities)" label="视频发布时间">
@@ -182,6 +186,7 @@ import {
   applyDefaultCommentDays,
   browserModeToHeadless,
   buildEvaluationPayload,
+  composeSearchKeyword,
   getFieldOptions,
   getScopeFieldLabel,
   hasAutoScopeField,
@@ -256,6 +261,11 @@ const commentOptions = computed(() =>
 );
 const evaluationTemplates = computed(() => capabilities.value?.evaluation_templates || []);
 const regionName = computed(() => REGION_PRESETS.find((row) => row.code === form.regionCode)?.name || "");
+const composedSearchKeyword = computed(() => {
+  const keyword = keywordList()[0] || "";
+  if (!keyword) return "";
+  return composeSearchKeyword(keyword, regionName.value);
+});
 const keywordLabel = computed(() => getScopeFieldLabel("home_auto", "keyword", capabilities.value, "产品关键词"));
 const isStandalone = computed(() => isStandaloneDouyinStrategy(form.agentStrategy));
 const targetCountLabel = computed(() => (isStandalone.value ? "目标精准线索" : "预设抓取数量"));

@@ -25,14 +25,21 @@ npm run build
 DMG_DIR="$DESKTOP_DIR/src-tauri/target/release/bundle/dmg"
 APP_DIR="$DESKTOP_DIR/src-tauri/target/release/bundle/macos"
 
-echo ""
-echo "构建完成。产物目录:"
-echo "  $APP_DIR/"
-echo "  $DMG_DIR/"
-
 if ! compgen -G "$DMG_DIR/*.dmg" >/dev/null; then
   echo "错误: 未找到 DMG: $DMG_DIR/*.dmg" >&2
   exit 1
 fi
 
+echo ""
+echo ">>> 发布版本化安装包到 dist/releases"
+for dmg in "$DMG_DIR"/*.dmg; do
+  node "$ROOT/scripts/publish-release-artifacts.mjs" --macos-dmg "$dmg"
+done
+
+echo ""
+echo "构建完成。产物目录:"
+echo "  Tauri: $APP_DIR/"
+echo "  Tauri: $DMG_DIR/"
+echo "  发布: $ROOT/dist/releases/"
+ls -lh "$ROOT/dist/releases/"* 2>/dev/null || true
 ls -lh "$DMG_DIR"/*.dmg "$APP_DIR"/*.app 2>/dev/null || true

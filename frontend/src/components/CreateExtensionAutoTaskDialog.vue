@@ -45,6 +45,10 @@
 
         <el-form-item label="产品关键词" required>
           <el-input v-model="form.keywords" placeholder="输入产品或服务关键词，例如：团餐配送" />
+          <p v-if="composedSearchKeyword" class="field-hint">
+            实际搜索词：<strong>{{ composedSearchKeyword }}</strong>
+            <span v-if="regionName">（{{ regionName }} + 关键词）</span>
+          </p>
         </el-form-item>
 
         <el-form-item label="采集几天内评论">
@@ -119,6 +123,7 @@ import {
   computeAutoOutreach,
   buildEvaluationPayload,
   defaultEvaluation,
+  composeSearchKeyword,
   loadExtensionAutoStartPref,
   saveExtensionAutoStartPref,
 } from "../utils/huokeTaskForm";
@@ -158,6 +163,11 @@ const commentOptions = FALLBACK_COMMENT_DAYS_OPTIONS;
 const regionName = computed(
   () => REGION_PRESETS.find((row) => row.code === form.regionCode)?.name || "",
 );
+const composedSearchKeyword = computed(() => {
+  const keyword = keywordList()[0] || "";
+  if (!keyword) return "";
+  return composeSearchKeyword(keyword, regionName.value);
+});
 const platformHint = computed(() => {
   const disabled = platformOptions.value.filter((row) => !row.collect).map((row) => row.label);
   const enabled = platformOptions.value.filter((row) => row.collect).map((row) => row.label);

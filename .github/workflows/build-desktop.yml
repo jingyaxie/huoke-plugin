@@ -68,7 +68,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: huoke-windows-nsis
-          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            dist/releases/*
           if-no-files-found: error
 
   build-macos:
@@ -116,7 +118,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: huoke-macos-dmg
-          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            dist/releases/*
           if-no-files-found: error
 
       - name: Upload app bundle

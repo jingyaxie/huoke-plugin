@@ -69,4 +69,17 @@ $installers = Get-ChildItem $NsisDir -Filter "*.exe" -ErrorAction SilentlyContin
 if (-not $installers) {
   throw "No NSIS installer found in $NsisDir"
 }
-$installers | ForEach-Object { Write-Host "  Installer: $($_.FullName)" }
+
+Write-Host ""
+Write-Host "==> 发布版本化安装包到 dist/releases"
+$PublishScript = Join-Path $Root "scripts/publish-release-artifacts.mjs"
+foreach ($installer in $installers) {
+  node $PublishScript --windows-setup $installer.FullName
+  if ($LASTEXITCODE -ne 0) { throw "publish-release-artifacts failed" }
+}
+
+$ReleaseDir = Join-Path $Root "dist/releases"
+Write-Host ""
+Write-Host "发布目录: $ReleaseDir"
+Get-ChildItem $ReleaseDir -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name)" }
+$installers | ForEach-Object { Write-Host "  Tauri: $($_.FullName)" }

@@ -61,6 +61,7 @@ bash scripts/test-douyin-collect.sh 装修      # 采集冒烟
 | `npm run dev` | 启动 local-service，重建插件 |
 | `npm run verify` | 检查 health / API / 插件连接 |
 | `npm run bundle` | 组装 `desktop/bundle`（前端 + local-service + 插件 zip） |
+| `npm run build:extension` | 仅构建 Chrome 插件，发布到 `dist/releases/` |
 | `npm run build:mac` | macOS `.app` / `.dmg` |
 | `npm run build:win` | Windows NSIS 安装包 |
 | `npm run test:collect` | 关键词采集 API 冒烟 |
@@ -94,6 +95,22 @@ scripts/
 
 客户仍需安装 **Google Chrome**（未内置浏览器）。首次启动会打开专用 Chrome 窗口，**登录抖音一次**即可。
 
+### 版本化发布目录
+
+打包完成后，所有可交付安装包会统一复制到 **`dist/releases/`**，并生成下载页：
+
+| 文件 | 说明 |
+|------|------|
+| `index.html` | 静态下载页（可直接打开或挂静态服务） |
+| `RELEASES.json` | 机器可读清单（文件名、版本、大小） |
+| `huoke-extension-v{版本}.zip` | Chrome 插件（单独交付） |
+| `huoke-local-service-v{版本}-macos` | macOS local-service 二进制 |
+| `huoke-local-service-v{版本}-windows.exe` | Windows local-service 二进制 |
+| `huoke-desktop-v{版本}-macos.dmg` | macOS 桌面安装包 |
+| `huoke-desktop-v{版本}-windows-setup.exe` | Windows 桌面安装包 |
+
+仅发插件时：`npm run build:extension`
+
 ### Windows 完整安装包
 
 在 **Windows 构建机**上执行：
@@ -102,7 +119,7 @@ scripts/
 npm run build:win
 ```
 
-产物：`desktop/src-tauri/target/release/bundle/nsis/*.exe`
+产物：`dist/releases/huoke-desktop-v*-windows-setup.exe`（Tauri 原始产物仍在 `desktop/src-tauri/target/release/bundle/nsis/`）
 
 用户流程：
 
@@ -117,7 +134,7 @@ npm run build:win
 npm run build:mac
 ```
 
-产物：`desktop/src-tauri/target/release/bundle/macos/*.app`、`dmg/*.dmg`
+产物：`dist/releases/huoke-desktop-v*-macos.dmg`（Tauri 原始产物仍在 `desktop/src-tauri/target/release/bundle/macos/`）
 
 ### Windows
 
@@ -125,7 +142,7 @@ npm run build:mac
 npm run build:win
 ```
 
-产物：`desktop/src-tauri/target/release/bundle/nsis/*.exe`
+产物：`dist/releases/huoke-desktop-v*-windows-setup.exe`（Tauri 原始产物仍在 `desktop/src-tauri/target/release/bundle/nsis/`）
 
 ### Tauri 开发
 

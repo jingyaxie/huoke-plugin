@@ -26,7 +26,7 @@ storage/
 *.pid
 
 # Desktop build artifacts
-dist/mac/
+dist/
 *.dmg
 
 # IDE

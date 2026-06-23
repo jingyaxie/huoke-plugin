@@ -39,19 +39,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/network-hook.js-Dn_9vbIn.js"
-      ],
-      "matches": [
-        "https://www.douyin.com/*",
-        "https://*.douyin.com/*"
-      ],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "js": [
-        "assets/bootstrap.js-kJnAOcPm.js",
-        "assets/index.ts-loader-D9u7V4IG.js"
+        "assets/network-hook.js-Wp0HIRFK.js"
       ],
       "matches": [
         "https://www.douyin.com/*",
@@ -61,7 +49,23 @@
         "https://www.kuaishou.com/*",
         "https://*.kuaishou.com/*"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "js": [
+        "assets/bootstrap.js-kJnAOcPm.js",
+        "assets/index.ts-loader-Cb3LYOhv.js"
+      ],
+      "matches": [
+        "https://www.douyin.com/*",
+        "https://*.douyin.com/*",
+        "https://www.xiaohongshu.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://www.kuaishou.com/*",
+        "https://*.kuaishou.com/*"
+      ],
+      "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [
@@ -76,25 +80,16 @@
       ],
       "resources": [
         "src/injected/network-hook.js",
+        "assets/network-hook.js-Wp0HIRFK.js",
+        "assets/network-hook.js-Wp0HIRFK.js.map",
         "assets/bootstrap.js-kJnAOcPm.js",
         "assets/bootstrap.js-kJnAOcPm.js.map",
-        "assets/search-context-probe-CXfYUX3U.js",
-        "assets/search-context-probe-CXfYUX3U.js.map",
-        "assets/protocol-CuNqJmHj.js",
-        "assets/protocol-CuNqJmHj.js.map",
-        "assets/index.ts-CdYASeNo.js",
-        "assets/index.ts-CdYASeNo.js.map"
-      ],
-      "use_dynamic_url": false
-    },
-    {
-      "matches": [
-        "https://*.douyin.com/*",
-        "https://www.douyin.com/*"
-      ],
-      "resources": [
-        "assets/network-hook.js-Dn_9vbIn.js",
-        "assets/network-hook.js-Dn_9vbIn.js.map"
+        "assets/search-context-probe-BBoAXK3N.js",
+        "assets/search-context-probe-BBoAXK3N.js.map",
+        "assets/protocol-Cx0aOckh.js",
+        "assets/protocol-Cx0aOckh.js.map",
+        "assets/index.ts-DRMdWd2z.js",
+        "assets/index.ts-DRMdWd2z.js.map"
       ],
       "use_dynamic_url": false
     }

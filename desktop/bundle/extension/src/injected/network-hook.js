@@ -1,12 +1,25 @@
 (function () {
+  if (window.__huokeNetworkHookInstalled) return;
+  window.__huokeNetworkHookInstalled = true;
+
   const CHANNEL = "huoke:injected";
   const CONFIG_CHANNEL = "huoke:injected:config";
   const seen = new Set();
+  const PRIORITY_BUFFER_MAX = 48;
+  const priorityBuffer = [];
 
   let enabled = true;
   let patterns = [];
 
   const DEFAULT_PATTERNS = [/\/aweme\//i, /\/comment\//i, /\/search\//i];
+  const SEARCH_API_EXCLUDES = [/search\/sug/i, /suggest_words/i];
+  const SEARCH_API_MARKERS = [
+    /general\/search\/single/i,
+    /general\/search\/stream/i,
+    /search\/item/i,
+    /search\/single/i,
+    /aweme\/v1\/web\/general\/search/i,
+  ];
 
   function absoluteUrl(url) {
     try {
@@ -14,6 +27,20 @@
     } catch (_err) {
       return String(url || "");
     }
+  }
+
+  function isSearchResultApi(url) {
+    const lower = absoluteUrl(url).toLowerCase();
+    if (SEARCH_API_EXCLUDES.some((marker) => marker.test(lower))) return false;
+    return SEARCH_API_MARKERS.some((marker) => marker.test(lower));
+  }
+
+  function isCommentResultApi(url) {
+    return /\/comment\/list/i.test(absoluteUrl(url));
+  }
+
+  function isPriorityApi(url) {
+    return isSearchResultApi(url) || isCommentResultApi(url);
   }
 
   function shouldCapture(url) {
@@ -29,6 +56,22 @@
 
   function emit(payload) {
     window.postMessage({ channel: CHANNEL, payload: { ...payload, url: absoluteUrl(payload.url) } }, "*");
+  }
+
+  function rememberPriorityCapture(meta) {
+    if (!isPriorityApi(meta.url)) return;
+    priorityBuffer.push({ ...meta, url: absoluteUrl(meta.url) });
+    if (priorityBuffer.length > PRIORITY_BUFFER_MAX) {
+      priorityBuffer.shift();
+    }
+  }
+
+  function flushPriorityBuffer() {
+    if (!priorityBuffer.length) return;
+    const pending = priorityBuffer.splice(0, priorityBuffer.length);
+    for (const meta of pending) {
+      emit(meta);
+    }
   }
 
   async function readResponseClone(response) {
@@ -49,13 +92,14 @@
   function captureOnce(meta) {
     const url = absoluteUrl(meta.url);
     if (!shouldCapture(url)) return;
-    const isSearchApi =
-      /general\/search\/single|general\/search\/stream|search\/item|search\/single/i.test(url);
-    const isCommentApi = /\/comment\/list/i.test(url);
+    const priority = isPriorityApi(url);
     const key = `${meta.method || "GET"}:${url}`;
-    if (!isSearchApi && !isCommentApi && seen.has(key)) return;
-    if (!isSearchApi && !isCommentApi) seen.add(key);
-    emit({ ...meta, url });
+    if (!priority && seen.has(key)) return;
+    if (!priority) seen.add(key);
+
+    const payload = { ...meta, url };
+    rememberPriorityCapture(payload);
+    emit(payload);
   }
 
   window.addEventListener("message", (event) => {
@@ -63,6 +107,9 @@
     enabled = event.data.enabled !== false;
     patterns = Array.isArray(event.data.patterns) ? event.data.patterns : [];
     seen.clear();
+    if (enabled) {
+      flushPriorityBuffer();
+    }
   });
 
   const originalFetch = window.fetch.bind(window);

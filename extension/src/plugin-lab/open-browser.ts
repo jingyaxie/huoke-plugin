@@ -1,7 +1,7 @@
 import type { PlatformId } from "../shared/protocol";
 import { ensureContentScript } from "../background/command-router";
 import { detectPlatformFromUrl, isPlatformUrl } from "./platform-hosts";
-import { pinLabSession, readLabSession, clearLabSession } from "./lab-context";
+import { pinLabSession, readLabSession, clearLabSession, clearLabSearchUrl } from "./lab-context";
 import { closeDetailWindow, closeVideoDetailBackground } from "./detail-window";
 import { isUsablePlatformTab } from "./platforms/shared/tab-health";
 import { log, warn } from "../shared/logger";
@@ -81,6 +81,17 @@ function resolveTargetUrl(payload: OpenBrowserPayload, platform: PlatformId): st
   const custom = String(payload.url ?? "").trim();
   if (custom) return custom;
   return PLATFORM_URLS[platform] ?? PLATFORM_URLS.douyin;
+}
+
+/** 强制导航到平台首页（避免同 URL 不 reload 时 SPA 仍停在旧搜索页） */
+function withJobStartCacheBust(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set("huoke_reset", String(Date.now()));
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 function shouldReuseExisting(payload: OpenBrowserPayload): boolean {
@@ -427,6 +438,7 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
 
     if (resetToStart && !customUrl) {
       await closeDetailWindow(platform).catch(() => undefined);
+      await clearLabSearchUrl(platform);
     }
 
     let bounds: WindowBounds | undefined;
@@ -440,7 +452,7 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
     const navigated = navigatedToCustom || shouldReset;
 
     if (navigated) {
-      const targetUrl = customUrl || startUrl;
+      const targetUrl = customUrl || (shouldReset ? withJobStartCacheBust(startUrl) : startUrl);
       await chrome.tabs.update(existing.id, { url: targetUrl });
       if (waitLoad) await waitForTabLoad(existing.id, 8_000);
       else await waitForTabLoad(existing.id, 2_000);

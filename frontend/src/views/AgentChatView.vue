@@ -755,7 +755,7 @@ const quickPrompts = computed(() => {
   const meta = platformMeta(platformId.value);
   return [
     `/${meta.keywordSkill} keyword=护肤 limit=3`,
-    `/douyin-keyword-comments keyword=淋浴房 limit=5 days=3`,
+    `/douyin-keyword-comments keyword=团餐 limit=5 days=3`,
     `/content-comments ${meta.urlParam}=请粘贴${meta.label}链接`,
     `/reply-comment comment_id=评论ID reply_text=感谢分享 ${meta.urlParam}=链接`,
   ];
@@ -2122,7 +2122,11 @@ function applyQuickPrompt(text) {
 }
 
 function applyDailyRoamPreset(keyword) {
-  const normalized = (keyword || "淋浴房").trim() || "淋浴房";
+  const normalized = String(keyword ?? "").trim();
+  if (!normalized) {
+    ElMessage.warning("请输入搜索关键词");
+    return;
+  }
   setPlatformId("douyin");
   platformId.value = "douyin";
   window.dispatchEvent(new CustomEvent("huoke-platform-changed", { detail: "douyin" }));
@@ -2140,8 +2144,8 @@ async function startDailyRoamFlow() {
     const { value } = await ElMessageBox.prompt("请输入今日搜索关键词", "抖音日播获客", {
       confirmButtonText: "开始",
       cancelButtonText: "取消",
-      inputValue: "淋浴房",
-      inputPlaceholder: "如：淋浴房、全屋定制",
+      inputValue: "",
+      inputPlaceholder: "如：团餐、全屋定制",
     });
     applyDailyRoamPreset(value);
   } catch {
@@ -2150,7 +2154,11 @@ async function startDailyRoamFlow() {
 }
 
 function applyHumanAgentPreset(keyword) {
-  const normalized = (keyword || "淋浴房").trim() || "淋浴房";
+  const normalized = String(keyword ?? "").trim();
+  if (!normalized) {
+    ElMessage.warning("请输入搜索关键词");
+    return;
+  }
   const platform = platformId.value || "douyin";
   const meta = platformMeta(platform);
   setPlatformId(platform);
@@ -2169,8 +2177,8 @@ async function startHumanAgentFlow() {
       {
         confirmButtonText: "开始",
         cancelButtonText: "取消",
-        inputValue: "淋浴房",
-        inputPlaceholder: "如：淋浴房、全屋定制",
+        inputValue: "",
+        inputPlaceholder: "如：团餐、全屋定制",
       },
     );
     applyHumanAgentPreset(value);

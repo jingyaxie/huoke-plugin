@@ -188,3 +188,16 @@ export function saveExtensionAutoStartPref(value) {
     /* ignore */
   }
 }
+
+/** 与后端 filters::composed_keyword 一致：地区拼入搜索词 */
+export function composeSearchKeyword(keyword, regionName) {
+  const kw = String(keyword ?? "").trim();
+  const region = String(regionName ?? "").trim();
+  if (!region || region === "不限地区" || region === "全国") {
+    return kw;
+  }
+  if (kw.includes(region)) {
+    return kw;
+  }
+  return `${region} ${kw}`;
+}

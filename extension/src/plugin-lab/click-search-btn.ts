@@ -1,5 +1,5 @@
 import { findSearchInputMatch, humanClick, randDelay, sleep } from "./search-input";
-import { rememberSearchResultsUrl } from "./search-feed-open";
+import { clearStoredSearchResultsUrl, rememberSearchResultsUrl } from "./search-feed-open";
 import { collectSearchResultCards, isSearchResultsPage } from "./search-results-dom";
 import {
   clearSearchApiCache,
@@ -36,13 +36,6 @@ function findSearchButton(): HTMLElement | null {
 
 function normalizeKeyword(raw: string): string {
   return raw.replace(/\s+/g, " ").trim();
-}
-
-function keywordsMatch(a: string, b: string): boolean {
-  const left = normalizeKeyword(a);
-  const right = normalizeKeyword(b);
-  if (!left || !right) return false;
-  return left === right || left.includes(right) || right.includes(left);
 }
 
 function searchResultsReady(): boolean {
@@ -91,6 +84,7 @@ export function buildSearchResultPayload(
 
 /** 步骤 7 前置：清空缓存并开启 search API hook */
 export async function prepareSearchCapture() {
+  clearStoredSearchResultsUrl();
   await clearSearchApiCache();
   enableSearchNetworkHook();
   await sleep(150);
@@ -112,10 +106,9 @@ export async function submitSearchClick(payload: SubmitSearchClickPayload = {}) 
   const urlKeyword = extractSearchKeywordFromUrl(beforeUrl);
 
   const sameKeywordAsUrl =
-    expectedKeyword &&
-    urlKeyword &&
-    keywordsMatch(expectedKeyword, urlKeyword) &&
-    keywordsMatch(inputValue || expectedKeyword, urlKeyword);
+    Boolean(expectedKeyword) &&
+    expectedKeyword === urlKeyword &&
+    inputValue === expectedKeyword;
 
   if (isSearchResultsPage(location.href) && sameKeywordAsUrl && searchResultsReady()) {
     rememberSearchResultsUrl(location.href);

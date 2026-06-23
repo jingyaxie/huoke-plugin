@@ -8,6 +8,26 @@ import {
   waitForSearchInput,
 } from "./search-input";
 import { findSearchBox } from "./find-search-box";
+import { isSearchResultsPage } from "./search-results-dom";
+
+function normalizeKeyword(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim();
+}
+
+function extractSearchKeywordFromUrl(url = location.href): string {
+  try {
+    const parsed = new URL(url);
+    const pathMatch = decodeURIComponent(parsed.pathname).match(/\/search\/([^/?#]+)/i);
+    if (pathMatch?.[1]) return normalizeKeyword(pathMatch[1]);
+    for (const key of ["keyword", "q", "search_key", "searchKey", "search_keyword"]) {
+      const value = parsed.searchParams.get(key);
+      if (value?.trim()) return normalizeKeyword(decodeURIComponent(value));
+    }
+  } catch {
+    // ignore malformed URL
+  }
+  return "";
+}
 
 export interface InputSearchTextPayload {
   platform?: string;
@@ -49,7 +69,10 @@ export async function inputSearchText(payload: InputSearchTextPayload = {}) {
   }
 
   const current = (input.value ?? "").trim();
-  if (current === text) {
+  const urlKeyword = extractSearchKeywordFromUrl();
+  const staleSearchPage =
+    isSearchResultsPage() && Boolean(urlKeyword) && normalizeKeyword(text) !== urlKeyword;
+  if (current === text && !staleSearchPage) {
     return {
       ok: true,
       typed: false,

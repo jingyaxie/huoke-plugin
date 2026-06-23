@@ -108,7 +108,7 @@
           <div class="form-area">
             <el-form label-width="110px">
               <el-form-item label="关键词" required>
-                <el-input v-model="pipelineForm.keyword" placeholder="例如：淋浴房" />
+                <el-input v-model="pipelineForm.keyword" placeholder="例如：团餐、装修" />
               </el-form-item>
               <el-form-item label="平台">
                 <el-checkbox-group v-model="pipelineForm.platforms">
@@ -122,7 +122,7 @@
               <el-form-item label="地区">
                 <el-input
                   v-model="pipelineForm.region"
-                  placeholder="可选，如：辽宁、沈阳、辽宁省淋浴房"
+                  placeholder="可选，如：辽宁、沈阳"
                   clearable
                 />
                 <span class="field-hint">会拼入搜索词并作为筛选上下文，留空则不限制</span>
@@ -375,7 +375,7 @@ const pipelineEndpoints = [
     summary: "关键词视频+评论 Pipeline",
     description: "按关键词搜索并抓取评论；async_job=true 时返回 job_id，配合 GET jobs/{job_id} 轮询。",
     body: {
-      keyword: "淋浴房",
+      keyword: "团餐",
       platforms: ["douyin", "xiaohongshu"],
       video_limit: 5,
       region: "辽宁",
@@ -489,7 +489,7 @@ const pipelineCurl = computed(() =>
     method: "POST",
     path: "/api/agent/pipeline/keyword-video-comments",
     body: {
-      keyword: pipelineForm.keyword || "淋浴房",
+      keyword: pipelineForm.keyword.trim() || "<关键词>",
       platforms: pipelineForm.platforms,
       video_limit: pipelineForm.video_limit,
       region: pipelineForm.region || null,

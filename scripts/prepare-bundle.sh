@@ -67,8 +67,17 @@ cat > "$BUNDLE_DIR/BUNDLE_MANIFEST.json" <<EOF
 }
 EOF
 
+echo ">>> 发布版本化产物到 dist/releases"
+node "$ROOT/scripts/publish-release-artifacts.mjs" \
+  --extension "$BUNDLE_DIR/huoke-extension.zip" \
+  --local-service-macos "$BUNDLE_DIR/runtime/huoke-local-service"
+
 echo "bundle 就绪: $BUNDLE_DIR"
 echo "  - runtime/huoke-local-service"
 echo "  - frontend-dist/"
 echo "  - extension/"
 echo "  - huoke-extension.zip"
+echo "发布目录: $ROOT/dist/releases/"
+echo "  - huoke-extension-v${EXT_VERSION}.zip"
+echo "  - huoke-local-service-v${LS_VERSION}-macos"
+echo "  - index.html"
