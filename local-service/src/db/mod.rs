@@ -973,11 +973,15 @@ impl Database {
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                      ON CONFLICT(job_id, comment_id) DO UPDATE SET
                        content = excluded.content,
-                       username = excluded.username,
+                       username = CASE
+                         WHEN excluded.username != '' AND excluded.username != '—' THEN excluded.username
+                         ELSE username
+                       END,
                        user_id = excluded.user_id,
                        sec_uid = excluded.sec_uid,
                        avatar_url = CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE avatar_url END,
                        digg_count = excluded.digg_count,
+                       create_time = COALESCE(excluded.create_time, create_time),
                        raw_json = excluded.raw_json,
                        is_precise = CASE WHEN excluded.content != content THEN 0 ELSE is_precise END,
                        evaluation_reason = CASE WHEN excluded.content != content THEN '' ELSE evaluation_reason END,

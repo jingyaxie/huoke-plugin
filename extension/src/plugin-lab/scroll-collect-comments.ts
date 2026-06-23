@@ -102,6 +102,22 @@ export function parseCommentTimeText(text: string): number | null {
   const month = raw.match(/^(\d+)月前$/);
   if (month) return now - Number(month[1]) * 30 * 86400;
 
+  const yearAgo = raw.match(/^(\d+)年前$/);
+  if (yearAgo) return now - Number(yearAgo[1]) * 365 * 86400;
+
+  const yearOnly = raw.match(/^(\d+)年$/);
+  if (yearOnly) return now - Number(yearOnly[1]) * 365 * 86400;
+
+  const cnDate = raw.match(/^(\d{2,4})年(\d{1,2})月(\d{1,2})号?$/);
+  if (cnDate) {
+    const year = Number(cnDate[1]);
+    const fullYear = year < 100 ? 2000 + year : year;
+    const ts = Date.parse(
+      `${fullYear}-${cnDate[2].padStart(2, "0")}-${cnDate[3].padStart(2, "0")}T12:00:00`,
+    );
+    if (!Number.isNaN(ts)) return Math.floor(ts / 1000);
+  }
+
   const md = raw.match(/^(\d{1,2})-(\d{1,2})$/);
   if (md) {
     const year = new Date().getFullYear();
@@ -118,8 +134,69 @@ export function parseCommentTimeText(text: string): number | null {
   return null;
 }
 
+const DOM_TIME_IN_TEXT =
+  /(\d{2,4}年\d{1,2}月\d{1,2}号|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+月前|\d+年前|\d+年)(?:·[^0-9分享回复展开]+)?/;
+
+const DOM_META_TAIL =
+  /(?:·[^·\d]+)?\d*分享(?:回复(?:展开\d*条回复)?)?\s*$/u;
+
+function extractTimeFromBlob(text: string): { createTime: number | null; rest: string } {
+  const match = text.match(DOM_TIME_IN_TEXT);
+  if (!match || match.index === undefined) {
+    return { createTime: null, rest: text.trim() };
+  }
+  const token = match[1].replace(/·.*/, "");
+  const createTime = parseCommentTimeText(token);
+  const rest = `${text.slice(0, match.index)}${text.slice(match.index + match[0].length)}`
+    .replace(DOM_META_TAIL, "")
+    .trim();
+  return { createTime, rest };
+}
+
+/** 抖音 DOM 常把昵称、正文、时间拼成「昵称...正文4周前·四川0分享回复」 */
+function refineDomCommentFields(input: {
+  author: string;
+  content: string;
+  create_time: number | null;
+}) {
+  let author = input.author.trim() || "—";
+  let content = input.content.trim();
+  let createTime = input.create_time;
+
+  const blob = content.match(/^([^.\n]{1,48}?)\.\.\.([\s\S]+)$/);
+  if (blob) {
+    if (author === "—") author = blob[1].trim() || author;
+    content = blob[2].trim();
+  } else if (author === "—" && content.includes("...")) {
+    const alt = content.match(/^([^.\n]{1,48}?)\.\.\.([\s\S]+)$/);
+    if (alt) {
+      author = alt[1].trim() || author;
+      content = alt[2].trim();
+    }
+  }
+
+  if (!createTime) {
+    const extracted = extractTimeFromBlob(content);
+    createTime = extracted.createTime;
+    content = extracted.rest || content;
+  } else {
+    content = content.replace(DOM_META_TAIL, "").trim();
+  }
+
+  content = content.replace(/^(?:回复@|@)[^\s]+/u, "").trim();
+  return {
+    author: author || "—",
+    content: content || input.content.trim() || "—",
+    create_time: createTime,
+  };
+}
+
 function pickCommentTime(node: HTMLElement): number | null {
   const selectors = [
+    '[data-e2e="comment-time"]',
+    '[class*="comment-item-info-time"]',
+    '[class*="comment-time"]',
+    '[class*="CommentTime"]',
     '[class*="time"]',
     '[class*="date"]',
     '[class*="Time"]',
@@ -127,7 +204,7 @@ function pickCommentTime(node: HTMLElement): number | null {
   ];
   for (const selector of selectors) {
     const nodes = node.querySelectorAll(selector);
-    for (let i = 0; i < nodes.length && i < 8; i += 1) {
+    for (let i = 0; i < nodes.length && i < 12; i += 1) {
       const text = nodeShortText(nodes[i], 40);
       const ts = parseCommentTimeText(text);
       if (ts) return ts;
@@ -172,6 +249,10 @@ function extractCommentId(node: HTMLElement): string {
 
 function extractNickname(node: HTMLElement): string {
   const selectors = [
+    '[data-e2e="comment-user-name"]',
+    '[data-e2e="comment-user"] span',
+    'div.comment-item-info-user-name span',
+    'div.comment-item-info-user-name a',
     '[class*="nickname"]',
     '[class*="user-name"]',
     '[class*="author-name"]',
@@ -217,14 +298,38 @@ function extractContent(node: HTMLElement, nickname: string): string {
   return best;
 }
 
+function readImageUrl(img: HTMLImageElement | null): string {
+  if (!img) return "";
+  const candidates = [
+    img.currentSrc,
+    img.src,
+    img.getAttribute("src"),
+    img.getAttribute("data-src"),
+    img.getAttribute("data-original"),
+  ];
+  const srcset = img.getAttribute("srcset");
+  if (srcset) candidates.push(srcset.split(/\s+/)[0]);
+  for (const value of candidates) {
+    const src = String(value || "").trim();
+    if (src.startsWith("http")) return src;
+  }
+  return "";
+}
+
 function extractAvatarUrl(node: HTMLElement): string {
-  const img =
-    (node.querySelector("div.comment-item-avatar img") as HTMLImageElement | null) ??
-    (node.querySelector('[data-e2e="live-avatar"] img') as HTMLImageElement | null) ??
-    (node.querySelector('a[href*="/user/"] img') as HTMLImageElement | null) ??
-    (node.querySelector("img") as HTMLImageElement | null);
-  const src = img?.currentSrc || img?.src || img?.getAttribute("src") || "";
-  return src.startsWith("http") ? src : "";
+  const selectors = [
+    "div.comment-item-avatar img",
+    '[data-e2e="comment-item-avatar"] img',
+    '[data-e2e="live-avatar"] img',
+    '[class*="avatar"] img',
+    'a[href*="/user/"] img',
+    "img",
+  ];
+  for (const selector of selectors) {
+    const url = readImageUrl(node.querySelector(selector) as HTMLImageElement | null);
+    if (url) return url;
+  }
+  return "";
 }
 
 function parseDouyinUserIdsFromUrl(url: string): { user_id: string; sec_uid: string } {
@@ -249,21 +354,30 @@ function parseDouyinUserIdsFromUrl(url: string): { user_id: string; sec_uid: str
 
 function parseCommentItem(node: HTMLElement, index: number) {
   const nickname = extractNickname(node);
-  const content = extractContent(node, nickname);
+  const rawContent = extractContent(node, nickname);
   const authorNode =
     node.querySelector('a[href*="/user/"]') as HTMLAnchorElement | null;
   const createTime = pickCommentTime(node);
+  const refined = refineDomCommentFields({
+    author: nickname,
+    content: rawContent || "—",
+    create_time: createTime,
+  });
 
   return {
     index,
-    content: content || "—",
-    author: nickname,
+    content: refined.content,
+    author: refined.author,
     user_url: authorNode?.href ?? "",
     avatar_url: extractAvatarUrl(node),
     comment_id: extractCommentId(node),
-    create_time: createTime,
+    create_time: refined.create_time,
     source: "dom" as const,
   };
+}
+
+function commentMatchKey(author: string, content: string): string {
+  return `${author}|${content.slice(0, 80)}`.toLowerCase();
 }
 
 function mapApiComment(item: {
@@ -299,11 +413,66 @@ function mapApiComment(item: {
 
 type CollectedComment = ReturnType<typeof mapApiComment>;
 
+/** API 截获缺头像/时间时，用当前可见 DOM 评论补齐 */
+function enrichCommentsFromDom(items: CollectedComment[]): CollectedComment[] {
+  if (!items.some((row) => !row.avatar_url || !row.create_time || row.author === "—")) {
+    return items;
+  }
+
+  const domRows: CollectedComment[] = [];
+  const nodes = document.querySelectorAll(COMMENT_ITEM_SELECTOR);
+  const limit = Math.min(nodes.length, MAX_PARSE_NODES);
+  for (let i = 0; i < limit; i += 1) {
+    const node = nodes[i] as HTMLElement;
+    if (node.getBoundingClientRect().height < 8) continue;
+    const parsed = parseCommentItem(node, i + 1);
+    if (!isValidCommentContent(parsed.content, parsed.author)) continue;
+    const ids = parseDouyinUserIdsFromUrl(parsed.user_url || "");
+    domRows.push(mapApiComment({
+      comment_id: parsed.comment_id,
+      content: parsed.content,
+      author: parsed.author,
+      user_id: ids.user_id,
+      sec_uid: ids.sec_uid,
+      avatar_url: parsed.avatar_url,
+      digg_count: 0,
+      create_time: parsed.create_time,
+    }, "dom"));
+  }
+
+  const domById = new Map<string, CollectedComment>();
+  const domByKey = new Map<string, CollectedComment>();
+  for (const row of domRows) {
+    if (row.comment_id) domById.set(row.comment_id, row);
+    domByKey.set(commentMatchKey(row.author, row.content), row);
+  }
+
+  return items.map((item) => {
+    const dom =
+      (item.comment_id ? domById.get(item.comment_id) : undefined) ??
+      domByKey.get(commentMatchKey(item.author, item.content)) ??
+      domRows.find((row) =>
+        row.content.length > 6
+        && (item.content.includes(row.content.slice(0, 24))
+          || row.content.includes(item.content.slice(0, 24))),
+      );
+    if (!dom) return item;
+    return {
+      ...item,
+      author: item.author === "—" && dom.author !== "—" ? dom.author : item.author,
+      avatar_url: item.avatar_url || dom.avatar_url,
+      create_time: item.create_time ?? dom.create_time,
+      user_url: item.user_url || dom.user_url,
+    };
+  });
+}
+
 async function absorbApiComments(
   awemeHint: string,
   merged: Map<string, CollectedComment>,
   maxComments: number,
   commentDays: number,
+  stats?: { seenTotal: number; skippedByDays: number },
 ) {
   const items = awemeHint
     ? await getCommentApiItemsForAweme(awemeHint)
@@ -311,9 +480,13 @@ async function absorbApiComments(
   const cutoff = cutoffTs(commentDays);
 
   for (const item of items) {
+    if (stats) stats.seenTotal += 1;
     if (merged.size >= maxComments) break;
     if (merged.has(item.comment_id)) continue;
-    if (cutoff !== null && item.create_time && item.create_time < cutoff) continue;
+    if (cutoff !== null && item.create_time && item.create_time < cutoff) {
+      if (stats) stats.skippedByDays += 1;
+      continue;
+    }
     merged.set(item.comment_id, mapApiComment(item));
   }
 }
@@ -329,12 +502,13 @@ async function collectViaApi(
   enableCommentNetworkHook();
 
   const merged = new Map<string, CollectedComment>();
+  const stats = { seenTotal: 0, skippedByDays: 0 };
   await pollCommentApiCache({
     timeoutMs: 8000,
     minItems: 1,
     awemeId: awemeHint || undefined,
   });
-  await absorbApiComments(awemeHint, merged, maxComments, commentDays);
+  await absorbApiComments(awemeHint, merged, maxComments, commentDays, stats);
 
   let scrolledRounds = 0;
   let stoppedReason = merged.size > 0 ? "api_initial" : "api_empty";
@@ -359,7 +533,7 @@ async function collectViaApi(
       minItems: sizeBefore + 1,
       awemeId: awemeHint || undefined,
     });
-    await absorbApiComments(awemeHint, merged, maxComments, commentDays);
+    await absorbApiComments(awemeHint, merged, maxComments, commentDays, stats);
 
     if (merged.size >= maxComments) {
       stoppedReason = "max_comments";
@@ -382,6 +556,9 @@ async function collectViaApi(
   if (stoppedReason === "api_empty" && scrolledRounds > 0) {
     stoppedReason = "api_rounds_exhausted";
   }
+  if (merged.size === 0 && stats.seenTotal > 0 && stats.skippedByDays >= stats.seenTotal) {
+    stoppedReason = "comment_days_all_filtered";
+  }
 
   return {
     items: Array.from(merged.values()).map((item, index) => ({
@@ -390,6 +567,8 @@ async function collectViaApi(
     })),
     scrolledRounds,
     stoppedReason,
+    seenTotal: stats.seenTotal,
+    skippedByDays: stats.skippedByDays,
   };
 }
 
@@ -457,6 +636,7 @@ async function collectViaDom(
     }
   }
 
+  const seenTotal = comments.length;
   const inWindow = commentDays > 0
     ? comments.filter((c) => {
         if (!c.create_time) return true;
@@ -464,6 +644,7 @@ async function collectViaDom(
         return cutoff === null || c.create_time >= cutoff;
       })
     : comments;
+  const skippedByDays = seenTotal - inWindow.length;
 
   const items = inWindow.map((item, index) => {
     const ids = parseDouyinUserIdsFromUrl(item.user_url || "");
@@ -482,8 +663,11 @@ async function collectViaDom(
   if (stoppedReason === "dom_initial" || stoppedReason === "dom_no_visible_comments") {
     stoppedReason = scrolledRounds > 0 ? "dom_rounds_exhausted" : stoppedReason;
   }
+  if (items.length === 0 && seenTotal > 0 && skippedByDays >= seenTotal) {
+    stoppedReason = "comment_days_all_filtered";
+  }
 
-  return { items, scrolledRounds, stoppedReason };
+  return { items, scrolledRounds, stoppedReason, seenTotal, skippedByDays };
 }
 
 function cutoffTs(commentDays: number): number | null {
@@ -532,6 +716,8 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
   let captureMethod: "api" | "dom" = "api";
   let scrolledRounds = apiResult.scrolledRounds;
   let stoppedReason = apiResult.stoppedReason;
+  let seenTotal = apiResult.seenTotal ?? 0;
+  let skippedByDays = apiResult.skippedByDays ?? 0;
 
   if (merged.length === 0) {
     const domResult = await collectViaDom(maxRounds, maxComments, commentDays, scrollPayload);
@@ -539,10 +725,16 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
     captureMethod = "dom";
     scrolledRounds = domResult.scrolledRounds;
     stoppedReason = domResult.stoppedReason;
+    seenTotal = domResult.seenTotal ?? seenTotal;
+    skippedByDays = domResult.skippedByDays ?? skippedByDays;
+  } else {
+    merged = enrichCommentsFromDom(merged);
   }
 
   const apiCount = merged.filter((row) => row.source === "api").length;
   const domCount = merged.length - apiCount;
+  const emptyBecauseDays =
+    merged.length === 0 && seenTotal > 0 && skippedByDays >= seenTotal && commentDays > 0;
 
   return {
     ok: merged.length > 0,
@@ -553,6 +745,8 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
     capture_method: captureMethod,
     api_count: apiCount,
     dom_count: domCount,
+    seen_total: seenTotal,
+    skipped_by_days: skippedByDays,
     scroll_rounds: scrolledRounds,
     max_rounds: maxRounds,
     comment_days: commentDays,
@@ -563,6 +757,10 @@ export async function scrollAndCollectComments(payload: ScrollCollectCommentsPay
         ? captureMethod === "api"
           ? `已采集 ${merged.length} 条评论（API 截获，滚动 ${scrolledRounds} 轮，停止: ${stoppedReason}）`
           : `已采集 ${merged.length} 条评论（API 未截获，DOM 兜底 ${domCount} 条，滚动 ${scrolledRounds} 轮，停止: ${stoppedReason}）`
-        : "评论区无可见评论，请先执行步骤 10 打开评论区",
+        : emptyBecauseDays
+          ? `可见 ${seenTotal} 条评论均早于 ${commentDays} 天，已全部跳过（可增大「采集几天内评论」）`
+          : seenTotal > 0
+            ? `可见 ${seenTotal} 条评论，${commentDays > 0 ? `其中 ${skippedByDays} 条早于 ${commentDays} 天已跳过，` : ""}未入库`
+            : "评论区无可见评论，请先执行步骤 10 打开评论区",
   };
 }

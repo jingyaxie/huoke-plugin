@@ -61,6 +61,9 @@ function pickString(record: Record<string, unknown>, keys: string[]): string {
 function pickAvatarUrl(user: Record<string, unknown>): string {
   for (const key of ["avatar_thumb", "avatar_medium", "avatar_larger"]) {
     const avatar = user[key];
+    if (typeof avatar === "string" && avatar.trim().startsWith("http")) {
+      return avatar.trim();
+    }
     if (!avatar || typeof avatar !== "object" || Array.isArray(avatar)) continue;
     const list = (avatar as Record<string, unknown>).url_list;
     if (Array.isArray(list) && typeof list[0] === "string" && list[0].startsWith("http")) {

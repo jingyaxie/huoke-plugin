@@ -961,6 +961,7 @@ impl JobOrchestrator {
         let page_url = scroll_resp.get("url").and_then(|v| v.as_str());
         let aweme_id = resolve_aweme_id_for_video(aweme_hint, "", page_url);
         let scroll_comments = parse_dom_scroll_comments(&scroll_resp);
+        let parsed_count = scroll_comments.len();
         let capture_method = scroll_resp
             .get("capture_method")
             .and_then(|v| v.as_str())
@@ -992,6 +993,37 @@ impl JobOrchestrator {
                         job_id.to_string(),
                     );
                 }
+            }
+        } else {
+            let seen = scroll_resp
+                .get("seen_total")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let skipped = scroll_resp
+                .get("skipped_by_days")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let stopped = scroll_resp
+                .get("stopped_reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let raw_count = scroll_resp
+                .get("count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            if seen > 0 && skipped >= seen && cfg.comment_days > 0 {
+                warn!(
+                    "job {job_id}: aweme {aweme_id} — {seen} comments seen, all older than {} days (skipped, method={capture_method})",
+                    cfg.comment_days
+                );
+            } else if raw_count == 0 && seen == 0 {
+                warn!(
+                    "job {job_id}: aweme {aweme_id} — no comments captured (method={capture_method}, stopped={stopped})"
+                );
+            } else if parsed_count > 0 {
+                warn!(
+                    "job {job_id}: aweme {aweme_id} — parsed {parsed_count} comments but 0 persistable (method={capture_method})"
+                );
             }
         }
 

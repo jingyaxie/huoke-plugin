@@ -443,6 +443,10 @@ pub fn parse_dom_scroll_comments(resp: &Value) -> Vec<ParsedComment> {
         if is_junk_dom_comment(&content, &author) {
             continue;
         }
+        let source = map
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("dom");
         let comment_id = map
             .get("comment_id")
             .and_then(|v| v.as_str())
@@ -484,16 +488,25 @@ pub fn parse_dom_scroll_comments(resp: &Value) -> Vec<ParsedComment> {
             .unwrap_or("")
             .trim()
             .to_string();
+        let mut create_time = map.get("create_time").and_then(|v| v.as_i64());
+        let (refined_author, refined_content, refined_time) = if source == "api" {
+            (author.clone(), content.clone(), create_time)
+        } else {
+            refine_dom_comment_blob(&author, &content, create_time)
+        };
+        if create_time.is_none() {
+            create_time = refined_time;
+        }
         out.push(ParsedComment {
             comment_id,
             parent_comment_id: None,
-            content,
-            username: author,
+            content: refined_content,
+            username: refined_author,
             user_id: if user_id.is_empty() { parsed_user_id } else { user_id },
             sec_uid: if sec_uid.is_empty() { parsed_sec_uid } else { sec_uid },
             avatar_url,
             digg_count,
-            create_time: map.get("create_time").and_then(|v| v.as_i64()),
+            create_time,
             raw_json: serde_json::to_string(item).ok(),
         });
         if idx + 1 >= 300 {
@@ -509,6 +522,128 @@ fn stable_hash(text: &str) -> u32 {
         hash = hash.wrapping_mul(31).wrapping_add(u32::from(b));
     }
     hash
+}
+
+fn refine_dom_comment_blob(
+    author: &str,
+    content: &str,
+    create_time: Option<i64>,
+) -> (String, String, Option<i64>) {
+    let mut name = author.trim().to_string();
+    let mut body = content.trim().to_string();
+    let mut time = create_time;
+
+    if let Some(caps) = body.split_once("...") {
+        let (left, right) = (caps.0.trim(), caps.1.trim());
+        if name.is_empty() || name == "—" {
+            name = left.to_string();
+        }
+        body = right.to_string();
+    }
+
+    if time.is_none() {
+        if let Some(parsed) = extract_dom_time_from_text(&body) {
+            time = Some(parsed.0);
+            body = parsed.1;
+        }
+    }
+
+    body = strip_dom_meta_tail(&body);
+    if name.is_empty() {
+        name = "—".to_string();
+    }
+    (name, body, time)
+}
+
+fn extract_dom_time_from_text(text: &str) -> Option<(i64, String)> {
+    let markers = [
+        "分钟前", "小时前", "天前", "周前", "月前", "年前", "年", "月", "号",
+    ];
+    for marker in markers {
+        if let Some(idx) = text.find(marker) {
+            let start = text[..idx]
+                .rfind(|c: char| !c.is_ascii_digit())
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            let token = text[start..idx + marker.len()].trim();
+            let parse_token = token.split('·').next().unwrap_or(token).trim();
+            if let Some(ts) = parse_relative_time_token(parse_token) {
+                let mut rest = String::new();
+                rest.push_str(text[..start].trim_end());
+                rest.push_str(&text[idx + marker.len()..]);
+                return Some((ts, strip_dom_meta_tail(rest.trim())));
+            }
+        }
+    }
+    None
+}
+
+fn parse_relative_time_token(token: &str) -> Option<i64> {
+    let now = chrono::Utc::now().timestamp();
+    if token == "刚刚" || token == "刚才" {
+        return Some(now);
+    }
+    if token.starts_with("昨天") {
+        return Some(now - 86400);
+    }
+    if let Some(num) = token.strip_suffix("分钟前") {
+        return Some(now - num.parse::<i64>().ok()? * 60);
+    }
+    if let Some(num) = token.strip_suffix("小时前") {
+        return Some(now - num.parse::<i64>().ok()? * 3600);
+    }
+    if let Some(num) = token.strip_suffix("天前") {
+        return Some(now - num.parse::<i64>().ok()? * 86400);
+    }
+    if let Some(num) = token.strip_suffix("周前") {
+        return Some(now - num.parse::<i64>().ok()? * 7 * 86400);
+    }
+    if let Some(num) = token.strip_suffix("月前") {
+        return Some(now - num.parse::<i64>().ok()? * 30 * 86400);
+    }
+    if let Some(num) = token.strip_suffix("年前") {
+        return Some(now - num.parse::<i64>().ok()? * 365 * 86400);
+    }
+    if let Some(num) = token.strip_suffix('年') {
+        if num.chars().all(|c| c.is_ascii_digit()) {
+            return Some(now - num.parse::<i64>().ok()? * 365 * 86400);
+        }
+    }
+    if token.ends_with('号') {
+        let body = token.trim_end_matches('号');
+        let parts: Vec<&str> = body.split('月').collect();
+        if parts.len() == 2 {
+            let year_part = parts[0];
+            let (year_str, month_str) = if let Some((y, m)) = year_part.split_once('年') {
+                (y, m)
+            } else {
+                return None;
+            };
+            let mut year: i32 = year_str.parse().ok()?;
+            if year < 100 {
+                year += 2000;
+            }
+            let month: u32 = month_str.parse().ok()?;
+            let day: u32 = parts[1].parse().ok()?;
+            let dt = chrono::NaiveDate::from_ymd_opt(year, month, day)?;
+            return Some(dt.and_hms_opt(12, 0, 0)?.and_utc().timestamp());
+        }
+    }
+    None
+}
+
+fn strip_dom_meta_tail(text: &str) -> String {
+    let trimmed = text.trim();
+    if let Some(idx) = trimmed.find("分享") {
+        let head = trimmed[..idx].trim_end();
+        if head.ends_with('·') || head.chars().last().is_some_and(|c| c.is_ascii_digit()) {
+            return head
+                .trim_end_matches(|c: char| c.is_ascii_digit() || c == '·')
+                .trim()
+                .to_string();
+        }
+    }
+    trimmed.to_string()
 }
 
 fn is_junk_dom_comment(content: &str, author: &str) -> bool {
