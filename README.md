@@ -97,19 +97,20 @@ scripts/
 
 ### 版本化发布目录
 
-打包完成后，所有可交付安装包会统一复制到 **`dist/releases/`**，并生成下载页：
+在 **Windows / macOS 构建机**上执行 `npm run build:win` 或 `npm run build:mac` 后，`dist/releases/` **只保留**：
 
 | 文件 | 说明 |
 |------|------|
-| `index.html` | 静态下载页（可直接打开或挂静态服务） |
-| `RELEASES.json` | 机器可读清单（文件名、版本、大小） |
-| `huoke-extension-v{版本}.zip` | Chrome 插件（单独交付） |
-| `huoke-local-service-v{版本}-macos` | macOS local-service 二进制 |
-| `huoke-local-service-v{版本}-windows.exe` | Windows local-service 二进制 |
-| `huoke-desktop-v{版本}-macos.dmg` | macOS 桌面安装包 |
-| `huoke-desktop-v{版本}-windows-setup.exe` | Windows 桌面安装包 |
+| `huoke-desktop-v{版本}-windows-setup.exe` | Windows 安装包（含 local-service + 插件） |
+| `huoke-desktop-v{版本}-macos.dmg` | macOS 安装包（含 local-service + 插件） |
+| `huoke-extension-v{版本}.zip` | Chrome 插件（手动更新用） |
+| `index.html` / `RELEASES.json` | 下载页与清单 |
 
-仅发插件时：`npm run build:extension`
+同一平台完整打包时只会出现 **1 个安装包 + 1 个插件 zip**；脚本会自动清理旧的 standalone local-service 等多余文件。
+
+`npm run bundle` 仅组装 `desktop/bundle/`，不写入 `dist/releases/`。
+
+仅发插件：`npm run build:extension`
 
 ### Windows 完整安装包
 

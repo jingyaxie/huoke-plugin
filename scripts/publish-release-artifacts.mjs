@@ -3,10 +3,8 @@ import {
   getReleaseDir,
   getVersions,
   publishExtensionZip,
-  publishLocalServiceMac,
-  publishLocalServiceWindows,
-  publishMacDmg,
-  publishWindowsSetup,
+  publishMacosDesktopRelease,
+  publishWindowsDesktopRelease,
 } from "./lib/release-artifacts.mjs";
 
 function parseArgs(argv) {
@@ -31,34 +29,43 @@ function usage() {
   node scripts/publish-release-artifacts.mjs [选项]
 
 选项:
-  --extension <path>              发布 Chrome 插件 zip
-  --local-service-macos <path>    发布 macOS local-service 二进制
-  --local-service-windows <path>  发布 Windows local-service 二进制
-  --macos-dmg <path>              发布 macOS DMG 安装包
-  --windows-setup <path>          发布 Windows NSIS 安装包
+  --windows-release               发布 Windows 完整包（setup.exe + 插件 zip，并清理旧产物）
+    --extension-zip <path>
+    --setup <path>
+  --macos-release                 发布 macOS 完整包（dmg + 插件 zip，并清理旧产物）
+    --extension-zip <path>
+    --dmg <path>
+  --extension <path>              仅更新插件 zip（保留已有桌面安装包）
 `);
 }
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
-  const hasAction = ["extension", "local-service-macos", "local-service-windows", "macos-dmg", "windows-setup"].some(
-    (key) => options[key],
-  );
-  if (!hasAction) {
-    usage();
-    process.exit(1);
-  }
-
   const versions = getVersions();
   const published = [];
 
-  if (options.extension) published.push(publishExtensionZip(options.extension, versions));
-  if (options["local-service-macos"]) published.push(publishLocalServiceMac(options["local-service-macos"], versions));
-  if (options["local-service-windows"]) {
-    published.push(publishLocalServiceWindows(options["local-service-windows"], versions));
+  if (options["windows-release"]) {
+    if (!options["extension-zip"] || !options.setup) {
+      usage();
+      process.exit(1);
+    }
+    published.push(
+      ...publishWindowsDesktopRelease(options["extension-zip"], options.setup, versions),
+    );
+  } else if (options["macos-release"]) {
+    if (!options["extension-zip"] || !options.dmg) {
+      usage();
+      process.exit(1);
+    }
+    published.push(
+      ...publishMacosDesktopRelease(options["extension-zip"], options.dmg, versions),
+    );
+  } else if (options.extension) {
+    published.push(publishExtensionZip(options.extension, versions));
+  } else {
+    usage();
+    process.exit(1);
   }
-  if (options["macos-dmg"]) published.push(publishMacDmg(options["macos-dmg"], versions));
-  if (options["windows-setup"]) published.push(publishWindowsSetup(options["windows-setup"], versions));
 
   console.log("[release] 版本:", versions);
   for (const filePath of published) {

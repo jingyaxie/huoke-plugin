@@ -70,9 +70,9 @@ const bundlePath = computed(() => {
   const path = props.extensionSetup?.bundleExtensionPath || "";
   if (path) return path;
   if (/Win/i.test(navigator.userAgent)) {
-    return "%LOCALAPPDATA%\\Programs\\盈小蚁\\resources\\desktop\\bundle\\extension";
+    return "%LOCALAPPDATA%\\Programs\\盈小蚁\\resources\\bundle\\extension";
   }
-  return "盈小蚁.app/Contents/Resources/desktop/bundle/extension";
+  return "盈小蚁.app/Contents/Resources/bundle/extension";
 });
 
 function openPlatform(item) {

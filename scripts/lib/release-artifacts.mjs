@@ -57,6 +57,9 @@ function loadManifest(versions) {
   };
 }
 
+const STANDALONE_LOCAL_SERVICE_IDS = new Set(["local-service-macos", "local-service-windows"]);
+const RELEASE_META_FILES = new Set(["index.html", "RELEASES.json"]);
+
 function upsertArtifact(manifest, artifact) {
   const index = manifest.artifacts.findIndex((item) => item.id === artifact.id);
   if (index >= 0) manifest.artifacts[index] = artifact;
@@ -64,10 +67,74 @@ function upsertArtifact(manifest, artifact) {
   manifest.artifacts.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+/** 对外发布只保留「桌面客户端 + 插件」；local-service 已内置于安装包，不再单独列出。 */
+function pruneStandaloneLocalServiceArtifacts(manifest) {
+  manifest.artifacts = manifest.artifacts.filter((item) => !STANDALONE_LOCAL_SERVICE_IDS.has(item.id));
+}
+
+/** 删除 dist/releases 中不在清单内的旧文件（如 standalone local-service、解压目录等）。 */
+function pruneReleaseDir(manifest) {
+  if (!fs.existsSync(RELEASE_DIR)) return;
+  const allowed = new Set([
+    ...manifest.artifacts.map((item) => item.filename),
+    ...RELEASE_META_FILES,
+  ]);
+  for (const name of fs.readdirSync(RELEASE_DIR)) {
+    if (allowed.has(name)) continue;
+    const fullPath = path.join(RELEASE_DIR, name);
+    fs.rmSync(fullPath, { recursive: true, force: true });
+    console.log(`[release] 已清理: ${name}`);
+  }
+}
+
 function writeManifest(manifest) {
+  pruneStandaloneLocalServiceArtifacts(manifest);
   ensureReleaseDir();
   fs.writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
   writeIndexHtml(manifest);
+  pruneReleaseDir(manifest);
+}
+
+function freshManifest(versions) {
+  return {
+    kind: "huoke-releases",
+    generated_at: new Date().toISOString(),
+    ...versions,
+    artifacts: [],
+  };
+}
+
+function extensionArtifact(copied, versions) {
+  return {
+    id: "extension",
+    label: "Chrome 插件（手动加载/更新）",
+    filename: copied.filename,
+    platform: "chrome",
+    version: versions.extension_version,
+    size_bytes: copied.size_bytes,
+  };
+}
+
+function windowsDesktopArtifact(copied, versions) {
+  return {
+    id: "desktop-windows-setup",
+    label: "盈小蚁 Windows 安装包",
+    filename: copied.filename,
+    platform: "windows",
+    version: versions.desktop_version,
+    size_bytes: copied.size_bytes,
+  };
+}
+
+function macosDesktopArtifact(copied, versions) {
+  return {
+    id: "desktop-macos-dmg",
+    label: "盈小蚁 macOS 安装包",
+    filename: copied.filename,
+    platform: "macos",
+    version: versions.desktop_version,
+    size_bytes: copied.size_bytes,
+  };
 }
 
 function formatSize(bytes) {
@@ -106,7 +173,9 @@ function writeIndexHtml(manifest) {
 </head>
 <body>
   <h1>Huoke 安装包下载</h1>
-  <p>应用 <code>v${manifest.app_version}</code> · 插件 <code>v${manifest.extension_version}</code> · local-service <code>v${manifest.local_service_version}</code></p>
+  <p>应用 <code>v${manifest.app_version}</code> · 插件 <code>v${manifest.extension_version}</code></p>
+  <p><strong>1.</strong> 安装桌面客户端（.exe / .dmg）→ 打开「盈小蚁」即可，本地服务已内置。</p>
+  <p><strong>2.</strong> 插件 zip 仅在手动更新或 chrome://extensions 重新加载时需要。</p>
   <p>更新时间：${manifest.generated_at}</p>
   <ul>
         ${rows}
@@ -128,51 +197,55 @@ export function publishExtensionZip(srcPath, versions = getVersions()) {
   const destName = `huoke-extension-v${versions.extension_version}.zip`;
   const copied = copyArtifact(srcPath, destName);
   const manifest = loadManifest(versions);
-  upsertArtifact(manifest, {
-    id: "extension",
-    label: "Chrome 插件 (huoke-extension)",
-    filename: copied.filename,
-    platform: "chrome",
-    version: versions.extension_version,
-    size_bytes: copied.size_bytes,
-  });
+  upsertArtifact(manifest, extensionArtifact(copied, versions));
   writeManifest(manifest);
   return copied.path;
 }
 
-export function publishLocalServiceMac(srcPath, versions = getVersions()) {
-  requireFile(srcPath, "local-service (macOS)");
-  const destName = `huoke-local-service-v${versions.local_service_version}-macos`;
-  const copied = copyArtifact(srcPath, destName);
-  fs.chmodSync(copied.path, 0o755);
-  const manifest = loadManifest(versions);
-  upsertArtifact(manifest, {
-    id: "local-service-macos",
-    label: "local-service (macOS)",
-    filename: copied.filename,
-    platform: "macos",
-    version: versions.local_service_version,
-    size_bytes: copied.size_bytes,
-  });
+/** Windows 桌面完整发布：仅保留 setup.exe + 插件 zip */
+export function publishWindowsDesktopRelease(extensionZipPath, setupPath, versions = getVersions()) {
+  requireFile(extensionZipPath, "extension zip");
+  requireFile(setupPath, "Windows 安装包");
+
+  const extCopied = copyArtifact(
+    extensionZipPath,
+    `huoke-extension-v${versions.extension_version}.zip`,
+  );
+  const setupCopied = copyArtifact(
+    setupPath,
+    `huoke-desktop-v${versions.desktop_version}-windows-setup.exe`,
+  );
+
+  const manifest = freshManifest(versions);
+  manifest.artifacts = [
+    extensionArtifact(extCopied, versions),
+    windowsDesktopArtifact(setupCopied, versions),
+  ];
   writeManifest(manifest);
-  return copied.path;
+  return [extCopied.path, setupCopied.path];
 }
 
-export function publishLocalServiceWindows(srcPath, versions = getVersions()) {
-  requireFile(srcPath, "local-service (Windows)");
-  const destName = `huoke-local-service-v${versions.local_service_version}-windows.exe`;
-  const copied = copyArtifact(srcPath, destName);
-  const manifest = loadManifest(versions);
-  upsertArtifact(manifest, {
-    id: "local-service-windows",
-    label: "local-service (Windows)",
-    filename: copied.filename,
-    platform: "windows",
-    version: versions.local_service_version,
-    size_bytes: copied.size_bytes,
-  });
+/** macOS 桌面完整发布：仅保留 dmg + 插件 zip */
+export function publishMacosDesktopRelease(extensionZipPath, dmgPath, versions = getVersions()) {
+  requireFile(extensionZipPath, "extension zip");
+  requireFile(dmgPath, "macOS DMG");
+
+  const extCopied = copyArtifact(
+    extensionZipPath,
+    `huoke-extension-v${versions.extension_version}.zip`,
+  );
+  const dmgCopied = copyArtifact(
+    dmgPath,
+    `huoke-desktop-v${versions.desktop_version}-macos.dmg`,
+  );
+
+  const manifest = freshManifest(versions);
+  manifest.artifacts = [
+    extensionArtifact(extCopied, versions),
+    macosDesktopArtifact(dmgCopied, versions),
+  ];
   writeManifest(manifest);
-  return copied.path;
+  return [extCopied.path, dmgCopied.path];
 }
 
 export function publishMacDmg(srcPath, versions = getVersions()) {
@@ -180,14 +253,7 @@ export function publishMacDmg(srcPath, versions = getVersions()) {
   const destName = `huoke-desktop-v${versions.desktop_version}-macos.dmg`;
   const copied = copyArtifact(srcPath, destName);
   const manifest = loadManifest(versions);
-  upsertArtifact(manifest, {
-    id: "desktop-macos-dmg",
-    label: "盈小蚁 macOS 安装包",
-    filename: copied.filename,
-    platform: "macos",
-    version: versions.desktop_version,
-    size_bytes: copied.size_bytes,
-  });
+  upsertArtifact(manifest, macosDesktopArtifact(copied, versions));
   writeManifest(manifest);
   return copied.path;
 }
@@ -197,14 +263,7 @@ export function publishWindowsSetup(srcPath, versions = getVersions()) {
   const destName = `huoke-desktop-v${versions.desktop_version}-windows-setup.exe`;
   const copied = copyArtifact(srcPath, destName);
   const manifest = loadManifest(versions);
-  upsertArtifact(manifest, {
-    id: "desktop-windows-setup",
-    label: "盈小蚁 Windows 安装包",
-    filename: copied.filename,
-    platform: "windows",
-    version: versions.desktop_version,
-    size_bytes: copied.size_bytes,
-  });
+  upsertArtifact(manifest, windowsDesktopArtifact(copied, versions));
   writeManifest(manifest);
   return copied.path;
 }

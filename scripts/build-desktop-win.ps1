@@ -71,10 +71,11 @@ if (-not $installers) {
 }
 
 Write-Host ""
-Write-Host "==> 发布版本化安装包到 dist/releases"
+Write-Host "==> 发布到 dist/releases（仅 setup.exe + 插件 zip）"
 $PublishScript = Join-Path $Root "scripts/publish-release-artifacts.mjs"
+$ExtensionZip = Join-Path $BundleDir "huoke-extension.zip"
 foreach ($installer in $installers) {
-  node $PublishScript --windows-setup $installer.FullName
+  node $PublishScript --windows-release --extension-zip $ExtensionZip --setup $installer.FullName
   if ($LASTEXITCODE -ne 0) { throw "publish-release-artifacts failed" }
 }
 

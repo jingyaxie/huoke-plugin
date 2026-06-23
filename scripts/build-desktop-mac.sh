@@ -31,9 +31,17 @@ if ! compgen -G "$DMG_DIR/*.dmg" >/dev/null; then
 fi
 
 echo ""
-echo ">>> 发布版本化安装包到 dist/releases"
+echo ">>> 发布到 dist/releases（仅 dmg + 插件 zip）"
+BUNDLE_ZIP="$DESKTOP_DIR/bundle/huoke-extension.zip"
+if [[ ! -f "$BUNDLE_ZIP" ]]; then
+  echo "错误: 未找到 $BUNDLE_ZIP（prepare-bundle 应已生成）" >&2
+  exit 1
+fi
 for dmg in "$DMG_DIR"/*.dmg; do
-  node "$ROOT/scripts/publish-release-artifacts.mjs" --macos-dmg "$dmg"
+  node "$ROOT/scripts/publish-release-artifacts.mjs" \
+    --macos-release \
+    --extension-zip "$BUNDLE_ZIP" \
+    --dmg "$dmg"
 done
 
 echo ""

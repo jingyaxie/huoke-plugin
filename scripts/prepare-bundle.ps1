@@ -86,17 +86,9 @@ $LsVersion = (Select-String -Path (Join-Path $LocalServiceDir "Cargo.toml") -Pat
   notes = "Vue static + Rust local-service + Chrome extension (auto-loaded on first run)."
 } | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $BundleDir "BUNDLE_MANIFEST.json") -Encoding UTF8
 
-Write-Host ">>> 发布版本化产物到 dist/releases"
-$PublishScript = Join-Path $Root "scripts/publish-release-artifacts.mjs"
-node $PublishScript --extension $ZipPath --local-service-windows (Join-Path $BundleDir "runtime/huoke-local-service.exe")
-if ($LASTEXITCODE -ne 0) { throw "publish-release-artifacts failed" }
-
 Write-Host "bundle 就绪: $BundleDir"
 Write-Host "  - runtime/huoke-local-service.exe"
 Write-Host "  - frontend-dist/"
 Write-Host "  - extension/"
 Write-Host "  - huoke-extension.zip"
-Write-Host "发布目录: $(Join-Path $Root 'dist/releases')"
-Write-Host "  - huoke-extension-v$ExtVersion.zip"
-Write-Host "  - huoke-local-service-v$LsVersion-windows.exe"
-Write-Host "  - index.html"
+Write-Host "（对外发布请运行 npm run build:win 或 npm run build:mac）"

@@ -41,7 +41,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../bundle/": "desktop/bundle/"
+      "../bundle/": "bundle/"
     },
     "macOS": {
       "minimumSystemVersion": "12.0"
