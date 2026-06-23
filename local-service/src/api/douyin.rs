@@ -326,7 +326,8 @@ pub async fn start_job(
     Path(job_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let job = state.db.get_job(&job_id).map_err(|_| not_found())?;
-        if job.status == JobStatus::Completed {
+    let restarting = job.status == JobStatus::Running;
+    if job.status == JobStatus::Completed {
         let cfg = JobConfig::from_job(&job);
         if cfg.collects_by_video_limit() {
             let videos_collected = state
@@ -355,8 +356,16 @@ pub async fn start_job(
         }
     }
 
-    if job.status == JobStatus::Running {
+    if restarting {
         state.job_runs.invalidate(&job_id);
+        let cancelled = state.hub.cancel_pending_commands().await;
+        if cancelled > 0 {
+            tracing::info!(
+                "job {job_id}: restart — cancelled {cancelled} in-flight extension command(s)"
+            );
+        }
+        // 给已被 supersede 的旧编排任务一点时间退出，避免与新任务并发操作 Chrome。
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
     }
 
     state
@@ -374,7 +383,12 @@ pub async fn start_job(
     Ok(Json(json!({
         "job_id": job_id,
         "status": "running",
-        "message": "collect job started — keep Douyin tab active in Chrome"
+        "restarted": restarting,
+        "message": if restarting {
+            "collect job restarted — previous run stopped, keep Douyin tab active in Chrome"
+        } else {
+            "collect job started — keep Douyin tab active in Chrome"
+        }
     })))
 }
 
@@ -390,6 +404,10 @@ pub async fn pause_job(
         ));
     }
     state.job_runs.invalidate(&job_id);
+    let cancelled = state.hub.cancel_pending_commands().await;
+    if cancelled > 0 {
+        tracing::info!("job {job_id}: pause — cancelled {cancelled} in-flight extension command(s)");
+    }
     state
         .db
         .update_job_status(&job_id, JobStatus::Paused, None)

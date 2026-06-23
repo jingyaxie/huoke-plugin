@@ -128,6 +128,7 @@ import {
   loadCollectJobForModal,
 } from "../../utils/extensionCollectJobs";
 import { alertOutreachRiskIfZero } from "../../utils/outreachRisk";
+import { collectJobStartMessage, collectJobStartSuccessMessage } from "../../utils/collectJobStart";
 
 const loading = ref(false);
 const allJobs = ref([]);
@@ -219,6 +220,7 @@ function schedulePoll() {
 
 async function onStartCollect(row) {
   if (!row?.id) return;
+  const previousStatus = row.status;
   const idx = allJobs.value.findIndex((item) => item.id === row.id);
   if (idx >= 0) {
     allJobs.value[idx] = {
@@ -229,16 +231,13 @@ async function onStartCollect(row) {
   }
   schedulePoll();
   const loadingMsg = ElMessage.info({
-    message:
-      row.status === "running" || row.status === "failed"
-        ? "正在继续采集，请稍候…"
-        : "正在启动采集，请稍候…",
+    message: collectJobStartMessage(previousStatus),
     duration: 0,
   });
   try {
     await startCollectJob(row.id);
     loadingMsg.close();
-    ElMessage.success("采集已开始，请保持对应平台标签页激活");
+    ElMessage.success(collectJobStartSuccessMessage(previousStatus));
     await refreshAll({ silent: true });
   } catch (err) {
     loadingMsg.close();

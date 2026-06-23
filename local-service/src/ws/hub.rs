@@ -197,12 +197,17 @@ impl BridgeHub {
         info!("bridge hub reset on boot");
     }
 
-    /// 运行环境重新初始化：取消未完成的命令、刷新连接计数。
-    pub async fn reset_runtime(&self) {
+    /// 取消所有进行中的插件命令，使等待中的 `request_command` 尽快失败退出。
+    pub async fn cancel_pending_commands(&self) -> usize {
         let mut pending = self.inner.pending.lock().await;
         let dropped = pending.len();
         pending.clear();
-        drop(pending);
+        dropped
+    }
+
+    /// 运行环境重新初始化：取消未完成的命令、刷新连接计数。
+    pub async fn reset_runtime(&self) {
+        let dropped = self.cancel_pending_commands().await;
 
         let mut guard = self.inner.clients.lock().await;
         let extension_count = guard.iter().filter(|c| c.is_extension).count();
