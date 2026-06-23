@@ -234,8 +234,9 @@ pub fn open_external_url(url: &str) -> Result<(), String> {
     }
 
     if cfg!(windows) {
-        let mut command = Command::new("cmd");
-        command.args(["/C", "start", "", trimmed]);
+        // Avoid cmd.exe "start" — it splits on &/% and other shell metacharacters in URLs.
+        let mut command = Command::new("rundll32");
+        command.args(["url.dll,FileProtocolHandler", trimmed]);
         crate::win_process::hide_console(&mut command);
         command
             .spawn()

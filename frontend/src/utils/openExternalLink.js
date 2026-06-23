@@ -2,22 +2,30 @@ import { ElMessage } from "element-plus";
 import { normalizeExternalUrl } from "./douyinLinks";
 import { isTauriApp } from "./desktopApp";
 
+async function invokeOpenExternalUrl(url) {
+  if (typeof window.__TAURI__?.core?.invoke === "function") {
+    return window.__TAURI__.core.invoke("open_external_url", { url });
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke("open_external_url", { url });
+}
+
 export async function openExternalLink(url) {
   const normalized = normalizeExternalUrl(url);
-  if (!normalized) return false;
+  if (!normalized) return { ok: false, reason: "invalid" };
 
   if (isTauriApp()) {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("open_external_url", { url: normalized });
-      return true;
-    } catch {
-      // Older desktop builds may not expose the command yet.
+      await invokeOpenExternalUrl(normalized);
+      return { ok: true };
+    } catch (err) {
+      console.warn("open_external_url failed:", err);
+      return { ok: false, reason: "desktop" };
     }
   }
 
   const opened = window.open(normalized, "_blank", "noopener,noreferrer");
-  if (opened) return true;
+  if (opened) return { ok: true };
 
   const anchor = document.createElement("a");
   anchor.href = normalized;
@@ -27,14 +35,18 @@ export async function openExternalLink(url) {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  return true;
+  return { ok: true };
 }
 
 export async function openExternalLinkWithHint(url) {
-  const ok = await openExternalLink(url);
-  if (!ok) {
-    ElMessage.warning("链接无效，无法打开");
+  const result = await openExternalLink(url);
+  if (result.ok) return true;
+
+  if (result.reason === "desktop") {
+    ElMessage.warning("无法打开链接，请更新到最新版桌面客户端后重试");
     return false;
   }
-  return true;
+
+  ElMessage.warning("链接无效，无法打开");
+  return false;
 }
