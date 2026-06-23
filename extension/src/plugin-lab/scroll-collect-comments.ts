@@ -227,6 +227,26 @@ function extractAvatarUrl(node: HTMLElement): string {
   return src.startsWith("http") ? src : "";
 }
 
+function parseDouyinUserIdsFromUrl(url: string): { user_id: string; sec_uid: string } {
+  const trimmed = String(url || "").trim();
+  if (!trimmed) return { user_id: "", sec_uid: "" };
+  try {
+    const parsed = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+    const match = parsed.pathname.match(/\/user\/([^/?#]+)/i);
+    if (match?.[1]) {
+      const id = decodeURIComponent(match[1]);
+      if (/^\d+$/.test(id)) return { user_id: id, sec_uid: "" };
+      return { user_id: "", sec_uid: id };
+    }
+    return {
+      user_id: parsed.searchParams.get("uid") || parsed.searchParams.get("user_id") || "",
+      sec_uid: parsed.searchParams.get("sec_uid") || "",
+    };
+  } catch {
+    return { user_id: "", sec_uid: "" };
+  }
+}
+
 function parseCommentItem(node: HTMLElement, index: number) {
   const nickname = extractNickname(node);
   const content = extractContent(node, nickname);
@@ -445,18 +465,19 @@ async function collectViaDom(
       })
     : comments;
 
-  const items = inWindow.map((item, index) =>
-    mapApiComment({
+  const items = inWindow.map((item, index) => {
+    const ids = parseDouyinUserIdsFromUrl(item.user_url || "");
+    return mapApiComment({
       comment_id: item.comment_id || `${item.author}|${item.content.slice(0, 80)}`,
       content: item.content,
       author: item.author,
-      user_id: "",
-      sec_uid: "",
+      user_id: ids.user_id,
+      sec_uid: ids.sec_uid,
       avatar_url: item.avatar_url || "",
       digg_count: 0,
       create_time: item.create_time,
-    }, "dom"),
-  ).map((item, index) => ({ ...item, index: index + 1 }));
+    }, "dom");
+  }).map((item, index) => ({ ...item, index: index + 1 }));
 
   if (stoppedReason === "dom_initial" || stoppedReason === "dom_no_visible_comments") {
     stoppedReason = scrolledRounds > 0 ? "dom_rounds_exhausted" : stoppedReason;

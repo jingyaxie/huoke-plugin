@@ -97,14 +97,30 @@
           <el-table-column prop="executed_at" label="触达时间" width="140">
             <template #default="{ row }">{{ formatJobTime(row.executed_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="140" fixed="right">
+          <el-table-column label="操作" width="140">
             <template #default="{ row }">
-              <el-button v-if="row.video_url" link type="primary" size="small" @click="openLink(row.video_url)">
-                查看视频
-              </el-button>
-              <el-button v-if="row.profile_url" link type="primary" size="small" @click="openLink(row.profile_url)">
-                查看主页
-              </el-button>
+              <div class="action-links">
+                <a
+                  v-if="row.video_url"
+                  class="action-link"
+                  :href="row.video_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.prevent="onOpenLink(row.video_url)"
+                >
+                  查看视频
+                </a>
+                <a
+                  v-if="row.profile_url"
+                  class="action-link"
+                  :href="row.profile_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.prevent="onOpenLink(row.profile_url)"
+                >
+                  查看主页
+                </a>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -141,6 +157,7 @@ import {
   OUTREACH_METRIC_VIEW_LABELS,
   platformLabel,
 } from "../utils/acquisitionJobs";
+import { openExternalLinkWithHint } from "../utils/openExternalLink";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -235,9 +252,8 @@ const emptyHint = computed(() => {
   return "暂无采集或触达数据，任务执行后将在此展示。";
 });
 
-function openLink(url) {
-  if (!url) return;
-  window.open(url, "_blank", "noopener,noreferrer");
+async function onOpenLink(url) {
+  await openExternalLinkWithHint(url);
 }
 
 function resetState() {
@@ -319,6 +335,25 @@ function resetState() {
 .pager-text {
   font-size: 13px;
   color: var(--el-text-color-secondary);
+}
+
+.action-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.action-link {
+  color: var(--el-color-primary);
+  font-size: 12px;
+  line-height: 1.4;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.action-link:hover {
+  text-decoration: underline;
 }
 </style>
 

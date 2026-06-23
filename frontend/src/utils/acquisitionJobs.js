@@ -1,3 +1,5 @@
+import { resolveCommentLinks } from "./douyinLinks";
+
 const AUTO_INTENTS = new Set(["keyword_auto"]);
 const MANUAL_INTENTS = new Set(["single_video", "account_home"]);
 
@@ -549,6 +551,15 @@ export function sortJobsByCreated(jobs, sort = "desc") {
   });
 }
 
+function withResolvedCommentLinks(row, platform = "douyin") {
+  const links = resolveCommentLinks(row, platform);
+  return {
+    ...row,
+    video_url: links.video_url || row.video_url || row.content_url || "",
+    profile_url: links.profile_url || row.profile_url || row.user_profile_url || "",
+  };
+}
+
 export function computeDashboardFromJobs(jobs) {
   const rows = (jobs || []).map((job) => getJobRowModel(job));
   return {
@@ -563,9 +574,10 @@ export function computeDashboardFromJobs(jobs) {
 
 export function getOutreachRows(job) {
   const sync = job?.sync && typeof job.sync === "object" ? job.sync : {};
+  const platform = job?.platform || job?.result?.orchestration?.config?.platform || "douyin";
   const captured = Array.isArray(sync.captured_comments) ? sync.captured_comments : [];
   if (captured.length) {
-    return captured.map((row) => ({
+    return captured.map((row) => withResolvedCommentLinks({
       id: row.id || row.comment_id || Math.random().toString(36).slice(2),
       comment_id: row.comment_id || row.id || "",
       nickname: row.nickname || row.user_nickname || row.author_nickname || "—",
@@ -582,8 +594,11 @@ export function getOutreachRows(job) {
       executed_at: row.executed_at || row.created_at || "",
       profile_url: row.profile_url || row.user_profile_url || "",
       video_url: row.video_url || row.content_url || "",
+      sec_uid: row.sec_uid,
+      user_id: row.user_id,
+      aweme_id: row.aweme_id,
       evaluation_reason: row.evaluation_reason || "",
-    }));
+    }, platform));
   }
 
   const leads = Array.isArray(sync.leads) ? sync.leads : [];
@@ -607,7 +622,7 @@ export function getOutreachRows(job) {
     return leads.map((lead) => {
       const commentId = String(lead.comment_id || lead.id || "").trim();
       const outreach = commentId ? outreachByComment[commentId] || {} : {};
-      return {
+      return withResolvedCommentLinks({
         id: lead.id || lead.lead_id || lead.comment_id || Math.random().toString(36).slice(2),
         nickname: lead.nickname || lead.user_nickname || lead.author_nickname || "—",
         avatar: lead.avatar_url || lead.avatar || lead.author_avatar || "",
@@ -621,7 +636,10 @@ export function getOutreachRows(job) {
         executed_at: outreach.executed_at || lead.outreach_at || "",
         profile_url: lead.profile_url || lead.user_profile_url || "",
         video_url: lead.video_url || lead.content_url || "",
-      };
+        sec_uid: lead.sec_uid,
+        user_id: lead.user_id,
+        aweme_id: lead.aweme_id,
+      }, platform);
     });
   }
 
@@ -637,7 +655,7 @@ export function getOutreachRows(job) {
   });
 
   if (displayableEvents.length) {
-    return displayableEvents.map((event) => ({
+    return displayableEvents.map((event) => withResolvedCommentLinks({
       id: event.id || `${event.lead_id || ""}-${event.executed_at || ""}`,
       nickname: event.nickname || event.user_nickname || event.author_nickname || "—",
       avatar: event.avatar_url || event.avatar || event.author_avatar || "",
@@ -651,7 +669,10 @@ export function getOutreachRows(job) {
       executed_at: event.executed_at || event.created_at || "",
       profile_url: event.profile_url || event.user_profile_url || "",
       video_url: event.video_url || "",
-    }));
+      sec_uid: event.sec_uid,
+      user_id: event.user_id,
+      aweme_id: event.aweme_id,
+    }, platform));
   }
 
   return [];

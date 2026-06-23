@@ -9,6 +9,7 @@ import {
   OUTREACH_METRIC_VIEWS,
 } from "./acquisitionJobs";
 import { REGION_PRESETS } from "./huokeTaskForm";
+import { resolveCommentLinks, resolveDouyinVideoUrl } from "./douyinLinks";
 
 export function collectJobRegionLabel(job) {
   const cfg = job?.config || {};
@@ -22,43 +23,33 @@ export function collectJobRegionLabel(job) {
   return "不限";
 }
 
-function douyinVideoUrl(awemeId) {
-  const id = String(awemeId || "").trim();
-  return id ? `https://www.douyin.com/video/${id}` : "";
-}
-
-function douyinProfileUrl(secUid) {
-  const id = String(secUid || "").trim();
-  return id ? `https://www.douyin.com/user/${id}` : "";
-}
-
-function commentTimestampMs(comment) {
-  const raw = Number(comment?.create_time ?? 0);
-  if (!Number.isFinite(raw) || raw <= 0) return null;
-  return raw > 1e12 ? raw : raw * 1000;
-}
-
 function resolveVideoMeta(comment, videoByAweme, fallbackVideos) {
   const awemeId = String(comment.aweme_id || "");
   const direct = videoByAweme.get(awemeId);
   if (direct?.title) {
     return {
       title: direct.title,
-      url: direct.video_url || douyinVideoUrl(awemeId),
+      url: resolveDouyinVideoUrl({ awemeId, videoUrl: direct.video_url }),
     };
   }
   if (awemeId && /^\d{8,22}$/.test(awemeId)) {
     const titled = (fallbackVideos || []).find((v) => v.title);
     return {
       title: titled?.title || "",
-      url: douyinVideoUrl(awemeId),
+      url: resolveDouyinVideoUrl({ awemeId }),
     };
   }
   const titled = (fallbackVideos || []).find((v) => v.title);
   return {
     title: titled?.title || "",
-    url: titled?.video_url || douyinVideoUrl(awemeId),
+    url: resolveDouyinVideoUrl({ awemeId, videoUrl: titled?.video_url }),
   };
+}
+
+function commentTimestampMs(comment) {
+  const raw = Number(comment?.create_time ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  return raw > 1e12 ? raw : raw * 1000;
 }
 
 export function extensionJobTargetCount(job) {
@@ -136,6 +127,15 @@ export function buildAgentJobFromCollectJob(collectJob, { comments = [], videos 
     const commentId = String(comment.comment_id || comment.id || "");
     const outreach = outreachByComment[commentId] || {};
     const ts = commentTimestampMs(comment);
+    const links = resolveCommentLinks(
+      {
+        aweme_id: awemeId,
+        sec_uid: comment.sec_uid,
+        user_id: comment.user_id,
+        video_url: videoMeta.url,
+      },
+      collectJob?.platform || "douyin",
+    );
     return {
       id: comment.id || commentId,
       comment_id: commentId,
@@ -145,8 +145,8 @@ export function buildAgentJobFromCollectJob(collectJob, { comments = [], videos 
       comment_content: comment.content || "",
       comment_at: ts,
       video_title: videoMeta.title,
-      video_url: videoMeta.url,
-      profile_url: douyinProfileUrl(comment.sec_uid),
+      video_url: links.video_url,
+      profile_url: links.profile_url,
       is_precise: Boolean(comment.is_precise),
       evaluation_reason: comment.evaluation_reason || "",
       evaluation_score: comment.evaluation_score ?? null,

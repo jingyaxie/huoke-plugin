@@ -534,12 +534,27 @@ fn is_junk_dom_comment(content: &str, author: &str) -> bool {
 fn parse_user_ids_from_url(url: &str) -> (String, String) {
     let mut user_id = String::new();
     let mut sec_uid = String::new();
+    if let Some(path) = url.split('?').next() {
+        if let Some(segment) = path
+            .split("/user/")
+            .nth(1)
+            .map(|s| s.trim_matches('/'))
+            .filter(|s| !s.is_empty())
+        {
+            let id = segment.split('/').next().unwrap_or(segment);
+            if id.chars().all(|ch| ch.is_ascii_digit()) {
+                user_id = id.to_string();
+            } else {
+                sec_uid = id.to_string();
+            }
+        }
+    }
     if let Some(query) = url.split('?').nth(1) {
         for pair in query.split('&') {
             if let Some((key, value)) = pair.split_once('=') {
                 match key {
-                    "uid" | "user_id" => user_id = value.to_string(),
-                    "sec_uid" => sec_uid = value.to_string(),
+                    "uid" | "user_id" if user_id.is_empty() => user_id = value.to_string(),
+                    "sec_uid" if sec_uid.is_empty() => sec_uid = value.to_string(),
                     _ => {}
                 }
             }
@@ -710,5 +725,13 @@ mod tests {
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].content, "求带");
         assert_eq!(comments[0].comment_id, "c1");
+    }
+
+    #[test]
+    fn parses_sec_uid_from_profile_path() {
+        let url = "https://www.douyin.com/user/MS4wLjABAAAAtest123";
+        let (user_id, sec_uid) = parse_user_ids_from_url(url);
+        assert!(user_id.is_empty());
+        assert_eq!(sec_uid, "MS4wLjABAAAAtest123");
     }
 }

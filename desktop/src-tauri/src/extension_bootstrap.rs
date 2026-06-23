@@ -224,6 +224,38 @@ pub fn open_path_in_explorer(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub fn open_external_url(url: &str) -> Result<(), String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("链接为空".to_string());
+    }
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return Err("仅支持 http/https 链接".to_string());
+    }
+
+    if cfg!(windows) {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", trimmed]);
+        crate::win_process::hide_console(&mut command);
+        command
+            .spawn()
+            .map_err(|err| format!("打开链接失败: {err}"))?;
+        return Ok(());
+    }
+    if cfg!(target_os = "macos") {
+        Command::new("open")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|err| format!("打开链接失败: {err}"))?;
+        return Ok(());
+    }
+    Command::new("xdg-open")
+        .arg(trimmed)
+        .spawn()
+        .map_err(|err| format!("打开链接失败: {err}"))?;
+    Ok(())
+}
+
 pub fn build_setup_status(
     bundle_dir: &Path,
     data_dir: &Path,

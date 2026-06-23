@@ -725,6 +725,11 @@ fn launch_chrome_extension(app: AppHandle) -> Result<ExtensionSetupStatus, Strin
 }
 
 #[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    extension_bootstrap::open_external_url(&url)
+}
+
+#[tauri::command]
 fn open_extension_folder(app: AppHandle) -> Result<(), String> {
     let data_dir = app
         .state::<ServiceState>()
@@ -770,6 +775,7 @@ pub fn run() {
             get_extension_setup_status,
             launch_chrome_extension,
             open_extension_folder,
+            open_external_url,
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
