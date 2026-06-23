@@ -64,7 +64,7 @@ pub struct CreateJobRequest {
 }
 
 fn default_auto_outreach() -> bool {
-    true
+    false
 }
 
 fn default_job_type() -> String {

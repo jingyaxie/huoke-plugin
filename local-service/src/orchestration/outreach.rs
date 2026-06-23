@@ -7,6 +7,7 @@ use tracing::{info, warn};
 
 use crate::db::{CapturedComment, Database, JobStatus};
 use crate::job_config::JobConfig;
+use crate::job_run::JobRunRegistry;
 use crate::lab_commands::LabCommands;
 use crate::ws::BridgeHub;
 
@@ -14,6 +15,8 @@ pub struct InlineOutreachRunner<'a> {
     pub db: &'a Database,
     pub hub: &'a BridgeHub,
     pub default_daily_quota: i64,
+    pub job_runs: &'a JobRunRegistry,
+    pub generation: u64,
 }
 
 impl<'a> InlineOutreachRunner<'a> {
@@ -30,10 +33,11 @@ impl<'a> InlineOutreachRunner<'a> {
             return Ok(OutreachStats::default());
         }
 
+        let eligible_count = eligible.len() as i64;
         let reply_templates = cfg.reply_templates();
         let dm_templates = cfg.dm_templates();
         let pct = cfg.interaction.comment_dm_percentage.clamp(0, 100);
-        let total_budget = eligible.len() as i64;
+        let total_budget = eligible_count;
         let mut reply_budget = if reply_templates.is_empty() {
             0
         } else {
@@ -56,10 +60,12 @@ impl<'a> InlineOutreachRunner<'a> {
         }
 
         let follow_budget = if cfg.interaction.follow_per_day > 0 {
-            cfg.interaction.follow_per_day
+            cfg.interaction.follow_per_day.min(eligible_count)
         } else {
             0
         };
+        reply_budget = reply_budget.min(eligible_count);
+        dm_budget = dm_budget.min(eligible_count);
 
         info!(
             "job {job_id}: outreach budgets reply={reply_budget} dm={dm_budget} follow={follow_budget} eligible={}",
@@ -75,6 +81,10 @@ impl<'a> InlineOutreachRunner<'a> {
         while cursor < eligible.len()
             && (stats.replies < reply_budget || stats.dms < dm_budget || stats.follows < follow_budget)
         {
+            if !self.job_runs.is_current(job_id, self.generation) {
+                info!("job {job_id}: outreach stopped (superseded)");
+                return Ok(stats);
+            }
             if self.db.get_job(job_id)?.status == JobStatus::Paused {
                 info!("job {job_id}: outreach paused");
                 return Ok(stats);
@@ -100,18 +110,26 @@ impl<'a> InlineOutreachRunner<'a> {
                 }
             }
 
+            let mut dm_attempted = false;
             if stats.dms < dm_budget && !dm_templates.is_empty() {
                 if self.dm_quota_remaining(cfg)? <= 0 {
                     dm_budget = stats.dms;
                 } else {
                     let text = dm_templates[dm_idx % dm_templates.len()].clone();
                     dm_idx += 1;
+                    dm_attempted = true;
                     if self.send_dm(job_id, comment, &text).await.unwrap_or(false) {
                         stats.dms += 1;
                         self.sleep_interval(interval_min, interval_max).await;
                         continue;
                     }
                 }
+            }
+
+            // 私信已尝试过（会打开视频详情）则不再对同一评论重复打开做关注
+            if dm_attempted {
+                self.sleep_interval(interval_min, interval_max).await;
+                continue;
             }
 
             if stats.follows < follow_budget && self.follow_quota_remaining(cfg)? > 0 {

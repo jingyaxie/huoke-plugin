@@ -188,64 +188,57 @@ impl JobOrchestrator {
 
                 if cfg.collects_by_video_limit() {
                     let scanned = self.scanned_video_count(job_id)?;
-                    self.db
-                        .update_job_status(job_id, JobStatus::Completed, None)?;
                     info!(
-                        "job {job_id}: scan completed ({scanned}/{} videos)",
+                        "job {job_id}: scan finished ({scanned}/{} videos)",
                         job.limit_videos.max(1)
                     );
-                } else {
-                    if cfg.should_run_auto_outreach() {
-                        let runner = InlineOutreachRunner {
-                            db: &self.db,
-                            hub: &self.hub,
-                            default_daily_quota: self.default_daily_quota,
-                        };
-                        if let Err(err) = runner.run(job_id, &cfg).await {
-                            warn!("job {job_id} inline outreach partial failure: {err}");
-                        }
-                    } else {
-                        info!(
-                            "job {job_id}: skipping outreach (auto_outreach={}, follow={}, dm={}, reply_presets={}, dm_presets={})",
-                            cfg.auto_outreach,
-                            cfg.interaction.follow_per_day,
-                            cfg.interaction.dm_per_day,
-                            cfg.comment_presets.len(),
-                            cfg.dm_presets.len(),
-                        );
-                    }
-                    if self.is_job_paused(job_id)? {
-                        info!("job {job_id} paused");
-                        return Ok(());
-                    }
-                    self.db
-                        .update_job_status(job_id, JobStatus::Completed, None)?;
-                    info!("job {job_id} completed");
-                    self.cleanup_job_workspace(&platform, job_id).await;
-                    return Ok(());
                 }
 
-                if self.is_job_paused(job_id)? {
+                if self.is_job_paused(job_id)? || !self.job_runs.is_current(job_id, self.generation) {
                     info!("job {job_id} paused");
                     return Ok(());
                 }
+
                 if cfg.should_run_auto_outreach() {
-                    info!("job {job_id}: post-scan outreach (status=completed)");
+                    let phase = if cfg.collects_by_video_limit() {
+                        "post-scan"
+                    } else {
+                        "inline"
+                    };
+                    info!("job {job_id}: {phase} outreach starting");
                     let runner = InlineOutreachRunner {
                         db: &self.db,
                         hub: &self.hub,
                         default_daily_quota: self.default_daily_quota,
+                        job_runs: &self.job_runs,
+                        generation: self.generation,
                     };
                     if let Err(err) = runner.run(job_id, &cfg).await {
-                        warn!("job {job_id} post-scan outreach partial failure: {err}");
+                        warn!("job {job_id} outreach partial failure: {err}");
                     }
                 } else {
                     info!(
-                        "job {job_id}: skipping post-scan outreach (auto_outreach={}, follow={}, dm={})",
+                        "job {job_id}: skipping outreach (auto_outreach={}, follow={}, dm={})",
                         cfg.auto_outreach,
                         cfg.interaction.follow_per_day,
                         cfg.interaction.dm_per_day,
                     );
+                }
+
+                if self.is_job_paused(job_id)? || !self.job_runs.is_current(job_id, self.generation) {
+                    info!("job {job_id} paused");
+                    return Ok(());
+                }
+                self.db
+                    .update_job_status(job_id, JobStatus::Completed, None)?;
+                if cfg.collects_by_video_limit() {
+                    let scanned = self.scanned_video_count(job_id)?;
+                    info!(
+                        "job {job_id}: completed ({scanned}/{} videos)",
+                        job.limit_videos.max(1)
+                    );
+                } else {
+                    info!("job {job_id} completed");
                 }
                 self.cleanup_job_workspace(&platform, job_id).await;
                 Ok(())

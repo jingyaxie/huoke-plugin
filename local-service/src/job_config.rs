@@ -252,6 +252,12 @@ impl JobConfig {
     }
 
     pub fn should_run_auto_outreach(&self) -> bool {
+        // 暂时关闭采集后自动触达（私信/关注/回复），仅采集评论。
+        false
+    }
+
+    #[allow(dead_code)]
+    fn would_run_auto_outreach(&self) -> bool {
         if !self.auto_outreach {
             return false;
         }
@@ -366,7 +372,7 @@ mod tests {
         assert_eq!(job_cfg.filter_publish_days_for_ui(), 0);
         assert_eq!(job_cfg.search_keyword("团餐"), "深圳 团餐");
         assert!(job_cfg.has_reply_presets());
-        assert!(job_cfg.should_run_auto_outreach());
+        assert!(!job_cfg.should_run_auto_outreach());
     }
 
     #[test]
@@ -385,9 +391,8 @@ mod tests {
             "interaction": { "follow_per_day": 0 }
         });
         let job_cfg = JobConfig::from_parts(&cfg, 5, 10, "test");
-        assert!(job_cfg.should_run_auto_outreach());
-        assert!(!job_cfg.has_reply_presets());
-        assert!(job_cfg.has_dm_presets());
+        assert!(!job_cfg.should_run_auto_outreach());
+        assert!(job_cfg.would_run_auto_outreach());
     }
 
     #[test]
@@ -397,7 +402,8 @@ mod tests {
             "interaction": { "follow_per_day": 30, "dm_per_day": 0 }
         });
         let job_cfg = JobConfig::from_parts(&cfg, 5, 10, "test");
-        assert!(job_cfg.should_run_auto_outreach());
+        assert!(!job_cfg.should_run_auto_outreach());
+        assert!(job_cfg.would_run_auto_outreach());
     }
 
     #[test]
