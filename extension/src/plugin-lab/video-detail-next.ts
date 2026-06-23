@@ -172,12 +172,53 @@ async function waitForVideoDetailAwemeChange(before: string | null, maxMs = 3500
   return readVideoDetailAwemeId();
 }
 
-async function clickVideoDetailNextButton(): Promise<boolean> {
-  const btn = findVideoDetailNextButton();
-  if (!btn) return false;
-  humanClick(btn);
-  await sleep(randDelay(320, 520));
-  return true;
+/** 详情页下箭头：多次尝试，间隔放宽，避免连点误触 */
+const DETAIL_NEXT_ARROW_MAX_ATTEMPTS = 3;
+const DETAIL_NEXT_ARROW_WAIT_PER_ATTEMPT_MS = 2800;
+const DETAIL_NEXT_ARROW_RETRY_GAP_MIN_MS = 900;
+const DETAIL_NEXT_ARROW_RETRY_GAP_MAX_MS = 1500;
+
+async function tryVideoDetailNextViaArrowButton(
+  before: string | null,
+  target: HTMLElement,
+): Promise<{ ok: boolean; after: string | null; attempt: number }> {
+  for (let attempt = 1; attempt <= DETAIL_NEXT_ARROW_MAX_ATTEMPTS; attempt += 1) {
+    if (!isStandaloneVideoPage()) break;
+
+    const current = readVideoDetailAwemeId();
+    if (current && current !== before) {
+      return { ok: true, after: current, attempt };
+    }
+
+    if (attempt > 1) {
+      await dismissCommentPanelForDetailSwipe();
+      if (!isStandaloneVideoPage()) break;
+      await focusVideoDetailPlayer(target);
+      await sleep(randDelay(DETAIL_NEXT_ARROW_RETRY_GAP_MIN_MS, DETAIL_NEXT_ARROW_RETRY_GAP_MAX_MS));
+    }
+
+    const btn = findVideoDetailNextButton();
+    if (!btn) {
+      if (attempt < DETAIL_NEXT_ARROW_MAX_ATTEMPTS) {
+        await sleep(randDelay(700, 1100));
+      }
+      continue;
+    }
+
+    humanClick(btn);
+    await sleep(randDelay(400, 620));
+
+    const after = await waitForVideoDetailAwemeChange(before, DETAIL_NEXT_ARROW_WAIT_PER_ATTEMPT_MS);
+    if (after && after !== before) {
+      return { ok: true, after, attempt };
+    }
+
+    if (attempt < DETAIL_NEXT_ARROW_MAX_ATTEMPTS) {
+      await sleep(randDelay(DETAIL_NEXT_ARROW_RETRY_GAP_MIN_MS, DETAIL_NEXT_ARROW_RETRY_GAP_MAX_MS));
+    }
+  }
+
+  return { ok: false, after: readVideoDetailAwemeId(), attempt: DETAIL_NEXT_ARROW_MAX_ATTEMPTS };
 }
 
 /** 采完评论后、切下一个视频前：确保仍在 /video/ 页且评论区不挡操作 */
@@ -243,20 +284,21 @@ export async function swipeVideoDetailNext() {
   const target = resolveVideoDetailSwipeTarget();
   await focusVideoDetailPlayer(target);
 
-  if (await clickVideoDetailNextButton()) {
-    const afterArrow = await waitForVideoDetailAwemeChange(before, 3500);
-    if (afterArrow && afterArrow !== before) {
-      return {
-        ok: true,
-        is_standalone_video: true,
-        aweme_id: afterArrow,
-        previous_aweme_id: before,
-        attempt: 1,
-        method: "next_arrow_click",
-        url: location.href,
-        message: "已通过下箭头按钮切换到下一个视频",
-      };
-    }
+  const arrow = await tryVideoDetailNextViaArrowButton(before, target);
+  if (arrow.ok && arrow.after && arrow.after !== before) {
+    return {
+      ok: true,
+      is_standalone_video: true,
+      aweme_id: arrow.after,
+      previous_aweme_id: before,
+      attempt: arrow.attempt,
+      method: "next_arrow_click",
+      url: location.href,
+      message:
+        arrow.attempt > 1
+          ? `已通过下箭头按钮切换到下一个视频（第 ${arrow.attempt} 次点击）`
+          : "已通过下箭头按钮切换到下一个视频",
+    };
   }
 
   dispatchKey(target, "ArrowDown", "ArrowDown");

@@ -511,9 +511,12 @@ impl JobOrchestrator {
         let mut collected_videos = 0_u32;
         let mut swipe_failures = 0_u32;
         let mut search_exhausted = false;
+        let mut search_list_recoveries = 0_u32;
         let mut stale_hits: HashMap<String, u32> = HashMap::new();
         let mut last_aweme_id: Option<String> = None;
-        const MAX_SWIPE_FAILURES: u32 = 8;
+        let mut forced_nav: Option<serde_json::Value> = None;
+        const MAX_SWIPE_FAILURES: u32 = 5;
+        const MAX_SEARCH_LIST_RECOVERIES: u32 = 5;
         const MAX_STALE_ON_SAME: u32 = 3;
 
         let (open_label, fail_hint) = match &feed_source {
@@ -536,7 +539,7 @@ impl JobOrchestrator {
             if self.is_job_paused(job_id)? {
                 return Ok(());
             }
-            if self.video_scan_quota_met(job_id, job, false)? {
+            if self.video_scan_quota_met(job_id, job)? {
                 info!(
                     "job {job_id}: playback chain scan quota met ({}/{})",
                     self.scanned_video_count(job_id)?,
@@ -551,15 +554,38 @@ impl JobOrchestrator {
                 break;
             }
             if swipe_failures >= MAX_SWIPE_FAILURES {
+                if search_list_recoveries < MAX_SEARCH_LIST_RECOVERIES {
+                    let in_feed = playback_mode == Some(DouyinPlaybackMode::Feed) && playback_open;
+                    if let Some(resp) = self
+                        .recover_playback_via_search_list(
+                            job_id,
+                            job,
+                            cfg,
+                            &feed_source,
+                            &lab,
+                            in_feed,
+                        )
+                        .await?
+                    {
+                        forced_nav = Some(resp);
+                        swipe_failures = 0;
+                        stale_hits.clear();
+                        search_list_recoveries += 1;
+                        continue;
+                    }
+                }
                 search_exhausted = true;
                 warn!(
-                    "job {job_id}: playback swipe failed {swipe_failures} times, stop collect"
+                    "job {job_id}: playback swipe failed {swipe_failures} times, stop playback chain"
                 );
                 break;
             }
 
-            let opening_first = !playback_open;
-            let nav = if opening_first {
+            let opening_first = !playback_open && forced_nav.is_none();
+            let recovered_open = forced_nav.is_some();
+            let nav = if let Some(resp) = forced_nav.take() {
+                Ok(resp)
+            } else if opening_first {
                 info!("job {job_id}: {open_label}");
                 self.open_or_adopt_playback(&lab, &feed_source).await
             } else {
@@ -577,12 +603,32 @@ impl JobOrchestrator {
                 Err(err) => {
                     swipe_failures += 1;
                     warn!("job {job_id}: playback navigation error — {err}");
+                    if swipe_failures >= 2 && search_list_recoveries < MAX_SEARCH_LIST_RECOVERIES {
+                        let in_feed = playback_mode == Some(DouyinPlaybackMode::Feed) && playback_open;
+                        if let Some(recovered) = self
+                            .recover_playback_via_search_list(
+                                job_id,
+                                job,
+                                cfg,
+                                &feed_source,
+                                &lab,
+                                in_feed,
+                            )
+                            .await?
+                        {
+                            forced_nav = Some(recovered);
+                            swipe_failures = 0;
+                            stale_hits.clear();
+                            search_list_recoveries += 1;
+                            continue;
+                        }
+                    }
                     simulate::pause(Duration::from_millis(800)).await;
                     continue;
                 }
             };
 
-            if opening_first {
+            if opening_first || recovered_open || playback_mode.is_none() {
                 if let Some(detected) = playback_mode_from_response(&resp) {
                     playback_mode = Some(detected);
                 } else if video_ready_for_collect(&resp) {
@@ -591,7 +637,7 @@ impl JobOrchestrator {
             }
 
             let mode = playback_mode.unwrap_or(DouyinPlaybackMode::Feed);
-            let nav_ok = if opening_first {
+            let nav_ok = if opening_first || recovered_open {
                 video_ready_for_collect(&resp)
             } else {
                 playback_navigation_ok(&resp, mode)
@@ -603,13 +649,36 @@ impl JobOrchestrator {
                     playback_mode_label(mode),
                     resp.get("message").and_then(|v| v.as_str())
                 );
+                if !opening_first
+                    && swipe_failures >= 2
+                    && search_list_recoveries < MAX_SEARCH_LIST_RECOVERIES
+                {
+                    let in_feed = playback_mode == Some(DouyinPlaybackMode::Feed) && playback_open;
+                    if let Some(recovered) = self
+                        .recover_playback_via_search_list(
+                            job_id,
+                            job,
+                            cfg,
+                            &feed_source,
+                            &lab,
+                            in_feed,
+                        )
+                        .await?
+                    {
+                        forced_nav = Some(recovered);
+                        swipe_failures = 0;
+                        stale_hits.clear();
+                        search_list_recoveries += 1;
+                        continue;
+                    }
+                }
                 simulate::pause(Duration::from_millis(800)).await;
                 continue;
             }
 
-            if opening_first {
+            if opening_first || recovered_open {
                 info!(
-                    "job {job_id}: playback mode={} feed={} standalone={}",
+                    "job {job_id}: playback mode={} feed={} standalone={} recovered={recovered_open}",
                     playback_mode_label(mode),
                     resp.get("is_search_feed").and_then(|v| v.as_bool()).unwrap_or(false),
                     response_is_standalone_video(&resp),
@@ -692,7 +761,7 @@ impl JobOrchestrator {
                             .evaluate_pending_comments(job_id, job, cfg)
                             .await;
                     }
-                    if self.video_scan_quota_met(job_id, job, false)? {
+                    if self.video_scan_quota_met(job_id, job)? {
                         info!(
                             "job {job_id}: scan quota met after video collect ({}/{})",
                             self.scanned_video_count(job_id)?,
@@ -719,24 +788,38 @@ impl JobOrchestrator {
         let total = self.db.count_comments_for_job(job_id)?;
         if cfg.collects_by_video_limit() {
             let scanned = self.scanned_video_count(job_id)?;
-            if self.video_scan_quota_met(job_id, job, search_exhausted)? {
+            let limit = job.limit_videos.max(1);
+            if self.video_scan_quota_met(job_id, job)? {
                 info!(
-                    "job {job_id}: video-limit collect done — {scanned}/{} videos scanned ({} comments, playback browsed {collected_videos} new, exhausted={search_exhausted})",
-                    job.limit_videos, total
+                    "job {job_id}: video-limit collect done — {scanned}/{limit} videos scanned ({} comments, playback browsed {collected_videos} new, exhausted={search_exhausted})",
+                    total
                 );
                 return Ok(());
             }
             if total == 0 && collected_videos == 0 {
                 return Err(fail_hint.into());
             }
-            if total > 0 {
-                info!(
-                    "job {job_id}: video-limit collect done — {scanned}/{} videos scanned ({} comments)",
-                    job.limit_videos, total
-                );
-                return Ok(());
+            info!(
+                "job {job_id}: playback chain partial {scanned}/{limit} ({} comments), fallback to list collect",
+                total
+            );
+            let _ = lab.close_video_detail().await;
+            simulate::pause(Duration::from_millis(600)).await;
+            if matches!(&feed_source, DouyinFeedSource::KeywordSearch) {
+                let _ = self
+                    .ensure_search_videos_captured(
+                        job_id,
+                        &job.platform,
+                        &lab,
+                        None,
+                        job.limit_videos,
+                    )
+                    .await;
             }
-            return Err(fail_hint.into());
+            let mut keyword_researched = matches!(&feed_source, DouyinFeedSource::KeywordSearch);
+            return self
+                .collect_until_target(job_id, job, cfg, &mut keyword_researched)
+                .await;
         }
         if total == 0 && collected_videos == 0 {
             return Err(fail_hint.into());
@@ -1122,7 +1205,7 @@ impl JobOrchestrator {
         let mut opened_videos = 0_u32;
         let mut search_feed_chain = false;
         let mut expand_attempts = 0_u32;
-        const MAX_EXPAND_ATTEMPTS: u32 = 1;
+        const MAX_EXPAND_ATTEMPTS: u32 = 3;
 
         let lab = LabCommands::new(&self.hub, &job.platform);
         if cfg.intent == "account_home" {
@@ -1249,23 +1332,24 @@ impl JobOrchestrator {
         }
         if cfg.collects_by_video_limit() {
             let videos_collected = self.scanned_video_count(job_id)?;
+            let limit = job.limit_videos.max(1);
+            if self.video_scan_quota_met(job_id, job)? {
+                info!(
+                    "job {job_id}: video-limit collect done — {videos_collected}/{limit} videos ({} comments)",
+                    total
+                );
+                return Ok(());
+            }
             let pending = videos
                 .iter()
                 .filter(|v| !self.video_comments_already_collected(job_id, v).unwrap_or(false))
                 .count();
-            let search_exhausted = pending == 0;
-            if self.video_scan_quota_met(job_id, job, search_exhausted)? {
-                info!(
-                    "job {job_id}: video-limit collect done — {videos_collected}/{} videos ({} comments, exhausted={search_exhausted})",
-                    job.limit_videos, total
-                );
-                return Ok(());
-            }
-            info!(
-                "job {job_id}: video-limit collect done — {videos_collected}/{} videos ({} comments)",
-                job.limit_videos, total
-            );
-            return Ok(());
+            let detail = if pending == 0 {
+                " — 当前搜索结果已全部采集，可滚动加载更多后点击继续采集"
+            } else {
+                " — 部分视频打开失败，请点击继续采集重试"
+            };
+            return Err(self.video_limit_shortfall_message(job_id, job, total, detail)?);
         }
         let progress = self.collect_progress_count(job_id)?;
         if progress < cfg.target_count {
@@ -1323,19 +1407,28 @@ impl JobOrchestrator {
         Ok(video_count.max(with_comments))
     }
 
-    /// 关键词视频上限任务：已扫够上限，或当前可见视频已全部扫完。
+    /// 关键词视频上限任务：仅当已扫视频数达到 limit_videos 时视为完成。
     fn video_scan_quota_met(
         &self,
         job_id: &str,
         job: &crate::db::CollectJob,
-        search_exhausted: bool,
     ) -> Result<bool, String> {
         let scanned = self.scanned_video_count(job_id)?;
+        Ok(scanned >= job.limit_videos.max(1))
+    }
+
+    fn video_limit_shortfall_message(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        total_comments: i64,
+        detail: &str,
+    ) -> Result<String, String> {
+        let scanned = self.scanned_video_count(job_id)?;
         let limit = job.limit_videos.max(1);
-        if scanned >= limit {
-            return Ok(true);
-        }
-        Ok(search_exhausted && scanned > 0)
+        Ok(format!(
+            "仅扫描 {scanned}/{limit} 个视频（共采集 {total_comments} 条评论）{detail}"
+        ))
     }
 
     fn collect_target_reached(
@@ -1767,6 +1860,97 @@ impl JobOrchestrator {
                 false
             }
         }
+    }
+
+    /// 上滑切视频失败时，按搜索结果/主页列表逐条打开下一个未采集视频。
+    async fn recover_playback_via_search_list(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+        feed_source: &DouyinFeedSource,
+        lab: &LabCommands<'_>,
+        in_feed: bool,
+    ) -> Result<Option<serde_json::Value>, String> {
+        let videos = self.load_videos_for_job(job_id, cfg)?;
+        for (idx, video) in videos.iter().enumerate() {
+            if self.video_comments_already_collected(job_id, video)? {
+                continue;
+            }
+            let index = if is_dom_poster_aweme_id(&video.aweme_id) {
+                dom_poster_index(&video.aweme_id).unwrap_or((idx + 1) as i64)
+            } else {
+                (idx + 1) as i64
+            };
+            let aweme_hint = if is_dom_poster_aweme_id(&video.aweme_id) {
+                parse_aweme_id_from_page_url(&video.video_url)
+            } else {
+                Some(video.aweme_id.clone())
+            };
+            let video_url = (!video.video_url.is_empty()).then_some(video.video_url.as_str());
+            let rect = if is_dom_poster_aweme_id(&video.aweme_id) {
+                dom_poster_click_payload(video.raw_json.as_deref())
+                    .get("rect")
+                    .cloned()
+            } else {
+                None
+            };
+
+            info!(
+                "job {job_id}: recover playback via list index={index} aweme={}",
+                video.aweme_id
+            );
+
+            if in_feed && matches!(feed_source, DouyinFeedSource::KeywordSearch) {
+                if self
+                    .try_jump_search_feed_video(
+                        job_id,
+                        lab,
+                        index,
+                        aweme_hint.as_deref(),
+                    )
+                    .await
+                {
+                    if let Ok(probe) = lab.probe_current_playback().await {
+                        if video_ready_for_collect(&probe) {
+                            return Ok(Some(probe));
+                        }
+                    }
+                }
+            }
+
+            let _ = lab.close_video_detail().await;
+            simulate::pause(Duration::from_millis(500)).await;
+
+            let resp = match feed_source {
+                DouyinFeedSource::KeywordSearch => {
+                    let _ = lab.prepare_search_for_video().await;
+                    simulate::pause(Duration::from_millis(400)).await;
+                    lab.click_search_video(index, rect, aweme_hint.as_deref(), video_url)
+                        .await?
+                }
+                DouyinFeedSource::ProfileHome { .. } => {
+                    let _ = lab.prepare_profile_for_video().await;
+                    simulate::pause(Duration::from_millis(400)).await;
+                    lab.click_profile_video(
+                        index,
+                        aweme_hint
+                            .as_deref()
+                            .filter(|id| !is_dom_poster_aweme_id(id)),
+                    )
+                    .await?
+                }
+            };
+
+            if video_ready_for_collect(&resp) {
+                return Ok(Some(resp));
+            }
+            warn!(
+                "job {job_id}: list recover index={index} not ready — {:?}",
+                resp.get("message").and_then(|v| v.as_str())
+            );
+        }
+        Ok(None)
     }
 
     async fn open_and_scroll_video(

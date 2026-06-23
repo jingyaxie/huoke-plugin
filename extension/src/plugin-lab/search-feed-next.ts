@@ -80,12 +80,53 @@ export function findFeedNextVideoButton(): HTMLElement | null {
   return null;
 }
 
-async function clickFeedNextVideoButton(): Promise<boolean> {
-  const btn = findFeedNextVideoButton();
-  if (!btn) return false;
-  humanClick(btn);
-  await sleep(randDelay(320, 520));
-  return true;
+/** 下箭头切换：多次尝试，间隔放宽，避免连点误触 */
+const NEXT_ARROW_MAX_ATTEMPTS = 3;
+const NEXT_ARROW_WAIT_PER_ATTEMPT_MS = 2800;
+const NEXT_ARROW_RETRY_GAP_MIN_MS = 900;
+const NEXT_ARROW_RETRY_GAP_MAX_MS = 1500;
+
+async function tryFeedNextViaArrowButton(
+  before: string | null,
+  target: HTMLElement,
+): Promise<{ ok: boolean; after: string | null; attempt: number }> {
+  for (let attempt = 1; attempt <= NEXT_ARROW_MAX_ATTEMPTS; attempt += 1) {
+    if (!feedOverlayReady()) break;
+
+    const current = readFeedAwemeId();
+    if (current && current !== before) {
+      return { ok: true, after: current, attempt };
+    }
+
+    if (attempt > 1) {
+      await dismissCommentPanelForSwipe();
+      if (!feedOverlayReady()) break;
+      await focusFeedPlayer(target);
+      await sleep(randDelay(NEXT_ARROW_RETRY_GAP_MIN_MS, NEXT_ARROW_RETRY_GAP_MAX_MS));
+    }
+
+    const btn = findFeedNextVideoButton();
+    if (!btn) {
+      if (attempt < NEXT_ARROW_MAX_ATTEMPTS) {
+        await sleep(randDelay(700, 1100));
+      }
+      continue;
+    }
+
+    humanClick(btn);
+    await sleep(randDelay(400, 620));
+
+    const after = await waitForFeedAwemeChange(before, NEXT_ARROW_WAIT_PER_ATTEMPT_MS);
+    if (after && after !== before) {
+      return { ok: true, after, attempt };
+    }
+
+    if (attempt < NEXT_ARROW_MAX_ATTEMPTS) {
+      await sleep(randDelay(NEXT_ARROW_RETRY_GAP_MIN_MS, NEXT_ARROW_RETRY_GAP_MAX_MS));
+    }
+  }
+
+  return { ok: false, after: readFeedAwemeId(), attempt: NEXT_ARROW_MAX_ATTEMPTS };
 }
 
 export function readFeedAwemeId(url = location.href): string | null {
@@ -357,20 +398,21 @@ export async function swipeSearchFeedNext() {
   const target = resolveFeedSwipeTarget();
   await focusFeedPlayer(target);
 
-  if (await clickFeedNextVideoButton()) {
-    const afterArrow = await waitForFeedAwemeChange(before, 3500);
-    if (afterArrow && afterArrow !== before) {
-      return {
-        ok: true,
-        is_search_feed: true,
-        aweme_id: afterArrow,
-        previous_aweme_id: before,
-        attempt: 1,
-        method: "next_arrow_click",
-        url: location.href,
-        message: "已通过下箭头按钮切换到下一个视频",
-      };
-    }
+  const arrow = await tryFeedNextViaArrowButton(before, target);
+  if (arrow.ok && arrow.after && arrow.after !== before) {
+    return {
+      ok: true,
+      is_search_feed: true,
+      aweme_id: arrow.after,
+      previous_aweme_id: before,
+      attempt: arrow.attempt,
+      method: "next_arrow_click",
+      url: location.href,
+      message:
+        arrow.attempt > 1
+          ? `已通过下箭头按钮切换到下一个视频（第 ${arrow.attempt} 次点击）`
+          : "已通过下箭头按钮切换到下一个视频",
+    };
   }
 
   const methods: Array<() => Promise<void>> = [
