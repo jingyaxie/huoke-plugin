@@ -9,6 +9,7 @@ use crate::douyin::parser::parse_aweme_id_from_page_url;
 use crate::job_config::JobConfig;
 
 pub mod outreach;
+mod cloud_sync;
 pub use outreach::{
     OutreachItem, OutreachItemDraft, OutreachItemStatus, OutreachTask, OutreachTaskStatus, QuotaStatus,
 };
@@ -232,6 +233,7 @@ impl Database {
         )
         .map_err(|e| e.to_string())?;
         self.migrate_outreach(&conn)?;
+        cloud_sync::migrate(&conn)?;
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS interaction_log (
@@ -547,6 +549,10 @@ impl Database {
                 ],
             )
             .map_err(|e| e.to_string())?;
+        drop(conn);
+        if changed > 0 {
+            crate::cloud_sync::notify::job_changed(self, job_id);
+        }
         Ok(changed > 0)
     }
 
@@ -661,6 +667,8 @@ impl Database {
             params![status.as_str(), error_message, Self::now_ms(), job_id],
         )
         .map_err(|e| e.to_string())?;
+        drop(conn);
+        crate::cloud_sync::notify::job_changed(self, job_id);
         Ok(())
     }
 
@@ -979,6 +987,8 @@ impl Database {
             ],
         )
         .map_err(|e| e.to_string())?;
+        drop(conn);
+        crate::cloud_sync::notify::job_changed(self, job_id);
         Ok(())
     }
 
@@ -1130,6 +1140,10 @@ impl Database {
             if changed > 0 {
                 inserted += 1;
             }
+        }
+        drop(conn);
+        if inserted > 0 {
+            crate::cloud_sync::notify::job_changed(self, job_id);
         }
         Ok(inserted)
     }

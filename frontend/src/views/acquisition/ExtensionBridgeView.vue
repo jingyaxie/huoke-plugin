@@ -62,6 +62,20 @@
       @reloaded="refreshAll"
     />
 
+    <el-alert
+      v-if="recoveryBanner.show"
+      type="info"
+      :closable="true"
+      show-icon
+      title="已从云端恢复历史任务"
+      class="panel-block"
+    >
+      <template #default>
+        检测到本机暂无本地任务，已从云端加载 {{ recoveryBanner.cloudOnlyCount }} 个历史任务。
+        云端任务为只读，可查看线索数据；如需继续采集请重新创建任务。
+      </template>
+    </el-alert>
+
     <AcquisitionStatsCards :data="dashboard" :loading="loading" class="panel-block" />
     </div>
 
@@ -72,7 +86,10 @@
       <div class="task-list-scroll">
       <el-table v-loading="loading" :data="collectJobs" empty-text="暂无采集任务">
             <el-table-column label="任务名称" min-width="160" show-overflow-tooltip>
-              <template #default="{ row }">{{ jobDisplayName(row) }}</template>
+              <template #default="{ row }">
+                <span>{{ jobDisplayName(row) }}</span>
+                <el-tag v-if="row._cloud_only" size="small" type="warning" class="cloud-tag">云端</el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="渠道" width="88">
               <template #default="{ row }">
@@ -126,7 +143,7 @@
             </el-table-column>
             <el-table-column label="状态" width="108">
               <template #default="{ row }">
-                <CollectJobStatusTag :row="row" @continue="onStartCollect" />
+                <CollectJobStatusTag :row="row" @continue="onContinueCollect(row)" />
               </template>
             </el-table-column>
             <el-table-column prop="video_count" label="视频数" width="72" align="right" />
@@ -184,8 +201,8 @@ import {
   collectJobRegionLabel,
   computeExtensionDashboard,
   extensionJobTargetCount,
-  loadCollectJobForModal,
 } from "../../utils/extensionCollectJobs";
+import { isAutoCloudTask, loadCloudRecoveryJobs, loadTaskForModal } from "../../cloud-sync";
 import { alertOutreachRiskIfZero } from "../../utils/outreachRisk";
 import {
   getExtensionSetupStatus,
@@ -200,6 +217,7 @@ const launchingExtension = ref(false);
 const desktopMode = ref(false);
 const extensionSetup = ref({ message: "" });
 const collectJobs = ref([]);
+const recoveryBanner = ref({ show: false, cloudOnlyCount: 0 });
 const bridgeStatus = ref({ connected_clients: 0 });
 const createCollectOpen = ref(false);
 let pollTimer = null;
@@ -248,7 +266,7 @@ async function openCollectData(row, view = "all") {
   outreachLoading.value = true;
   outreachJob.value = null;
   try {
-    outreachJob.value = await loadCollectJobForModal(row);
+    outreachJob.value = await loadTaskForModal(row);
   } catch (err) {
     outreachOpen.value = false;
     ElMessage.error(err?.response?.data?.error || err?.message || "加载采集数据失败");
@@ -263,12 +281,21 @@ function platformLabel(platform) {
 }
 
 function onCollectJobAction(row, action) {
+  if (row?._cloud_only) {
+    if (action === "view") openCollectData(row, "all");
+    return;
+  }
   if (action === "view") openCollectData(row, "all");
   else if (action === "run_logs") openRunLogs(row);
   else if (action === "evaluate") onEvaluateCollect(row);
   else if (action === "start") onStartCollect(row);
   else if (action === "pause") onPauseCollect(row);
   else if (action === "delete") onDeleteCollect(row);
+}
+
+function onContinueCollect(row) {
+  if (row?._cloud_only) return;
+  onStartCollect(row);
 }
 
 function openRunLogs(row) {
@@ -336,9 +363,15 @@ async function refreshAll({ silent = false } = {}) {
   try {
     const [status, jobs] = await Promise.all([fetchBridgeStatus(), listCollectJobs()]);
     bridgeStatus.value = status;
-    collectJobs.value = (Array.isArray(jobs) ? jobs : []).filter(
-      (row) => row.job_type !== "manual",
-    );
+    const localJobs = (Array.isArray(jobs) ? jobs : []).filter((row) => row.job_type !== "manual");
+    const { merged, recovery } = await loadCloudRecoveryJobs(localJobs, {
+      cloudTaskFilter: isAutoCloudTask,
+    });
+    collectJobs.value = merged;
+    recoveryBanner.value = {
+      show: recovery.showBanner,
+      cloudOnlyCount: recovery.cloudOnlyCount,
+    };
   } catch (err) {
     if (!silent) {
       ElMessage.error(err?.response?.data?.error || err?.message || "连接 local-service 失败");
@@ -363,7 +396,7 @@ function schedulePoll() {
 }
 
 async function onStartCollect(row) {
-  if (!row?.id) return;
+  if (!row?.id || row?._cloud_only) return;
   const previousStatus = row.status;
   /** 运行中点「重新启动」= 完整搜索；暂停/失败/完成未满 = 接续 */
   const freshStart = previousStatus === "running";
@@ -495,6 +528,11 @@ onUnmounted(() => {
 
 .panel-block {
   width: 100%;
+}
+
+.cloud-tag {
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 .quota-hint {

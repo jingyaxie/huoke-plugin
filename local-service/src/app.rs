@@ -11,6 +11,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::api;
 use crate::capture::CaptureService;
+use crate::cloud_sync;
 use crate::config::AppConfig;
 use crate::db::Database;
 use crate::job_run::JobRunRegistry;
@@ -65,7 +66,7 @@ pub fn build_app_state(config: &AppConfig) -> AppState {
 }
 
 pub fn build_router(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/health", get(api::health))
         .route("/ws", get(ws_handler))
         .route("/bridge/status", get(api::bridge_status))
@@ -155,13 +156,14 @@ pub fn build_router(state: AppState) -> Router {
             "/api/plugin-lab/actions/:action_id",
             post(api::plugin_lab::run_action),
         )
-        .with_state(state)
+        .with_state(state.clone())
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
                 .allow_methods(Any)
                 .allow_headers(Any),
-        )
+        );
+    cloud_sync::bootstrap(router, &state)
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {

@@ -6,17 +6,19 @@
     <template #dropdown>
       <el-dropdown-menu>
         <el-dropdown-item command="view">查看数据</el-dropdown-item>
-        <el-dropdown-item command="run_logs">运行日志</el-dropdown-item>
-        <el-dropdown-item command="evaluate" :disabled="!canEvaluate">
-          评估评论
-        </el-dropdown-item>
-        <el-dropdown-item command="start" :disabled="!canStart">
-          {{ startLabel }}
-        </el-dropdown-item>
-        <el-dropdown-item command="pause" :disabled="!canPause">暂停</el-dropdown-item>
-        <el-dropdown-item v-if="canDelete" command="delete" divided>
-          <span class="danger-text">删除</span>
-        </el-dropdown-item>
+        <template v-if="!readOnly">
+          <el-dropdown-item command="run_logs">运行日志</el-dropdown-item>
+          <el-dropdown-item command="evaluate" :disabled="!canEvaluate">
+            评估评论
+          </el-dropdown-item>
+          <el-dropdown-item command="start" :disabled="!canStart">
+            {{ startLabel }}
+          </el-dropdown-item>
+          <el-dropdown-item command="pause" :disabled="!canPause">暂停</el-dropdown-item>
+          <el-dropdown-item v-if="canDelete" command="delete" divided>
+            <span class="danger-text">删除</span>
+          </el-dropdown-item>
+        </template>
       </el-dropdown-menu>
     </template>
   </el-dropdown>
@@ -31,6 +33,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["action"]);
+
+const readOnly = computed(() => Boolean(props.row?._cloud_only));
 
 function jobTargetCount(row) {
   const fromConfig = Number(row?.config?.target_count);

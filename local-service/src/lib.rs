@@ -2,6 +2,7 @@ pub mod api;
 pub mod app;
 pub mod bundle_info;
 pub mod capture;
+pub mod cloud_sync;
 pub mod config;
 pub mod db;
 pub mod douyin;

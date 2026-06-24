@@ -133,6 +133,7 @@ import TaskInteractionFields from "./TaskInteractionFields.vue";
 import TaskPresetSelect from "./TaskPresetSelect.vue";
 import TaskEvaluationSection from "./TaskEvaluationSection.vue";
 import { createCollectJob, fetchCollectCapabilities } from "../api/localService";
+import { registerCollectJobToCloud } from "../cloud-sync";
 import { mergeExtensionCapabilities, isExtensionCollectPlatform } from "../config/extensionPlatformCapabilities";
 import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/presets";
 import {
@@ -351,8 +352,29 @@ async function submit() {
       evaluation: evaluationPayload(taskName),
       auto_start: form.autoStart,
     });
+    const cloudLink = await registerCollectJobToCloud({
+      localJob: result?.job,
+      jobType: "manual",
+      intent,
+      inputUrl,
+      commentDays: form.commentDays,
+      publishTimeRange: form.publishTimeRange,
+      targetCount: intent === "single_video"
+        ? maxCommentsPerVideo
+        : limitVideos * maxCommentsPerVideo,
+      evaluation: evaluationPayload(taskName),
+      interaction: settings.value,
+      commentPresets: commentPresetPayload,
+      dmPresets: dmPresetPayload,
+    });
     ElMessage.success(
-      result?.started ? "任务已创建并开始采集" : "任务已创建，请在列表中点击「开始采集」",
+      result?.started
+        ? cloudLink.linked
+          ? "任务已创建并开始采集，已同步到云端"
+          : "任务已创建并开始采集"
+        : cloudLink.linked
+          ? "任务已创建并同步到云端，请在列表中点击「开始采集」"
+          : "任务已创建，请在列表中点击「开始采集」",
     );
     visible.value = false;
     emit("created");
