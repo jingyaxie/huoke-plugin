@@ -22,10 +22,12 @@
       :launching="launching"
       @launch="$emit('launch')"
       @open-folder="$emit('open-folder')"
+      @reloaded="$emit('reloaded')"
     />
 
     <ExtensionSetupGuide
       :can-launch="canLaunch"
+      :bridge-connected="bridgeConnected"
       :runtime-path="runtimePath"
       :bundle-path="bundlePath"
       :launching="launching"
@@ -33,6 +35,7 @@
       @launch="$emit('launch')"
       @open-folder="$emit('open-folder')"
       @refresh="$emit('refresh')"
+      @reloaded="$emit('reloaded')"
     />
   </el-card>
 </template>
@@ -44,6 +47,7 @@ import ExtensionSetupGuide from "./ExtensionSetupGuide.vue";
 import ExtensionVersionAlert from "./ExtensionVersionAlert.vue";
 import { EXTENSION_PLATFORM_LOGIN_CARDS } from "../config/extensionPlatformCapabilities";
 import { isTauriApp } from "../utils/desktopApp";
+import { resolveBridgeClientCount } from "../utils/bridgeStatus";
 
 const props = defineProps({
   bridgeStatus: { type: Object, default: () => ({}) },
@@ -52,10 +56,14 @@ const props = defineProps({
   checking: { type: Boolean, default: false },
 });
 
-defineEmits(["launch", "open-folder", "refresh"]);
+defineEmits(["launch", "open-folder", "refresh", "reloaded"]);
 
 const platforms = EXTENSION_PLATFORM_LOGIN_CARDS;
 const canLaunch = computed(() => isTauriApp());
+
+const bridgeConnected = computed(
+  () => resolveBridgeClientCount(props.bridgeStatus, props.extensionSetup) > 0,
+);
 
 const runtimePath = computed(() => {
   const path = props.extensionSetup?.extensionPath || "";

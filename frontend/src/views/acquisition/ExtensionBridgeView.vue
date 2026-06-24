@@ -9,6 +9,10 @@
       <div class="header-actions">
         <el-tag :type="bridgeTagType">{{ bridgeLabel }}</el-tag>
         <el-button type="primary" class="create-btn" @click="createCollectOpen = true">+ 创建任务</el-button>
+        <ExtensionReloadButton
+          :connected="Number(bridgeStatus.connected_clients || 0) > 0"
+          @reloaded="refreshAll"
+        />
         <el-button @click="refreshAll" :loading="loading">刷新</el-button>
       </div>
     </header>
@@ -35,9 +39,10 @@
           </p>
         </template>
         <template v-else>
-          请确认：① 已在 <code>chrome://extensions</code> 加载 <code>extension/dist</code> 并重新加载；
+          请确认：① 已在 <code>chrome://extensions</code> 加载 <code>extension/dist</code>；
           ② 插件图标角标为 <strong>OK</strong>；
           ③ 本地服务已启动（<code>npm run dev</code>，端口 18766）。
+          若已加载仍异常，连接成功后点上方「重新加载插件」。
           也可先到
           <router-link to="/platform-login">平台登录</router-link>
           页在 Chrome 打开抖音并登录。
@@ -54,6 +59,7 @@
       :launching="launchingExtension"
       @launch="onLaunchChromeExtension"
       @open-folder="onOpenExtensionFolder"
+      @reloaded="refreshAll"
     />
 
     <AcquisitionStatsCards :data="dashboard" :loading="loading" class="panel-block" />
@@ -155,6 +161,7 @@ import AcquisitionStatsCards from "../../components/AcquisitionStatsCards.vue";
 import CollectJobRowActions from "../../components/CollectJobRowActions.vue";
 import CollectJobStatusTag from "../../components/CollectJobStatusTag.vue";
 import CreateExtensionAutoTaskDialog from "../../components/CreateExtensionAutoTaskDialog.vue";
+import ExtensionReloadButton from "../../components/ExtensionReloadButton.vue";
 import ExtensionVersionAlert from "../../components/ExtensionVersionAlert.vue";
 import MetricLink from "../../components/MetricLink.vue";
 import {

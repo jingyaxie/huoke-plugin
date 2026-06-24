@@ -13,7 +13,17 @@
         <el-button type="primary" size="small" :loading="launching" @click="$emit('launch')">
           启动浏览器插件
         </el-button>
+        <ExtensionReloadButton
+          v-if="bridgeConnected"
+          size="small"
+          :connected="true"
+          @reloaded="$emit('reloaded')"
+        />
         <el-button size="small" @click="$emit('open-folder')">打开插件目录</el-button>
+        <el-button size="small" :loading="checking" @click="$emit('refresh')">检测连接</el-button>
+      </div>
+      <div v-else-if="bridgeConnected" class="guide-actions">
+        <ExtensionReloadButton size="small" :connected="true" @reloaded="$emit('reloaded')" />
         <el-button size="small" :loading="checking" @click="$emit('refresh')">检测连接</el-button>
       </div>
 
@@ -51,16 +61,18 @@
 <script setup>
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
+import ExtensionReloadButton from "./ExtensionReloadButton.vue";
 
 defineProps({
   canLaunch: { type: Boolean, default: false },
+  bridgeConnected: { type: Boolean, default: false },
   runtimePath: { type: String, default: "" },
   bundlePath: { type: String, default: "" },
   launching: { type: Boolean, default: false },
   checking: { type: Boolean, default: false },
 });
 
-defineEmits(["launch", "open-folder", "refresh"]);
+defineEmits(["launch", "open-folder", "refresh", "reloaded"]);
 
 const activeNames = ref(["guide"]);
 

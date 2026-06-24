@@ -30,6 +30,38 @@ export async function fetchBridgeStatus() {
   return data;
 }
 
+/** 通知 Chrome 插件执行 chrome.runtime.reload()（须插件 Background 仍在线） */
+export async function reloadChromeExtension() {
+  const { data } = await localService.post("/bridge/command", {
+    action: "huoke.extension.reload",
+    payload: {},
+    wait: true,
+    timeout_ms: 10000,
+  });
+  if (data.error) {
+    throw new Error(data.error);
+  }
+  return data.result ?? data;
+}
+
+/** Reload 后轮询 bridge，直到插件重新连上 local-service */
+export async function waitForBridgeReconnect(maxAttempts = 24, intervalMs = 500) {
+  for (let i = 0; i < maxAttempts; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    try {
+      const status = await fetchBridgeStatus();
+      if (Number(status.connected_clients || status.extension_clients || 0) > 0) {
+        return status;
+      }
+    } catch {
+      // extension reconnecting
+    }
+  }
+  throw new Error(
+    "插件重载后未在预期时间内重新连接，请到 chrome://extensions 手动重新加载 Huoke 扩展",
+  );
+}
+
 export async function fetchReplyQuota() {
   const { data } = await localService.get("/api/douyin/quota");
   return data;

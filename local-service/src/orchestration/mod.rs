@@ -388,7 +388,9 @@ impl JobOrchestrator {
 
         // 复用平台工作窗（左侧半屏），与关键词任务一致；无工作窗时 open_browser 会新建
         lab.open_url(&open_url).await?;
-        self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
+        self.wait_if_not_paused(job_id, Duration::from_secs(1)).await?;
+        lab.reload_extension_after_browser_open().await?;
+        self.wait_if_not_paused(job_id, Duration::from_secs(1)).await?;
         lab.enable_network_hook().await?;
         self.wait_if_not_paused(job_id, Duration::from_secs(4)).await?;
 
@@ -856,7 +858,9 @@ impl JobOrchestrator {
 
         info!("job {job_id}: open douyin video detail (single_video, not feed)");
         let open_resp = lab.open_douyin_video_detail(open_url).await?;
-        self.wait_if_not_paused(job_id, Duration::from_secs(3)).await?;
+        self.wait_if_not_paused(job_id, Duration::from_secs(1)).await?;
+        lab.reload_extension_after_browser_open().await?;
+        self.wait_if_not_paused(job_id, Duration::from_secs(1)).await?;
         lab.enable_network_hook().await?;
         self.wait_if_not_paused(job_id, Duration::from_millis(1500)).await?;
 

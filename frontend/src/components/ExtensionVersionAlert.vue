@@ -21,17 +21,27 @@
       <el-button type="primary" size="small" :loading="launching" @click="$emit('launch')">
         启动浏览器插件
       </el-button>
+      <ExtensionReloadButton
+        size="small"
+        :connected="bridgeConnected"
+        @reloaded="$emit('reloaded')"
+      />
       <el-button size="small" @click="$emit('open-folder')">打开插件目录</el-button>
     </div>
+    <div v-else-if="bridgeConnected" class="version-actions">
+      <ExtensionReloadButton size="small" :connected="true" @reloaded="$emit('reloaded')" />
+    </div>
     <p class="version-hint">
-      若仍提示不匹配，请到 <code>chrome://extensions</code> 对 Huoke 插件点击「重新加载」，或重新安装最新 App。
+      若仍提示不匹配，可点「重新加载插件」，或到 <code>chrome://extensions</code> 手动重新加载。
     </p>
   </el-alert>
 </template>
 
 <script setup>
 import { computed } from "vue";
+import ExtensionReloadButton from "./ExtensionReloadButton.vue";
 import { resolveExtensionVersionStatus } from "../utils/extensionVersion";
+import { resolveBridgeClientCount } from "../utils/bridgeStatus";
 
 const props = defineProps({
   bridgeStatus: { type: Object, default: () => ({}) },
@@ -40,10 +50,14 @@ const props = defineProps({
   launching: { type: Boolean, default: false },
 });
 
-defineEmits(["launch", "open-folder"]);
+defineEmits(["launch", "open-folder", "reloaded"]);
 
 const versionStatus = computed(() =>
   resolveExtensionVersionStatus(props.bridgeStatus, props.extensionSetup),
+);
+
+const bridgeConnected = computed(
+  () => resolveBridgeClientCount(props.bridgeStatus, props.extensionSetup) > 0,
 );
 </script>
 

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::platforms::PlatformCollectAdapter;
 use crate::plugin_lab;
@@ -25,6 +25,55 @@ impl<'a> LabCommands<'a> {
 
     fn adapter(&self) -> &'static dyn PlatformCollectAdapter {
         crate::platforms::get_platform_adapter(&self.platform)
+    }
+
+    /// 打开浏览器后、开始采集前：reload 插件以确保 content script 就绪，并重新聚焦工作窗。
+    pub async fn reload_extension_after_browser_open(&self) -> Result<(), String> {
+        if self.hub.extension_client_count() == 0 {
+            return Err(
+                "no extension connected — load extension/dist before starting collect".into(),
+            );
+        }
+
+        info!(
+            "reload extension after browser open (platform={})",
+            self.platform
+        );
+
+        match self
+            .hub
+            .request_command("huoke.extension.reload", json!({}), Duration::from_secs(10))
+            .await
+        {
+            Ok(_) => info!("extension reload acknowledged"),
+            Err(err) => {
+                warn!("extension reload command ended: {err} — waiting for reconnect…");
+            }
+        }
+
+        self.hub
+            .wait_for_extension_reconnect(Duration::from_secs(25))
+            .await?;
+        simulate::pause(Duration::from_secs(2)).await;
+
+        let platform = self.platform.clone();
+        match self
+            .action(
+                "open_browser",
+                json!({
+                    "platform": platform,
+                    "reuse_existing": true,
+                    "reset_to_start": false,
+                    "wait_load": true,
+                }),
+            )
+            .await
+        {
+            Ok(_) => {}
+            Err(err) => warn!("refocus browser after reload failed: {err}"),
+        }
+        simulate::pause(Duration::from_millis(800)).await;
+        Ok(())
     }
 
     pub async fn enable_network_hook(&self) -> Result<(), String> {
@@ -96,7 +145,7 @@ impl<'a> LabCommands<'a> {
         if !open_err.is_empty() {
             return Err(open_err);
         }
-        simulate::pause(Duration::from_secs(3)).await;
+        self.reload_extension_after_browser_open().await?;
 
         const MAX_SEARCH_ATTEMPTS: u32 = 4;
         let mut last_err = String::new();

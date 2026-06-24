@@ -9,6 +9,11 @@
       </div>
       <div class="header-actions">
         <el-tag :type="bridgeTagType">{{ bridgeLabel }}</el-tag>
+        <ExtensionReloadButton
+          :connected="bridgeConnected"
+          size="small"
+          @reloaded="refreshAll"
+        />
         <el-button size="small" @click="checkBridge" :loading="checking">检测连接</el-button>
       </div>
     </header>
@@ -21,6 +26,7 @@
       @launch="onLaunchChromeExtension"
       @open-folder="onOpenExtensionFolder"
       @refresh="refreshAll"
+      @reloaded="refreshAll"
     />
   </div>
 </template>
@@ -29,6 +35,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import PlatformBrowserPanel from "../../components/PlatformBrowserPanel.vue";
+import ExtensionReloadButton from "../../components/ExtensionReloadButton.vue";
 import { fetchBridgeStatus } from "../../api/localService";
 import {
   getExtensionSetupStatus,

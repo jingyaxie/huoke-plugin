@@ -222,6 +222,29 @@ impl BridgeHub {
         info!("bridge hub runtime reset (extension_clients={extension_count})");
     }
 
+    /// 等待插件在 reload 后重新连上 WebSocket（chrome.runtime.reload 会先断连再重连）。
+    pub async fn wait_for_extension_reconnect(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        loop {
+            if self.extension_client_count() > 0 {
+                info!("extension reconnected after reload");
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        Err(
+            "extension did not reconnect after reload — use 重新加载插件 in the app or chrome://extensions"
+                .into(),
+        )
+    }
+
     fn kick_client(client: &BridgeClient) {
         let frame = axum::extract::ws::CloseFrame {
             code: 4000,
