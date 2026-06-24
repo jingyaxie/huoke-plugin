@@ -59,6 +59,21 @@ impl BridgeMessage {
             payload: Value::Object(Default::default()),
         }
     }
+
+    pub fn command_cancelled(command_id: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            v: PROTOCOL_VERSION,
+            msg_type: MessageType::Error,
+            id: command_id.into(),
+            ts: chrono_now_ms(),
+            platform: None,
+            action: "cancelled".into(),
+            payload: serde_json::json!({
+                "ok": false,
+                "error": reason.into(),
+            }),
+        }
+    }
 }
 
 fn chrono_now_ms() -> i64 {

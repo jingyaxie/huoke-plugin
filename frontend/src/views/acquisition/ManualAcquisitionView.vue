@@ -240,6 +240,7 @@ function schedulePoll() {
 async function onStartCollect(row) {
   if (!row?.id) return;
   const previousStatus = row.status;
+  const freshStart = previousStatus === "running";
   const idx = allJobs.value.findIndex((item) => item.id === row.id);
   if (idx >= 0) {
     allJobs.value[idx] = {
@@ -254,7 +255,7 @@ async function onStartCollect(row) {
     duration: 0,
   });
   try {
-    await startCollectJob(row.id);
+    await startCollectJob(row.id, { freshStart });
     loadingMsg.close();
     ElMessage.success(collectJobStartSuccessMessage(previousStatus));
     await refreshAll({ silent: true });

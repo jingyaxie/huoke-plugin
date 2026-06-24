@@ -39,6 +39,13 @@ export async function reloadChromeExtension() {
     timeout_ms: 10000,
   });
   if (data.error) {
+    // reload 会断开 SW；若回包竞态丢失，插件仍可能已成功重载
+    if (
+      data.action === "huoke.extension.reload" &&
+      String(data.error).includes("command timeout")
+    ) {
+      return { reloaded: true, ackTimeout: true };
+    }
     throw new Error(data.error);
   }
   return data.result ?? data;
@@ -87,8 +94,15 @@ export async function createCollectJob(payload) {
   return data;
 }
 
-export async function startCollectJob(jobId) {
-  const { data } = await localService.post(`/api/douyin/jobs/${jobId}/start`);
+/** @param {{ freshStart?: boolean }} [options] freshStart=true 时走完整搜索，不接续 */
+export async function startCollectJob(jobId, options = {}) {
+  const { freshStart } = options;
+  const body =
+    freshStart === undefined ? undefined : { fresh_start: Boolean(freshStart) };
+  const { data } = await localService.post(
+    `/api/douyin/jobs/${jobId}/start`,
+    body,
+  );
   return data;
 }
 

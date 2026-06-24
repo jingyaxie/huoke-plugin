@@ -200,8 +200,15 @@ impl BridgeHub {
     /// 取消所有进行中的插件命令，使等待中的 `request_command` 尽快失败退出。
     pub async fn cancel_pending_commands(&self) -> usize {
         let mut pending = self.inner.pending.lock().await;
-        let dropped = pending.len();
-        pending.clear();
+        let entries: Vec<_> = pending.drain().collect();
+        let dropped = entries.len();
+        for (command_id, tx) in entries {
+            let msg = BridgeMessage::command_cancelled(
+                command_id,
+                "command cancelled (job paused or stopped)",
+            );
+            let _ = tx.send(msg).await;
+        }
         dropped
     }
 

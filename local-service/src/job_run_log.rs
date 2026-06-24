@@ -227,6 +227,7 @@ fn summarize_result(value: &Value) -> Option<Value> {
         "previous_aweme_id",
         "method",
         "has_next_button",
+        "pager_button_disabled",
         "count",
         "found",
         "sidebar_ready",

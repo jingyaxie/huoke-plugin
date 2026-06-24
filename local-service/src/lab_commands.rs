@@ -4,18 +4,22 @@ use serde_json::{json, Value};
 
 use tracing::{info, warn};
 
-use crate::db::Database;
+use crate::db::{Database, JobStatus};
+use crate::job_run::JobRunRegistry;
 use crate::job_run_log::{log_bridge_command, log_lab_action};
 use crate::platforms::PlatformCollectAdapter;
 use crate::plugin_lab;
 use crate::simulate;
 use crate::ws::BridgeHub;
 
+const JOB_PAUSED: &str = "__job_paused__";
+
 /// 任务编排统一走插件实验室已验证步骤（`plugin_lab.*`），不再调用 legacy `douyin.*` UI 命令。
 pub struct LabCommands<'a> {
     hub: &'a BridgeHub,
     platform: String,
     run_log: Option<(Database, String, u64)>,
+    pause: Option<(Database, JobRunRegistry, String, u64)>,
 }
 
 impl<'a> LabCommands<'a> {
@@ -24,6 +28,7 @@ impl<'a> LabCommands<'a> {
             hub,
             platform: crate::platforms::normalize_platform(platform).to_string(),
             run_log: None,
+            pause: None,
         }
     }
 
@@ -32,11 +37,47 @@ impl<'a> LabCommands<'a> {
         self
     }
 
+    pub fn with_pause(
+        mut self,
+        db: Database,
+        job_runs: JobRunRegistry,
+        job_id: impl Into<String>,
+        generation: u64,
+    ) -> Self {
+        self.pause = Some((db, job_runs, job_id.into(), generation));
+        self
+    }
+
+    fn check_paused(&self) -> Result<(), String> {
+        let Some((db, runs, job_id, generation)) = &self.pause else {
+            return Ok(());
+        };
+        if !runs.is_current(job_id, *generation) {
+            return Err(JOB_PAUSED.into());
+        }
+        if db.get_job(job_id)?.status == JobStatus::Paused {
+            return Err(JOB_PAUSED.into());
+        }
+        Ok(())
+    }
+
+    async fn pause_aware_wait(&self, duration: Duration) -> Result<(), String> {
+        let step = Duration::from_millis(400);
+        let mut remaining = duration;
+        while remaining > Duration::ZERO {
+            self.check_paused()?;
+            let chunk = remaining.min(step);
+            simulate::pause(chunk).await;
+            remaining = remaining.saturating_sub(chunk);
+        }
+        Ok(())
+    }
+
     fn adapter(&self) -> &'static dyn PlatformCollectAdapter {
         crate::platforms::get_platform_adapter(&self.platform)
     }
 
-    /// 打开浏览器后、开始采集前：reload 插件以确保 content script 就绪，并重新聚焦工作窗。
+    /// 打开浏览器后、开始采集前：仅在 content script 不可用时 reload 插件（避免每次任务整页刷新）。
     pub async fn reload_extension_after_browser_open(&self) -> Result<(), String> {
         if self.hub.extension_client_count() == 0 {
             return Err(
@@ -120,15 +161,17 @@ impl<'a> LabCommands<'a> {
         publish_days: i64,
         fetch_results: bool,
     ) -> Result<Value, String> {
+        self.check_paused()?;
         let platform = self.platform.clone();
         // 清理上次任务遗留的独立窗 / Feed 浮层 / 工作窗 /video/ 页，避免无法输入搜索
         let _ = self.close_video_detail().await;
-        simulate::pause(Duration::from_millis(600)).await;
+        self.pause_aware_wait(Duration::from_millis(600)).await?;
 
         // 1 打开 → 3~7 搜索 →（可选）4~5 筛选 → 8 抓结果（有筛选时先筛后抓）
         const MAX_OPEN_ATTEMPTS: u32 = 3;
         let mut open_err = String::new();
         for attempt in 1..=MAX_OPEN_ATTEMPTS {
+            self.check_paused()?;
             match self
                 .action(
                     "open_browser",
@@ -148,7 +191,7 @@ impl<'a> LabCommands<'a> {
                     open_err = err;
                     if attempt < MAX_OPEN_ATTEMPTS {
                         warn!("open_browser attempt {attempt} failed: {open_err}, retrying…");
-                        simulate::pause(Duration::from_secs(3)).await;
+                        self.pause_aware_wait(Duration::from_secs(3)).await?;
                     }
                 }
             }
@@ -156,12 +199,12 @@ impl<'a> LabCommands<'a> {
         if !open_err.is_empty() {
             return Err(open_err);
         }
-        self.reload_extension_after_browser_open().await?;
 
         const MAX_SEARCH_ATTEMPTS: u32 = 4;
         let mut last_err = String::new();
         let mut search_ready = false;
         for attempt in 1..=MAX_SEARCH_ATTEMPTS {
+            self.check_paused()?;
             match self
                 .action("find_search_box", json!({ "platform": platform }))
                 .await
@@ -186,7 +229,7 @@ impl<'a> LabCommands<'a> {
             }
             if attempt < MAX_SEARCH_ATTEMPTS {
                 warn!("find_search_box attempt {attempt} failed: {last_err}, retrying…");
-                simulate::pause(Duration::from_secs(4)).await;
+                self.pause_aware_wait(Duration::from_secs(4)).await?;
             }
         }
         if !search_ready {
@@ -197,6 +240,7 @@ impl<'a> LabCommands<'a> {
             });
         }
 
+        self.check_paused()?;
         self.action(
             "input_search_text",
             json!({
@@ -207,7 +251,7 @@ impl<'a> LabCommands<'a> {
         )
         .await?;
 
-        simulate::pause(Duration::from_millis(400)).await;
+        self.pause_aware_wait(Duration::from_millis(400)).await?;
 
         // hook 必须在点击搜索之前开启，否则首屏 search API 抓不到
         self.enable_network_hook().await?;
@@ -233,22 +277,27 @@ impl<'a> LabCommands<'a> {
                 }
                 Err(err) => warn!("ensure_search_multi_column failed: {err}"),
             }
-            simulate::pause(Duration::from_millis(if fetch_results { 800 } else { 300 })).await;
+            self.pause_aware_wait(Duration::from_millis(if fetch_results {
+                800
+            } else {
+                300
+            }))
+            .await?;
         }
 
         // Feed 模式刚提交搜索，列表通常 1~2s 内就绪；列表模式仍多等一会
-        simulate::pause(if fetch_results {
+        self.pause_aware_wait(if fetch_results {
             Duration::from_secs(5)
         } else {
             Duration::from_millis(1200)
         })
-        .await;
+        .await?;
 
         if publish_days > 0 {
             if let Err(e) = self.action("click_filter_btn", json!({})).await {
                 warn!("click_filter_btn failed: {e}");
             }
-            simulate::pause(Duration::from_millis(500)).await;
+            self.pause_aware_wait(Duration::from_millis(500)).await?;
             if let Err(e) = self
                 .action(
                     "click_filter_overlay",
@@ -258,22 +307,22 @@ impl<'a> LabCommands<'a> {
             {
                 warn!("click_filter_overlay failed: {e}");
             }
-            simulate::pause(if fetch_results {
+            self.pause_aware_wait(if fetch_results {
                 Duration::from_secs(2)
             } else {
                 Duration::from_millis(800)
             })
-            .await;
+            .await?;
         }
 
         // 列表抓取模式：筛选后需重新 hook；Feed 模式搜索前已 hook，直接进播放页
         if fetch_results {
             self.enable_network_hook().await?;
-            simulate::pause(Duration::from_millis(800)).await;
+            self.pause_aware_wait(Duration::from_millis(800)).await?;
 
             if platform == "douyin" {
                 let _ = self.action("ensure_search_multi_column", json!({})).await;
-                simulate::pause(Duration::from_millis(400)).await;
+                self.pause_aware_wait(Duration::from_millis(400)).await?;
             }
         }
 
@@ -284,6 +333,7 @@ impl<'a> LabCommands<'a> {
             }));
         }
 
+        self.check_paused()?;
         let search_payload = match self
             .action(
                 "fetch_search_results",
@@ -309,9 +359,10 @@ impl<'a> LabCommands<'a> {
 
     /// 继续采集：关闭 Feed/详情，聚焦已有标签页并回到搜索结果，不重新输入关键词。
     pub async fn prepare_keyword_collect_resume(&self) -> Result<(), String> {
+        self.check_paused()?;
         let platform = self.platform.clone();
         let _ = self.close_video_detail().await;
-        simulate::pause(Duration::from_millis(600)).await;
+        self.pause_aware_wait(Duration::from_millis(600)).await?;
 
         self.action(
             "open_browser",
@@ -322,13 +373,13 @@ impl<'a> LabCommands<'a> {
             }),
         )
         .await?;
-        simulate::pause(Duration::from_secs(2)).await;
+        self.pause_aware_wait(Duration::from_secs(2)).await?;
 
         self.enable_network_hook().await?;
-        simulate::pause(Duration::from_millis(800)).await;
+        self.pause_aware_wait(Duration::from_millis(800)).await?;
 
         let _ = self.scroll_search_list_to_top().await;
-        simulate::pause(Duration::from_millis(800)).await;
+        self.pause_aware_wait(Duration::from_millis(800)).await?;
         Ok(())
     }
 
@@ -911,6 +962,15 @@ impl<'a> LabCommands<'a> {
             .hub
             .request_command(bridge_action, normalized, action_timeout(action_id))
             .await;
+        let result = match &result {
+            Err(err) if err.contains("command cancelled") => {
+                if let Err(pause_err) = self.check_paused() {
+                    return Err(pause_err);
+                }
+                result
+            }
+            _ => result,
+        };
         if let Some((db, job_id, run_id)) = &self.run_log {
             match &result {
                 Ok(v) => log_lab_action(db, job_id, *run_id, action_id, &payload, Ok(v)),

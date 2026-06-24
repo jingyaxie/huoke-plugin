@@ -13,6 +13,9 @@ import {
 } from "./search-feed-open";
 import { humanClick, isVisible, randDelay, sleep } from "./search-input";
 
+/** 临时关闭右侧翻页按钮，仅用手势/键盘测试滑动稳定性 */
+const USE_FEED_PAGER_BUTTON = false;
+
 /** 搜索 Feed 右侧「下一个」下箭头 SVG path 特征（viewBox 0 0 26 26） */
 const FEED_NEXT_ARROW_PATH_MARKERS = [
   "M7.26904 9.29059",
@@ -232,7 +235,8 @@ async function wheelFeedNext(feed: HTMLElement) {
   const segments = randDelay(6, 9);
   const perStep = Math.max(48, Math.round(total / segments));
   for (let i = 0; i < segments; i += 1) {
-    dispatchWheelAt(feed, perStep + randDelay(-8, 12));
+    // 正 deltaY = 滚轮向下 = Feed 内容向上 = 下一个视频
+    dispatchWheelAt(feed, perStep);
     await sleep(randDelay(55, 110));
   }
 }
@@ -440,7 +444,7 @@ export async function swipeSearchFeedNext() {
   const target = resolveFeedSwipeTarget();
   await focusFeedPlayer(target);
 
-  const hasNextButton = hasFeedNextVideoButton();
+  const hasNextButton = USE_FEED_PAGER_BUTTON && hasFeedNextVideoButton();
   if (hasNextButton) {
     const arrow = await tryFeedNextViaArrowButton(before, target);
     if (arrow.ok && arrow.after && arrow.after !== before) {
@@ -461,27 +465,16 @@ export async function swipeSearchFeedNext() {
     }
   }
 
-  const methods: Array<() => Promise<void>> = [
-    async () => {
-      dispatchKey(target, "ArrowDown", "ArrowDown");
-      dispatchKey(document, "PageDown", "PageDown");
-      await wheelFeedNext(target);
-    },
-    async () => {
-      await pointerDragFeedNext(target);
-      await wheelFeedNext(target);
-    },
-    async () => {
-      dispatchKey(document, "ArrowDown", "ArrowDown");
-      await sleep(randDelay(120, 220));
-      await pointerDragFeedNext(target);
-    },
+  // 每种方式单独尝试，避免同一次里混用手势+滚轮+按键导致方向反复
+  const methods: Array<{ run: () => Promise<void>; name: string }> = [
+    { run: async () => pointerDragFeedNext(target), name: "pointer_up" },
+    { run: async () => dispatchKey(target, "ArrowDown", "ArrowDown"), name: "arrow_down" },
+    { run: async () => wheelFeedNext(target), name: "wheel_down" },
   ];
 
-  const methodNames = ["wheel_key", "pointer_wheel", "pointer_key"] as const;
-
   for (let attempt = 1; attempt <= methods.length; attempt += 1) {
-    await methods[attempt - 1]();
+    await methods[attempt - 1].run();
+    await sleep(randDelay(280, 420));
     const after = await waitForFeedAwemeChange(before, 3500);
     if (after && after !== before) {
       return {
@@ -489,13 +482,12 @@ export async function swipeSearchFeedNext() {
         is_search_feed: true,
         aweme_id: after,
         previous_aweme_id: before,
-        attempt: attempt + 1,
-        method: methodNames[attempt - 1] ?? "unknown",
-        has_next_button: hasNextButton,
+        attempt,
+        method: methods[attempt - 1].name,
+        has_next_button: false,
+        pager_button_disabled: true,
         url: location.href,
-        message: hasNextButton
-          ? "翻页按钮未生效，已通过滑动切换到下一个视频"
-          : "未检测到翻页按钮，已通过滑动切换到下一个视频",
+        message: `已通过滑动切换到下一个视频（${methods[attempt - 1].name}）`,
       };
     }
   }
@@ -506,7 +498,8 @@ export async function swipeSearchFeedNext() {
     is_search_feed: feedOverlayReady(),
     aweme_id: readFeedAwemeId(),
     previous_aweme_id: before,
-    has_next_button: hasNextButton,
+    has_next_button: hasFeedNextVideoButton(),
+    pager_button_disabled: !USE_FEED_PAGER_BUTTON,
     comment_sidebar_open: sidebar.sidebar_ready,
     url: location.href,
     message: sidebar.sidebar_ready

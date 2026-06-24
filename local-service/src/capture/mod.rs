@@ -140,7 +140,7 @@ impl CaptureService {
         Ok(())
     }
 
-    pub fn spawn_job(self: Arc<Self>, job_id: String, generation: u64) {
+    pub fn spawn_job(self: Arc<Self>, job_id: String, generation: u64, fresh_start: bool) {
         orchestration::spawn_job(
             self.db.clone(),
             self.hub.clone(),
@@ -149,6 +149,7 @@ impl CaptureService {
             self.data_dir.clone(),
             job_id,
             generation,
+            fresh_start,
         );
     }
 }

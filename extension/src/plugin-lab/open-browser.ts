@@ -447,7 +447,8 @@ export async function openBrowser(payload: OpenBrowserPayload = {}): Promise<Ope
     }
     await focusTab(existing);
 
-    const shouldReset = resetToStart && !customUrl;
+    const shouldReset =
+      resetToStart && !customUrl && needsJobStartReset(existing.url, platform);
     const navigatedToCustom = Boolean(customUrl && existing.url !== customUrl);
     const navigated = navigatedToCustom || shouldReset;
 

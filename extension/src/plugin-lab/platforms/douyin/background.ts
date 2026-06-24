@@ -509,7 +509,6 @@ export async function swipeSearchFeedNextBackground(
     await sleep(humanPace.posterClick());
     await dragMouse(tabId, center.x, center.y + 150, center.x, center.y - 240, 12);
     await sleep(humanPace.posterClick());
-    await pressKey(tabId, "ArrowDown", { code: "ArrowDown" });
   });
 
   for (let i = 0; i < 14; i += 1) {
@@ -601,7 +600,6 @@ export async function swipeVideoDetailNextBackground(
     await sleep(humanPace.posterClick());
     await dragMouse(tabId, center.x, center.y + 150, center.x, center.y - 240, 12);
     await sleep(humanPace.posterClick());
-    await pressKey(tabId, "ArrowDown", { code: "ArrowDown" });
   });
 
   for (let i = 0; i < 14; i += 1) {

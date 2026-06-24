@@ -134,6 +134,12 @@ fn playback_mode_label(mode: DouyinPlaybackMode) -> &'static str {
     }
 }
 
+enum PlaybackRecoverOutcome {
+    Recovered(serde_json::Value),
+    Paused,
+    Stop(String),
+}
+
 pub struct JobOrchestrator {
     pub db: Database,
     pub hub: BridgeHub,
@@ -141,6 +147,8 @@ pub struct JobOrchestrator {
     pub job_runs: JobRunRegistry,
     pub generation: u64,
     pub data_dir: std::path::PathBuf,
+    /// true = 用户显式重新启动，走完整搜索流程；false = 继续采集（有进度则跳过搜索）
+    pub fresh_start: bool,
 }
 
 impl JobOrchestrator {
@@ -166,7 +174,14 @@ impl JobOrchestrator {
     }
 
     fn lab(&self, job_id: &str, platform: &str) -> LabCommands<'_> {
-        LabCommands::new(&self.hub, platform).with_run_log(self.db.clone(), job_id, self.generation)
+        LabCommands::new(&self.hub, platform)
+            .with_run_log(self.db.clone(), job_id, self.generation)
+            .with_pause(
+                self.db.clone(),
+                self.job_runs.clone(),
+                job_id,
+                self.generation,
+            )
     }
 
     pub async fn run_job(&self, job_id: &str) -> Result<(), String> {
@@ -428,17 +443,41 @@ impl JobOrchestrator {
 
         let lab = self.lab(job_id, &job.platform);
         let existing_progress = self.collect_progress_count(job_id)?;
-        let resume_collect = if cfg.collects_by_video_limit() {
+        let has_partial_progress = if cfg.collects_by_video_limit() {
             let videos_collected = self.db.count_scanned_videos_for_job(job_id)?;
             videos_collected > 0 && videos_collected < job.limit_videos.max(1)
         } else {
             existing_progress > 0 && existing_progress < cfg.target_count
         };
+        let resume_collect = !self.fresh_start && has_partial_progress;
         let feed_collect = job.platform == "douyin" && cfg.intent == "keyword_auto";
 
-        if resume_collect {
+        if self.fresh_start && has_partial_progress {
             info!(
-                "job {job_id}: continue collect — {} {} stored (target {}), re-run keyword search ({search_kw})",
+                "job {job_id}: fresh start — {} {} stored, run full search (skip already-collected videos during collect)",
+                existing_progress,
+                self.collect_progress_label(),
+            );
+            self.log_step(
+                job_id,
+                "fresh_start",
+                "重新启动采集",
+                StepStatus::Info,
+                "用户重新启动任务，从完整搜索流程开始；已采集的视频/评论仍会跳过不重复采",
+                Some(serde_json::json!({
+                    "progress": existing_progress,
+                    "target": cfg.target_count,
+                    "search_keyword": search_kw,
+                })),
+            );
+        } else if resume_collect {
+            let resume_detail = if feed_collect {
+                "任务已有部分进度，回到已有搜索结果页继续采集"
+            } else {
+                "任务已有部分进度，重新搜索关键词后继续采集剩余目标"
+            };
+            info!(
+                "job {job_id}: continue collect — {} {} stored (target {})",
                 existing_progress,
                 self.collect_progress_label(),
                 cfg.target_count
@@ -448,11 +487,12 @@ impl JobOrchestrator {
                 "resume_collect",
                 "继续上次采集",
                 StepStatus::Info,
-                "任务已有部分进度，重新搜索关键词后继续采集剩余目标",
+                resume_detail,
                 Some(serde_json::json!({
                     "progress": existing_progress,
                     "target": cfg.target_count,
                     "search_keyword": search_kw,
+                    "feed_collect": feed_collect,
                 })),
             );
         }
@@ -467,44 +507,70 @@ impl JobOrchestrator {
                 );
                 return Ok(());
             }
-            lab.run_keyword_search(
-                &search_kw,
-                cfg.filter_publish_days_for_ui(),
-                false,
-            )
-            .await?;
+            if resume_collect {
+                lab.prepare_keyword_collect_resume().await?;
+            } else {
+                lab.run_keyword_search(
+                    &search_kw,
+                    cfg.filter_publish_days_for_ui(),
+                    false,
+                )
+                .await?;
+            }
             return self
                 .collect_douyin_via_playback_chain(job_id, job, cfg, DouyinFeedSource::KeywordSearch)
                 .await;
         }
 
         let mut keyword_researched = false;
-        let search_result = lab
-            .run_keyword_search(
-                &search_kw,
-                cfg.filter_publish_days_for_ui(),
-                true,
+        if resume_collect {
+            lab.prepare_keyword_collect_resume().await?;
+            keyword_researched = true;
+            if self.parsed_videos_from_db(job_id)?.is_empty() {
+                let search_result = lab
+                    .run_keyword_search(
+                        &search_kw,
+                        cfg.filter_publish_days_for_ui(),
+                        true,
+                    )
+                    .await?;
+                self.ensure_search_videos_captured(
+                    job_id,
+                    &job.platform,
+                    &lab,
+                    Some(&search_result),
+                    job.limit_videos,
+                )
+                .await?;
+            }
+        } else {
+            let search_result = lab
+                .run_keyword_search(
+                    &search_kw,
+                    cfg.filter_publish_days_for_ui(),
+                    true,
+                )
+                .await?;
+            keyword_researched = true;
+            let videos_preview = parse_plugin_lab_search_results(&job.platform, &search_result);
+            let ok = search_result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
+            if !ok && videos_preview.is_empty() {
+                let msg = search_result
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("keyword search failed");
+                return Err(msg.to_string());
+            }
+
+            self.ensure_search_videos_captured(
+                job_id,
+                &job.platform,
+                &lab,
+                Some(&search_result),
+                job.limit_videos,
             )
             .await?;
-        keyword_researched = true;
-        let videos_preview = parse_plugin_lab_search_results(&job.platform, &search_result);
-        let ok = search_result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
-        if !ok && videos_preview.is_empty() {
-            let msg = search_result
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("keyword search failed");
-            return Err(msg.to_string());
         }
-
-        self.ensure_search_videos_captured(
-            job_id,
-            &job.platform,
-            &lab,
-            Some(&search_result),
-            job.limit_videos,
-        )
-        .await?;
 
         self.collect_until_target(job_id, job, cfg, &mut keyword_researched)
             .await
@@ -542,8 +608,6 @@ impl JobOrchestrator {
 
         // 复用平台工作窗（左侧半屏），与关键词任务一致；无工作窗时 open_browser 会新建
         lab.open_url(&open_url).await?;
-        self.wait_if_not_paused(job_id, Duration::from_secs(1)).await?;
-        lab.reload_extension_after_browser_open().await?;
         self.wait_if_not_paused(job_id, Duration::from_secs(1)).await?;
         lab.enable_network_hook().await?;
         self.wait_if_not_paused(job_id, Duration::from_secs(4)).await?;
@@ -766,7 +830,8 @@ impl JobOrchestrator {
                 Ok(resp)
             } else if opening_first {
                 info!("job {job_id}: {open_label}");
-                self.open_or_adopt_playback(&lab, &feed_source).await
+                self.open_or_adopt_playback(job_id, job, cfg, &lab, &feed_source)
+                    .await
             } else {
                 let mode = playback_mode.unwrap_or(DouyinPlaybackMode::Feed);
                 match mode {
@@ -780,6 +845,10 @@ impl JobOrchestrator {
             let resp = match nav {
                 Ok(r) => r,
                 Err(err) => {
+                    if err == JOB_PAUSED {
+                        return Ok(());
+                    }
+                    self.bail_if_paused(job_id)?;
                     swipe_failures += 1;
                     warn!("job {job_id}: playback navigation error — {err}");
                     self.log_step(
@@ -790,9 +859,32 @@ impl JobOrchestrator {
                         "打开首个视频或滑动切下一个视频时出错，将重试",
                         Some(serde_json::json!({ "error": err, "opening_first": opening_first })),
                     );
+                    if opening_first {
+                        match self
+                            .recover_playback_after_open_failure(
+                                job_id,
+                                job,
+                                cfg,
+                                &feed_source,
+                                &lab,
+                                &mut search_list_recoveries,
+                                &err,
+                                fail_hint,
+                            )
+                            .await?
+                        {
+                            PlaybackRecoverOutcome::Recovered(resp) => {
+                                forced_nav = Some(resp);
+                                continue;
+                            }
+                            PlaybackRecoverOutcome::Paused => return Ok(()),
+                            PlaybackRecoverOutcome::Stop(msg) => return Err(msg),
+                        }
+                    }
                     if swipe_failures >= 2 && search_list_recoveries < MAX_SEARCH_LIST_RECOVERIES {
+                        self.bail_if_paused(job_id)?;
                         let in_feed = playback_mode == Some(DouyinPlaybackMode::Feed) && playback_open;
-                        if let Some(recovered) = self
+                        match self
                             .recover_playback_via_search_list(
                                 job_id,
                                 job,
@@ -801,16 +893,22 @@ impl JobOrchestrator {
                                 &lab,
                                 in_feed,
                             )
-                            .await?
+                            .await
                         {
-                            forced_nav = Some(recovered);
-                            swipe_failures = 0;
-                            stale_hits.clear();
-                            search_list_recoveries += 1;
-                            continue;
+                            Ok(Some(recovered)) => {
+                                forced_nav = Some(recovered);
+                                swipe_failures = 0;
+                                stale_hits.clear();
+                                search_list_recoveries += 1;
+                                continue;
+                            }
+                            Ok(None) => {}
+                            Err(err) if err == JOB_PAUSED => return Ok(()),
+                            Err(err) => return Err(err),
                         }
                     }
-                    simulate::pause(Duration::from_millis(800)).await;
+                    self.wait_if_not_paused(job_id, Duration::from_millis(800))
+                        .await?;
                     continue;
                 }
             };
@@ -848,8 +946,33 @@ impl JobOrchestrator {
                         "opening_first": opening_first,
                     })),
                 );
-                if !opening_first
-                    && swipe_failures >= 2
+                if opening_first {
+                    let err = resp
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("playback not ready");
+                    match self
+                        .recover_playback_after_open_failure(
+                            job_id,
+                            job,
+                            cfg,
+                            &feed_source,
+                            &lab,
+                            &mut search_list_recoveries,
+                            err,
+                            fail_hint,
+                        )
+                        .await?
+                    {
+                        PlaybackRecoverOutcome::Recovered(recovered) => {
+                            forced_nav = Some(recovered);
+                            continue;
+                        }
+                        PlaybackRecoverOutcome::Paused => return Ok(()),
+                        PlaybackRecoverOutcome::Stop(msg) => return Err(msg),
+                    }
+                }
+                if swipe_failures >= 2
                     && search_list_recoveries < MAX_SEARCH_LIST_RECOVERIES
                 {
                     let in_feed = playback_mode == Some(DouyinPlaybackMode::Feed) && playback_open;
@@ -871,7 +994,8 @@ impl JobOrchestrator {
                         continue;
                     }
                 }
-                simulate::pause(Duration::from_millis(800)).await;
+                self.wait_if_not_paused(job_id, Duration::from_millis(800))
+                    .await?;
                 continue;
             }
 
@@ -1146,8 +1270,6 @@ impl JobOrchestrator {
 
         info!("job {job_id}: open douyin video detail (single_video, not feed)");
         let open_resp = lab.open_douyin_video_detail(open_url).await?;
-        self.wait_if_not_paused(job_id, Duration::from_secs(1)).await?;
-        lab.reload_extension_after_browser_open().await?;
         self.wait_if_not_paused(job_id, Duration::from_secs(1)).await?;
         lab.enable_network_hook().await?;
         self.wait_if_not_paused(job_id, Duration::from_millis(1500)).await?;
@@ -1769,8 +1891,43 @@ impl JobOrchestrator {
         Ok(target.saturating_sub(progress as u32))
     }
 
+    async fn recover_playback_after_open_failure(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+        feed_source: &DouyinFeedSource,
+        lab: &LabCommands<'_>,
+        search_list_recoveries: &mut u32,
+        err: &str,
+        fail_hint: &str,
+    ) -> Result<PlaybackRecoverOutcome, String> {
+        const MAX_SEARCH_LIST_RECOVERIES: u32 = 5;
+        self.bail_if_paused(job_id)?;
+        if *search_list_recoveries >= MAX_SEARCH_LIST_RECOVERIES {
+            return Ok(PlaybackRecoverOutcome::Stop(format!("{fail_hint} — {err}")));
+        }
+        *search_list_recoveries += 1;
+        warn!(
+            "job {job_id}: open first playback failed ({err}), recover via search list ({}/{MAX_SEARCH_LIST_RECOVERIES})",
+            *search_list_recoveries
+        );
+        match self
+            .recover_playback_via_search_list(job_id, job, cfg, feed_source, lab, false)
+            .await
+        {
+            Ok(Some(resp)) => Ok(PlaybackRecoverOutcome::Recovered(resp)),
+            Ok(None) => Ok(PlaybackRecoverOutcome::Stop(format!("{fail_hint} — {err}"))),
+            Err(e) if e == JOB_PAUSED => Ok(PlaybackRecoverOutcome::Paused),
+            Err(e) => Err(e),
+        }
+    }
+
     async fn open_or_adopt_playback(
         &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
         lab: &LabCommands<'_>,
         feed_source: &DouyinFeedSource,
     ) -> Result<serde_json::Value, String> {
@@ -1787,10 +1944,40 @@ impl JobOrchestrator {
         }
 
         match feed_source {
-            DouyinFeedSource::KeywordSearch => lab.click_search_video_fresh(1).await,
+            DouyinFeedSource::KeywordSearch => {
+                if let Ok(videos) = self.load_videos_for_job(job_id, cfg) {
+                    for (idx, video) in videos.iter().enumerate() {
+                        if self.video_comments_already_collected(job_id, video)? {
+                            continue;
+                        }
+                        let index = if is_dom_poster_aweme_id(&video.aweme_id) {
+                            dom_poster_index(&video.aweme_id).unwrap_or((idx + 1) as i64)
+                        } else {
+                            (idx + 1) as i64
+                        };
+                        info!(
+                            "job {job_id}: open uncollected search video index={index} aweme={}",
+                            video.aweme_id
+                        );
+                        match lab.click_search_video_fresh(index).await {
+                            Ok(resp) if video_ready_for_collect(&resp) => return Ok(resp),
+                            Ok(resp) => {
+                                warn!(
+                                    "job {job_id}: search video index={index} not ready — {:?}",
+                                    resp.get("message").and_then(|v| v.as_str())
+                                );
+                                break;
+                            }
+                            Err(err) => return Err(err),
+                        }
+                    }
+                }
+                lab.click_search_video_fresh(1).await
+            }
             DouyinFeedSource::ProfileHome { profile_url } => {
                 let _ = lab.open_url(profile_url).await;
-                simulate::pause(Duration::from_millis(800)).await;
+                self.wait_if_not_paused(job_id, Duration::from_millis(800))
+                    .await?;
                 lab.click_profile_video_fresh(1).await
             }
         }
@@ -2179,6 +2366,7 @@ impl JobOrchestrator {
     ) -> Result<Option<serde_json::Value>, String> {
         let videos = self.load_videos_for_job(job_id, cfg)?;
         for (idx, video) in videos.iter().enumerate() {
+            self.bail_if_paused(job_id)?;
             if self.video_comments_already_collected(job_id, video)? {
                 continue;
             }
@@ -2225,18 +2413,25 @@ impl JobOrchestrator {
             }
 
             let _ = lab.close_video_detail().await;
-            simulate::pause(Duration::from_millis(500)).await;
+            self.wait_if_not_paused(job_id, Duration::from_millis(500))
+                .await?;
 
             let resp = match feed_source {
                 DouyinFeedSource::KeywordSearch => {
+                    self.bail_if_paused(job_id)?;
                     let _ = lab.prepare_search_for_video().await;
-                    simulate::pause(Duration::from_millis(400)).await;
+                    self.wait_if_not_paused(job_id, Duration::from_millis(400))
+                        .await?;
+                    self.bail_if_paused(job_id)?;
                     lab.click_search_video(index, rect, aweme_hint.as_deref(), video_url)
                         .await?
                 }
                 DouyinFeedSource::ProfileHome { .. } => {
+                    self.bail_if_paused(job_id)?;
                     let _ = lab.prepare_profile_for_video().await;
-                    simulate::pause(Duration::from_millis(400)).await;
+                    self.wait_if_not_paused(job_id, Duration::from_millis(400))
+                        .await?;
+                    self.bail_if_paused(job_id)?;
                     lab.click_profile_video(
                         index,
                         aweme_hint
@@ -2599,6 +2794,7 @@ pub fn spawn_job(
     data_dir: std::path::PathBuf,
     job_id: String,
     generation: u64,
+    fresh_start: bool,
 ) {
     let orchestrator = Arc::new(JobOrchestrator {
         db,
@@ -2607,6 +2803,7 @@ pub fn spawn_job(
         job_runs,
         generation,
         data_dir,
+        fresh_start,
     });
     tokio::spawn(async move {
         if let Err(err) = orchestrator.run_job(&job_id).await {

@@ -141,7 +141,12 @@ function forwardToOffscreen(event: BridgeMessage) {
 
 async function runCommand(command: BridgeMessage): Promise<{ ok: boolean; data?: unknown; error?: string }> {
   if (command.action === "huoke.extension.reload") {
-    chrome.runtime.reload();
+    // 须先回包再 reload，否则 SW 被销毁后 WS/offscreen 收不到 result，local-service 会报 command timeout
+    setTimeout(() => {
+      void reloadPlatformTabs().finally(() => {
+        chrome.runtime.reload();
+      });
+    }, 100);
     return { ok: true, data: { reloaded: true } };
   }
 

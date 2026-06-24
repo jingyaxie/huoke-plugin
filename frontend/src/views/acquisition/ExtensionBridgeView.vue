@@ -365,6 +365,8 @@ function schedulePoll() {
 async function onStartCollect(row) {
   if (!row?.id) return;
   const previousStatus = row.status;
+  /** 运行中点「重新启动」= 完整搜索；暂停/失败/完成未满 = 接续 */
+  const freshStart = previousStatus === "running";
   const idx = collectJobs.value.findIndex((item) => item.id === row.id);
   if (idx >= 0) {
     collectJobs.value[idx] = {
@@ -379,7 +381,7 @@ async function onStartCollect(row) {
     duration: 0,
   });
   try {
-    await startCollectJob(row.id);
+    await startCollectJob(row.id, { freshStart });
     loadingMsg.close();
     ElMessage.success(collectJobStartSuccessMessage(previousStatus));
     await refreshAll({ silent: true });

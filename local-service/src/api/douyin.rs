@@ -237,7 +237,7 @@ pub async fn create_job(
             .db
             .update_job_status(&job.id, JobStatus::Running, None)
             .map_err(internal_error)?;
-        state.capture.clone().spawn_job(job.id.clone(), generation);
+        state.capture.clone().spawn_job(job.id.clone(), generation, true);
         started = Some(true);
     }
 
@@ -323,9 +323,17 @@ pub async fn evaluate_job(
     })))
 }
 
+#[derive(Deserialize, Default)]
+pub struct StartJobRequest {
+    /// true = 完整搜索流程；false = 有进度则接续。默认：运行中点「重新启动」时为 true。
+    #[serde(default)]
+    pub fresh_start: Option<bool>,
+}
+
 pub async fn start_job(
     State(state): State<AppState>,
     Path(job_id): Path<String>,
+    body: Option<Json<StartJobRequest>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let job = state.db.get_job(&job_id).map_err(|_| not_found())?;
     let restarting = job.status == JobStatus::Running;
@@ -381,12 +389,20 @@ pub async fn start_job(
         .update_job_status(&job_id, JobStatus::Running, None)
         .map_err(internal_error)?;
 
-    state.capture.clone().spawn_job(job_id.clone(), generation);
+    let fresh_start = body
+        .as_ref()
+        .and_then(|b| b.fresh_start)
+        .unwrap_or(restarting);
+
+    state.capture.clone().spawn_job(job_id.clone(), generation, fresh_start);
     Ok(Json(json!({
         "job_id": job_id,
         "status": "running",
         "restarted": restarting,
-        "message": if restarting {
+        "fresh_start": fresh_start,
+        "message": if fresh_start {
+            "collect job restarted from full search — keep Douyin tab active in Chrome"
+        } else if restarting {
             "collect job restarted — previous run stopped, keep Douyin tab active in Chrome"
         } else {
             "collect job started — keep Douyin tab active in Chrome"

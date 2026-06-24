@@ -5,6 +5,9 @@ import {
 import { isStandaloneVideoPage } from "./search-feed-open";
 import { humanClick, isVisible, randDelay, sleep } from "./search-input";
 
+/** 临时关闭右侧翻页按钮，仅用手势/键盘测试滑动稳定性 */
+const USE_DETAIL_PAGER_BUTTON = false;
+
 /** 详情页 /video/ 右侧「下一个」下箭头 SVG（与 Feed 浮层相同 viewBox 0 0 26 26） */
 const DETAIL_NEXT_ARROW_PATH_MARKERS = [
   "M7.26904 9.29059",
@@ -166,9 +169,45 @@ async function wheelDetailNext(target: HTMLElement) {
   const segments = randDelay(6, 9);
   const perStep = Math.max(48, Math.round(total / segments));
   for (let i = 0; i < segments; i += 1) {
-    dispatchWheelAt(target, perStep + randDelay(-8, 12));
+    dispatchWheelAt(target, perStep);
     await sleep(randDelay(55, 110));
   }
+}
+
+async function pointerDragDetailNext(target: HTMLElement) {
+  const start = resolveVideoFocusPoint(target);
+  const endY = start.y - randDelay(220, 340);
+  const el = target === document.body ? document.documentElement : target;
+  const pointerInit: PointerEventInit = {
+    bubbles: true,
+    cancelable: true,
+    clientX: start.x,
+    clientY: start.y,
+    pointerId: 1,
+    pointerType: "touch",
+    isPrimary: true,
+  };
+  el.dispatchEvent(new PointerEvent("pointerdown", pointerInit));
+  const steps = randDelay(8, 12);
+  for (let i = 1; i <= steps; i += 1) {
+    const t = i / steps;
+    const y = Math.round(start.y + (endY - start.y) * t);
+    el.dispatchEvent(
+      new PointerEvent("pointermove", {
+        ...pointerInit,
+        clientX: start.x,
+        clientY: y,
+      }),
+    );
+    await sleep(randDelay(16, 36));
+  }
+  el.dispatchEvent(
+    new PointerEvent("pointerup", {
+      ...pointerInit,
+      clientX: start.x,
+      clientY: endY,
+    }),
+  );
 }
 
 async function focusVideoDetailPlayer(target: HTMLElement) {
@@ -326,7 +365,7 @@ export async function swipeVideoDetailNext() {
   const target = resolveVideoDetailSwipeTarget();
   await focusVideoDetailPlayer(target);
 
-  const hasNextButton = hasVideoDetailNextButton();
+  const hasNextButton = USE_DETAIL_PAGER_BUTTON && hasVideoDetailNextButton();
   if (hasNextButton) {
     const arrow = await tryVideoDetailNextViaArrowButton(before, target);
     if (arrow.ok && arrow.after && arrow.after !== before) {
@@ -347,25 +386,30 @@ export async function swipeVideoDetailNext() {
     }
   }
 
-  dispatchKey(target, "ArrowDown", "ArrowDown");
-  dispatchKey(document, "PageDown", "PageDown");
-  await wheelDetailNext(target);
+  const methods: Array<{ run: () => Promise<void>; name: string }> = [
+    { run: async () => pointerDragDetailNext(target), name: "pointer_up" },
+    { run: async () => dispatchKey(target, "ArrowDown", "ArrowDown"), name: "arrow_down" },
+    { run: async () => wheelDetailNext(target), name: "wheel_down" },
+  ];
 
-  const after = await waitForVideoDetailAwemeChange(before, 3500);
-  if (after && after !== before) {
-    return {
-      ok: true,
-      is_standalone_video: true,
-      aweme_id: after,
-      previous_aweme_id: before,
-      attempt: 2,
-      method: "wheel_key",
-      has_next_button: hasNextButton,
-      url: location.href,
-      message: hasNextButton
-        ? "翻页按钮未生效，已通过滑动切换到下一个视频"
-        : "未检测到翻页按钮，已通过滑动切换到下一个视频",
-    };
+  for (let attempt = 1; attempt <= methods.length; attempt += 1) {
+    await methods[attempt - 1].run();
+    await sleep(randDelay(280, 420));
+    const after = await waitForVideoDetailAwemeChange(before, 3500);
+    if (after && after !== before) {
+      return {
+        ok: true,
+        is_standalone_video: true,
+        aweme_id: after,
+        previous_aweme_id: before,
+        attempt,
+        method: methods[attempt - 1].name,
+        has_next_button: false,
+        pager_button_disabled: true,
+        url: location.href,
+        message: `已通过滑动切换到下一个视频（${methods[attempt - 1].name}）`,
+      };
+    }
   }
 
   const sidebar = probeVideoDetailCommentSidebar();
@@ -374,7 +418,8 @@ export async function swipeVideoDetailNext() {
     is_standalone_video: isStandaloneVideoPage(),
     aweme_id: readVideoDetailAwemeId(),
     previous_aweme_id: before,
-    has_next_button: hasNextButton,
+    has_next_button: hasVideoDetailNextButton(),
+    pager_button_disabled: !USE_DETAIL_PAGER_BUTTON,
     comment_sidebar_open: sidebar.sidebar_ready,
     url: location.href,
     message: sidebar.sidebar_ready
