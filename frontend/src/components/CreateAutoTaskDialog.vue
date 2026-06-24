@@ -12,10 +12,15 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="选择地区">
-              <el-select v-model="form.regionCode" placeholder="请选择地区" style="width: 100%">
+              <el-select
+                v-model="form.regionCode"
+                filterable
+                placeholder="不选地区"
+                style="width: 100%"
+              >
                 <el-option
-                  v-for="item in REGION_PRESETS"
-                  :key="item.code || 'any'"
+                  v-for="item in REGION_OPTIONS"
+                  :key="item.code || 'none'"
                   :label="item.name"
                   :value="item.code"
                 />
@@ -180,7 +185,7 @@ import {
 } from "../api/presets";
 import { setActiveAccount } from "../api/accounts";
 import {
-  REGION_PRESETS,
+  REGION_OPTIONS,
   FALLBACK_COMMENT_DAYS_OPTIONS,
   FALLBACK_PUBLISH_TIME_OPTIONS,
   applyDefaultCommentDays,
@@ -193,6 +198,7 @@ import {
   hasScopeField,
   listSupportedPlatforms,
   platformLabel,
+  regionLabelFromCode,
   validateRequiredScopeFields,
 } from "../utils/huokeTaskForm";
 import { buildAutoPreflightPayload } from "../utils/huokeTaskPreflight";
@@ -260,7 +266,7 @@ const commentOptions = computed(() =>
   getFieldOptions(capabilities.value, "comment_days", FALLBACK_COMMENT_DAYS_OPTIONS),
 );
 const evaluationTemplates = computed(() => capabilities.value?.evaluation_templates || []);
-const regionName = computed(() => REGION_PRESETS.find((row) => row.code === form.regionCode)?.name || "");
+const regionName = computed(() => regionLabelFromCode(form.regionCode));
 const composedSearchKeyword = computed(() => {
   const keyword = keywordList()[0] || "";
   if (!keyword) return "";

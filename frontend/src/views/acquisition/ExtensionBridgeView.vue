@@ -87,6 +87,21 @@
       <template #default>{{ recoveryBanner.error }}</template>
     </el-alert>
 
+    <el-alert
+      v-else-if="recoveryBanner.showEmptyHint"
+      type="info"
+      :closable="true"
+      show-icon
+      title="本机与云端均无历史任务"
+      class="panel-block"
+    >
+      <template #default>
+        登录已成功，但云端未找到通过桌面端同步的任务（共检索 {{ recoveryBanner.cloudDesktopTotal }} 个）。
+        此前在本机创建、且未登录或未开启同步的任务不会出现在云端；删除本机数据后无法恢复。
+        请重新创建任务，登录状态下会自动同步到云端。
+      </template>
+    </el-alert>
+
     <AcquisitionStatsCards :data="dashboard" :loading="loading" class="panel-block" />
     </div>
 
@@ -229,7 +244,7 @@ const launchingExtension = ref(false);
 const desktopMode = ref(false);
 const extensionSetup = ref({ message: "" });
 const collectJobs = ref([]);
-const recoveryBanner = ref({ show: false, cloudOnlyCount: 0, error: "" });
+const recoveryBanner = ref({ show: false, showEmptyHint: false, cloudOnlyCount: 0, cloudDesktopTotal: 0, error: "" });
 const bridgeStatus = ref({ connected_clients: 0 });
 const createCollectOpen = ref(false);
 let pollTimer = null;
@@ -383,7 +398,9 @@ async function refreshAll({ silent = false } = {}) {
     collectJobs.value = merged;
     recoveryBanner.value = {
       show: recovery.showBanner,
+      showEmptyHint: recovery.showEmptyHint,
       cloudOnlyCount: recovery.cloudOnlyCount,
+      cloudDesktopTotal: recovery.cloudDesktopTotal,
       error: recovery.error || "",
     };
   } catch (err) {

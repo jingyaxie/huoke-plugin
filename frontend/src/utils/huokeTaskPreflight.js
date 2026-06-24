@@ -1,4 +1,4 @@
-import { defaultEvaluation } from "./huokeTaskForm";
+import { defaultEvaluation, isNoRegion } from "./huokeTaskForm";
 import { resolveAgentStrategy } from "./acquisitionStrategy";
 
 function agentStrategyForPlatform(platform, strategyId) {
@@ -28,7 +28,7 @@ export function buildAutoPreflightPayload(input) {
     comment_days: Math.max(0, Number(input.commentDays) || 3),
     publish_time_range: String(input.publishTime || "unlimited"),
   };
-  if (region && region !== "不限地区" && region !== "全国") {
+  if (region && !isNoRegion(region)) {
     scope.region = region;
   }
   const resolvedStrategy = agentStrategyForPlatform(input.platform, input.agentStrategy);

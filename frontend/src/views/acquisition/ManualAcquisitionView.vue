@@ -39,6 +39,20 @@
       >
         <template #default>{{ recoveryBanner.error }}</template>
       </el-alert>
+
+      <el-alert
+        v-else-if="recoveryBanner.showEmptyHint"
+        type="info"
+        :closable="true"
+        show-icon
+        title="本机与云端均无历史任务"
+        class="panel-block"
+      >
+        <template #default>
+          登录已成功，但云端未找到通过桌面端同步的手动获客任务（共检索 {{ recoveryBanner.cloudDesktopTotal }} 个）。
+          请重新创建任务，登录状态下会自动同步到云端。
+        </template>
+      </el-alert>
     </div>
 
     <el-card shadow="never" class="list-card panel-block">
@@ -167,7 +181,7 @@ import { collectJobStartMessage, collectJobStartSuccessMessage } from "../../uti
 
 const loading = ref(false);
 const allJobs = ref([]);
-const recoveryBanner = ref({ show: false, cloudOnlyCount: 0, error: "" });
+const recoveryBanner = ref({ show: false, showEmptyHint: false, cloudOnlyCount: 0, cloudDesktopTotal: 0, error: "" });
 const bridgeStatus = ref({ connected_clients: 0 });
 const createOpen = ref(false);
 let pollTimer = null;
@@ -261,7 +275,9 @@ async function refreshAll({ silent = false } = {}) {
     allJobs.value = merged;
     recoveryBanner.value = {
       show: recovery.showBanner,
+      showEmptyHint: recovery.showEmptyHint,
       cloudOnlyCount: recovery.cloudOnlyCount,
+      cloudDesktopTotal: recovery.cloudDesktopTotal,
       error: recovery.error || "",
     };
   } catch (err) {

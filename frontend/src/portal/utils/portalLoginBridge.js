@@ -3,6 +3,7 @@
  * 供 CloudEmbedView 内 H5 iframe 复用同一登录态。
  */
 import { getPortalBaseUrl } from "../config/cloudNav";
+import { getAccessToken } from "../../api/http";
 import {
   buildPortalEmbedUrl,
   clearPortalLogoutPending,
@@ -10,6 +11,7 @@ import {
   handlePortalMessage,
   isPortalAuthenticated,
   isPortalMessageOrigin,
+  PORTAL_AUTH_MESSAGE,
   PORTAL_NAVIGATE_MESSAGE,
   PORTAL_PING_MESSAGE,
   PORTAL_PONG_MESSAGE,
@@ -175,6 +177,66 @@ function buildLoginFailureMessage(fields, sawLoginPage) {
     return sawLoginPage ? "验证码错误或已过期，请重新获取" : "登录失败，请检查手机号和验证码";
   }
   return sawLoginPage ? "账号或密码错误，请检查后重试" : "登录失败，请检查账号信息";
+}
+
+/**
+ * Portal cookie 仍有效时，通过隐藏 iframe 读取 huoke-shell-access-token 并写入 localStorage。
+ * 桌面 embed JWT 有效期 365 天，可替代已过期的 /auth/login token（默认 60 分钟）。
+ */
+export function refreshAccessTokenFromPortalSession(timeoutMs = 12000) {
+  return new Promise((resolve) => {
+    const frame = ensureBridgeFrame();
+    const initialToken = String(getAccessToken() || "").trim();
+    let settled = false;
+
+    const timeout = window.setTimeout(() => finish(null), timeoutMs);
+
+    function finish(token) {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      window.removeEventListener("message", onMessage);
+      frame.removeEventListener("load", onLoad);
+      const resolved = String(token || getAccessToken() || "").trim();
+      resolve(resolved || null);
+    }
+
+    function tryResolveFromMessage(data) {
+      if (!data || typeof data !== "object") return;
+      const authType = data.type;
+      if (authType !== PORTAL_AUTH_MESSAGE && authType !== "yingxiaoyi:login-success") return;
+      const token = String(data.accessToken || data.access_token || "").trim();
+      if (token) {
+        finish(token);
+        return;
+      }
+      const current = String(getAccessToken() || "").trim();
+      if (current && current !== initialToken) {
+        finish(current);
+      }
+    }
+
+    function onMessage(event) {
+      handlePortalMessage(event);
+      if (!isPortalMessageOrigin(event.origin)) return;
+      tryResolveFromMessage(event.data);
+    }
+
+    function onLoad() {
+      pingBridgeFrame(frame);
+      window.setTimeout(() => pingBridgeFrame(frame), 400);
+      window.setTimeout(() => {
+        const current = String(getAccessToken() || "").trim();
+        if (current && current !== initialToken) {
+          finish(current);
+        }
+      }, 1200);
+    }
+
+    window.addEventListener("message", onMessage);
+    frame.addEventListener("load", onLoad);
+    frame.src = dashboardEmbedUrl();
+  });
 }
 
 /**

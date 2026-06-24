@@ -29,6 +29,7 @@ export { sendPortalSmsCode, mapPortalSmsError } from "./api/portalAuth";
 
 export {
   probePortalSession,
+  refreshAccessTokenFromPortalSession,
   submitPortalLoginForm,
   logoutPortalSession,
   syncPortalDisplayName,

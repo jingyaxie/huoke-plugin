@@ -55,7 +55,14 @@
       </div>
 
       <div class="outreach-table-wrap">
-        <el-table v-loading="loading || tableLoading" :data="pageRows" stripe empty-text="暂无触达数据">
+        <el-table
+          v-loading="loading || tableLoading"
+          class="outreach-data-table"
+          :data="pageRows"
+          stripe
+          empty-text="暂无触达数据"
+          :max-height="tableMaxHeight"
+        >
           <el-table-column prop="nickname" label="用户昵称" width="120" show-overflow-tooltip />
           <el-table-column label="头像" width="72">
             <template #default="{ row }">
@@ -65,7 +72,13 @@
           <el-table-column prop="comment_at" label="评论时间" width="140">
             <template #default="{ row }">{{ formatJobTime(row.comment_at) }}</template>
           </el-table-column>
-          <el-table-column prop="video_title" label="视频名称" min-width="140" show-overflow-tooltip />
+          <el-table-column
+            v-if="showVideoTitleColumn"
+            prop="video_title"
+            label="视频名称"
+            min-width="140"
+            show-overflow-tooltip
+          />
           <el-table-column prop="comment_content" label="原评论" min-width="160" show-overflow-tooltip />
           <el-table-column label="精准评论" width="88">
             <template #default="{ row }">
@@ -75,7 +88,13 @@
             </template>
           </el-table-column>
           <el-table-column prop="evaluation_reason" label="评估说明" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="dm_content" label="私信内容" min-width="140" show-overflow-tooltip />
+          <el-table-column
+            v-if="showExtraOutreachColumns"
+            prop="dm_content"
+            label="私信内容"
+            min-width="140"
+            show-overflow-tooltip
+          />
           <el-table-column v-if="showOutreachStatus" label="触达状态" width="100">
             <template #default="{ row }">
               <el-tag
@@ -93,8 +112,14 @@
             min-width="160"
             show-overflow-tooltip
           />
-          <el-table-column prop="location_text" label="位置" width="100" show-overflow-tooltip />
-          <el-table-column prop="executed_at" label="触达时间" width="140">
+          <el-table-column
+            v-if="showExtraOutreachColumns"
+            prop="location_text"
+            label="位置"
+            width="100"
+            show-overflow-tooltip
+          />
+          <el-table-column v-if="showExtraOutreachColumns" prop="executed_at" label="触达时间" width="140">
             <template #default="{ row }">{{ formatJobTime(row.executed_at) }}</template>
           </el-table-column>
           <el-table-column label="操作" width="140">
@@ -173,6 +198,7 @@ const keyword = ref("");
 const actionType = ref("all");
 const page = ref(1);
 const pageSize = 10;
+const tableMaxHeight = 420;
 const tableLoading = ref(false);
 const activeView = ref(OUTREACH_METRIC_VIEWS.ALL);
 
@@ -218,6 +244,11 @@ const showOutreachStatus = computed(() =>
   [OUTREACH_METRIC_VIEWS.DM, OUTREACH_METRIC_VIEWS.FOLLOW].includes(activeView.value),
 );
 
+function hasOutreachFieldValue(value) {
+  const text = String(value ?? "").trim();
+  return Boolean(text && text !== "—");
+}
+
 const commentDaysLabel = computed(() => {
   const days = String(rowModel.value?.config?.comment_days ?? "3");
   const map = { 0: "不限", 3: "3天", 5: "5天", 7: "7天" };
@@ -228,6 +259,21 @@ const allRows = computed(() => (props.job ? getRowsForMetricView(props.job, acti
 
 const filteredRows = computed(() =>
   filterOutreachRows(allRows.value, { keyword: keyword.value, actionType: actionType.value }),
+);
+
+/** 视频名称：当前列表全无数据时不展示 */
+const showVideoTitleColumn = computed(() =>
+  filteredRows.value.some((row) => hasOutreachFieldValue(row.video_title)),
+);
+
+/** 私信内容 / 位置 / 触达时间：当前列表全无数据时不展示 */
+const showExtraOutreachColumns = computed(() =>
+  filteredRows.value.some(
+    (row) =>
+      hasOutreachFieldValue(row.dm_content)
+      || hasOutreachFieldValue(row.location_text)
+      || hasOutreachFieldValue(row.executed_at),
+  ),
 );
 
 const pageRows = computed(() => {
@@ -283,9 +329,73 @@ function resetState() {
 .outreach-table-wrap {
   flex: 1;
   min-height: 180px;
-  overflow: auto;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
+  overflow: hidden;
+}
+
+.outreach-table-wrap :deep(.outreach-data-table) {
+  --outreach-scrollbar-size: 12px;
+}
+
+.outreach-table-wrap :deep(.el-table__header-wrapper table),
+.outreach-table-wrap :deep(.el-table__body-wrapper table) {
+  min-width: 1280px;
+}
+
+.outreach-table-wrap :deep(.el-table__body-wrapper) {
+  overflow-x: scroll !important;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: rgba(64, 158, 255, 0.65) var(--el-fill-color-lighter);
+}
+
+.outreach-table-wrap :deep(.el-scrollbar__bar.is-horizontal) {
+  height: var(--outreach-scrollbar-size) !important;
+  left: 32px !important;
+  right: 32px !important;
+  bottom: 4px;
+  border-radius: 999px;
+  background: var(--el-fill-color-lighter);
+  opacity: 1 !important;
+}
+
+.outreach-table-wrap :deep(.el-scrollbar__bar.is-horizontal .el-scrollbar__thumb) {
+  height: calc(var(--outreach-scrollbar-size) - 4px) !important;
+  margin: 2px 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(64, 158, 255, 0.45), rgba(64, 158, 255, 0.78));
+  opacity: 1 !important;
+}
+
+.outreach-table-wrap :deep(.el-scrollbar__bar.is-horizontal .el-scrollbar__thumb:hover) {
+  background: var(--el-color-primary);
+}
+
+.outreach-table-wrap :deep(.el-table__body-wrapper::-webkit-scrollbar),
+.outreach-table-wrap :deep(.el-scrollbar__wrap::-webkit-scrollbar) {
+  width: 8px;
+  height: var(--outreach-scrollbar-size);
+}
+
+.outreach-table-wrap :deep(.el-table__body-wrapper::-webkit-scrollbar-track),
+.outreach-table-wrap :deep(.el-scrollbar__wrap::-webkit-scrollbar-track) {
+  margin: 0 32px 4px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 999px;
+}
+
+.outreach-table-wrap :deep(.el-table__body-wrapper::-webkit-scrollbar-thumb),
+.outreach-table-wrap :deep(.el-scrollbar__wrap::-webkit-scrollbar-thumb) {
+  min-width: 72px;
+  border: 2px solid var(--el-fill-color-lighter);
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(64, 158, 255, 0.45), rgba(64, 158, 255, 0.78));
+}
+
+.outreach-table-wrap :deep(.el-table__body-wrapper::-webkit-scrollbar-thumb:hover),
+.outreach-table-wrap :deep(.el-scrollbar__wrap::-webkit-scrollbar-thumb:hover) {
+  background: var(--el-color-primary);
 }
 
 .view-tabs {

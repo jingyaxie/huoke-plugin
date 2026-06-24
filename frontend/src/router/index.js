@@ -15,6 +15,10 @@ import { buildCloudRoutes } from "../config/cloudNav";
 import { isPortalAuthenticated, isPortalEnabled, requiresPortalAuth } from "../portal";
 import { canAccessSettings } from "../utils/settingsAccess";
 
+function defaultHomePath() {
+  return isPortalEnabled() ? "/cloud/dashboard" : "/extension-bridge";
+}
+
 const routes = [
   {
     path: "/portal-login",
@@ -26,7 +30,7 @@ const routes = [
     path: "/",
     component: MainLayout,
     children: [
-      { path: "", redirect: "/extension-bridge" },
+      { path: "", redirect: () => defaultHomePath() },
       ...buildCloudRoutes(),
       { path: "auto-tasks", redirect: "/extension-bridge" },
       { path: "manual-tasks", name: "manual-tasks", component: ManualAcquisitionView, meta: { title: "手动获客", section: "AI 获客（本机）", fillContent: true } },
@@ -66,7 +70,7 @@ const routes = [
           { path: "plugin-lab", name: "settings-plugin-lab", component: PluginLabView, meta: { title: "插件实验室", section: "设置" } },
         ],
       },
-      { path: "login", redirect: "/extension-bridge" },
+      { path: "login", redirect: () => defaultHomePath() },
       { path: "antibot", name: "antibot", component: AntibotView },
     ],
   },
@@ -79,7 +83,7 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   if (to.path.startsWith("/settings") && !canAccessSettings()) {
-    return { path: "/extension-bridge" };
+    return { path: defaultHomePath() };
   }
   if (!isPortalEnabled()) return true;
   if (to.meta?.public) return true;

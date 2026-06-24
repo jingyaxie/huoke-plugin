@@ -1,3 +1,6 @@
+import { listExtensionCollectPlatforms } from "../config/extensionPlatformCapabilities";
+import { REGION_OPTIONS, isNoRegion, regionLabelFromCode } from "../data/chinaRegions";
+
 export const FALLBACK_PUBLISH_TIME_OPTIONS = [
   { value: "unlimited", label: "不限" },
   { value: "1d", label: "1天内" },
@@ -13,19 +16,10 @@ export const FALLBACK_COMMENT_DAYS_OPTIONS = [
   { value: "0", label: "不限" },
 ];
 
-export const REGION_PRESETS = [
-  { code: "110100", name: "北京" },
-  { code: "310100", name: "上海" },
-  { code: "440100", name: "广州" },
-  { code: "440300", name: "深圳" },
-  { code: "330100", name: "杭州" },
-  { code: "320100", name: "南京" },
-  { code: "510100", name: "成都" },
-  { code: "420100", name: "武汉" },
-  { code: "610100", name: "西安" },
-  { code: "500100", name: "重庆" },
-  { code: "", name: "不限地区" },
-];
+/** @deprecated 请使用 REGION_OPTIONS */
+export const REGION_PRESETS = REGION_OPTIONS;
+
+export { REGION_OPTIONS, isNoRegion, regionLabelFromCode };
 
 const INTENT_BY_TASK_TYPE = {
   home_auto: "keyword_auto",
@@ -43,8 +37,6 @@ export function platformLabel(platform) {
   if (platform === "kuaishou") return "快手";
   return "抖音";
 }
-
-import { listExtensionCollectPlatforms } from "../config/extensionPlatformCapabilities";
 
 export function listSupportedPlatforms(capabilities) {
   const allowed = new Set(listExtensionCollectPlatforms());
@@ -181,11 +173,19 @@ export function saveExtensionAutoStartPref(value) {
   }
 }
 
+/** 搜索词前缀：省级名称，如「广东」 */
+export function regionSearchKeyword(regionName) {
+  const name = String(regionName ?? "").trim();
+  if (isNoRegion(name)) return "";
+  const province = name.split("·")[0].trim();
+  return province.replace(/(省|市|自治区|壮族|回族|维吾尔)$/u, "");
+}
+
 /** 与后端 filters::composed_keyword 一致：地区拼入搜索词 */
 export function composeSearchKeyword(keyword, regionName) {
   const kw = String(keyword ?? "").trim();
-  const region = String(regionName ?? "").trim();
-  if (!region || region === "不限地区" || region === "全国") {
+  const region = regionSearchKeyword(regionName);
+  if (!region) {
     return kw;
   }
   if (kw.includes(region)) {

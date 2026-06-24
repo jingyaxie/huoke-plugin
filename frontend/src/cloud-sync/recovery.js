@@ -1,5 +1,7 @@
 import { getAccessToken } from "../api/http";
+import { clearAccessToken, isTokenExpiredError } from "../api/token";
 import { isPortalAuthenticated } from "../portal";
+import { refreshAccessTokenFromPortalSession } from "../portal/utils/portalLoginBridge";
 import { loadCollectJobForModal } from "../utils/extensionCollectJobs";
 import { listCloudLeadTasks, listCloudLeads } from "./api";
 import {
@@ -25,10 +27,19 @@ function localCloudLinkKeys(localJobs) {
   return { cloudTaskIds, localJobIds };
 }
 
+export function cloudTaskLocalJobId(task) {
+  const desktop = task?.config?.huoke_desktop;
+  if (desktop && typeof desktop === "object") {
+    const linked = String(desktop.local_job_id || "").trim();
+    if (linked) return linked;
+  }
+  return String(task?.local_job_id || task?.huoke_local_job_id || "").trim();
+}
+
 function shouldSkipCloudTask(task, { cloudTaskIds, localJobIds }) {
   const cloudId = String(task?.id || "");
   if (cloudTaskIds.has(cloudId)) return true;
-  const linkedLocalId = String(task?.config?.huoke_desktop?.local_job_id || "").trim();
+  const linkedLocalId = cloudTaskLocalJobId(task);
   if (linkedLocalId && localJobIds.has(linkedLocalId)) return true;
   return false;
 }
@@ -68,18 +79,68 @@ export function mergeLocalAndCloudJobs(localJobs, cloudTasks, { cloudTaskFilter 
   return { merged, cloudOnlyCount };
 }
 
-export function detectRecoveryState(localJobs, cloudOnlyCount, { error = "" } = {}) {
+export function detectRecoveryState(localJobs, cloudOnlyCount, { error = "", cloudDesktopTotal = 0 } = {}) {
   const localCount = Array.isArray(localJobs) ? localJobs.length : 0;
+  const hasToken = Boolean(String(getAccessToken() || "").trim());
   return {
     showBanner: localCount === 0 && cloudOnlyCount > 0,
+    showEmptyHint: localCount === 0 && cloudOnlyCount === 0 && !error && hasToken,
     cloudOnlyCount,
+    cloudDesktopTotal,
     error: String(error || "").trim(),
-    needsLogin: !getAccessToken() && localCount === 0,
+    needsLogin: !hasToken && localCount === 0,
   };
 }
 
+function formatRecoveryError(err) {
+  const raw = String(
+    err?.response?.data?.message
+      || err?.response?.data?.detail
+      || err?.message
+      || "拉取云端任务失败",
+  ).trim();
+  if (isTokenExpiredError(err) || raw.toLowerCase().includes("token_expired")) {
+    return "登录已过期，请重新登录盈小蚁账号后刷新本页";
+  }
+  return raw;
+}
+
+async function ensureCloudAccessToken() {
+  let token = String(getAccessToken() || "").trim();
+  if (token) return token;
+  if (!isPortalAuthenticated()) return "";
+  return refreshAccessTokenFromPortalSession();
+}
+
+async function fetchCloudRecoveryWithRetry(localJobs, { cloudTaskFilter } = {}) {
+  try {
+    const cloudTasks = await fetchAllCloudDesktopTasks();
+    const { merged, cloudOnlyCount } = mergeLocalAndCloudJobs(localJobs, cloudTasks, { cloudTaskFilter });
+    return { merged, cloudOnlyCount, cloudDesktopTotal: cloudTasks.length };
+  } catch (err) {
+    if (!isTokenExpiredError(err)) throw err;
+    clearAccessToken();
+    const refreshed = await refreshAccessTokenFromPortalSession();
+    if (!refreshed) throw err;
+    const cloudTasks = await fetchAllCloudDesktopTasks();
+    const { merged, cloudOnlyCount } = mergeLocalAndCloudJobs(localJobs, cloudTasks, { cloudTaskFilter });
+    return { merged, cloudOnlyCount, cloudDesktopTotal: cloudTasks.length };
+  }
+}
+
 export async function loadCloudRecoveryJobs(localJobs, { cloudTaskFilter } = {}) {
-  const token = getAccessToken();
+  const localCount = Array.isArray(localJobs) ? localJobs.length : 0;
+
+  // 本机有任务时只展示本地列表；云端镜像仅作数据备份，不在列表重复出现。
+  // 仅在本机无任务（重装/清库）时才从云端恢复只读历史。
+  if (localCount > 0) {
+    return {
+      merged: localJobs || [],
+      recovery: detectRecoveryState(localJobs, 0),
+    };
+  }
+
+  let token = await ensureCloudAccessToken();
   if (!token) {
     return {
       merged: localJobs || [],
@@ -91,22 +152,17 @@ export async function loadCloudRecoveryJobs(localJobs, { cloudTaskFilter } = {})
     };
   }
   try {
-    const cloudTasks = await fetchAllCloudDesktopTasks();
-    const { merged, cloudOnlyCount } = mergeLocalAndCloudJobs(localJobs, cloudTasks, {
+    const { merged, cloudOnlyCount, cloudDesktopTotal } = await fetchCloudRecoveryWithRetry(localJobs, {
       cloudTaskFilter,
     });
     return {
       merged,
-      recovery: detectRecoveryState(localJobs, cloudOnlyCount),
+      recovery: detectRecoveryState(localJobs, cloudOnlyCount, { cloudDesktopTotal }),
     };
   } catch (err) {
-    const message = err?.response?.data?.message
-      || err?.response?.data?.detail
-      || err?.message
-      || "拉取云端任务失败";
     return {
       merged: localJobs || [],
-      recovery: detectRecoveryState(localJobs, 0, { error: message }),
+      recovery: detectRecoveryState(localJobs, 0, { error: formatRecoveryError(err) }),
     };
   }
 }

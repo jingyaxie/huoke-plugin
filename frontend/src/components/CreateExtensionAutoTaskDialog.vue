@@ -12,10 +12,15 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="选择地区">
-              <el-select v-model="form.regionCode" placeholder="请选择地区" style="width: 100%">
+              <el-select
+                v-model="form.regionCode"
+                filterable
+                placeholder="不选地区"
+                style="width: 100%"
+              >
                 <el-option
-                  v-for="item in REGION_PRESETS"
-                  :key="item.code || 'any'"
+                  v-for="item in REGION_OPTIONS"
+                  :key="item.code || 'none'"
                   :label="item.name"
                   :value="item.code"
                 />
@@ -119,13 +124,14 @@ import { registerCollectJobToCloud } from "../cloud-sync";
 import { mergeExtensionCapabilities, isExtensionCollectPlatform } from "../config/extensionPlatformCapabilities";
 import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/presets";
 import {
-  REGION_PRESETS,
+  REGION_OPTIONS,
   FALLBACK_COMMENT_DAYS_OPTIONS,
   computeAutoOutreach,
   buildEvaluationPayload,
   defaultEvaluation,
   composeSearchKeyword,
   loadExtensionAutoStartPref,
+  regionLabelFromCode,
   saveExtensionAutoStartPref,
 } from "../utils/huokeTaskForm";
 import { validateTaskPresetSelection } from "../utils/presetSelection";
@@ -161,9 +167,7 @@ const form = reactive({
 
 const commentOptions = FALLBACK_COMMENT_DAYS_OPTIONS;
 
-const regionName = computed(
-  () => REGION_PRESETS.find((row) => row.code === form.regionCode)?.name || "",
-);
+const regionName = computed(() => regionLabelFromCode(form.regionCode));
 const composedSearchKeyword = computed(() => {
   const keyword = keywordList()[0] || "";
   if (!keyword) return "";

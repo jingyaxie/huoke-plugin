@@ -116,7 +116,8 @@ import { ElMessage } from "element-plus";
 import { sendPortalSmsCode } from "../api/portalAuth";
 import { syncPortalCredentialsAfterLogin, ensureEvaluationCredentialsSynced } from "../../api/commentEvaluation";
 import { mapH5PathToCloudRoute } from "../config/cloudNav";
-import { probePortalSession, submitPortalLoginForm, syncPortalDisplayName } from "../utils/portalLoginBridge";
+import { isLocalAcquisitionPath } from "../config/authPaths";
+import { probePortalSession, refreshAccessTokenFromPortalSession, submitPortalLoginForm, syncPortalDisplayName } from "../utils/portalLoginBridge";
 import {
   isPortalAuthenticated,
   isPortalLogoutPending,
@@ -140,12 +141,19 @@ const smsCountdown = ref(0);
 let countdownTimer = null;
 
 function resolveRedirectTarget() {
+  const preferred = "/cloud/dashboard";
   if (typeof route.query.redirect === "string" && route.query.redirect) {
-    return route.query.redirect;
+    const redirect = route.query.redirect.trim();
+    if (redirect.startsWith("/cloud/")) return redirect;
+    if (isLocalAcquisitionPath(redirect)) return preferred;
+    if (redirect.startsWith("/")) return redirect;
   }
   const authPath = readPortalAuth()?.path;
-  if (authPath) return mapH5PathToCloudRoute(authPath);
-  return "/cloud/dashboard";
+  if (authPath) {
+    const mapped = mapH5PathToCloudRoute(authPath);
+    if (mapped.startsWith("/cloud/")) return mapped;
+  }
+  return preferred;
 }
 
 function redirectAfterLogin() {
@@ -157,13 +165,15 @@ async function tryExistingSession() {
     return false;
   }
   if (isPortalAuthenticated()) {
-    void ensureEvaluationCredentialsSynced();
+    await refreshAccessTokenFromPortalSession().catch(() => null);
+    void ensureEvaluationCredentialsSynced({ force: true });
     redirectAfterLogin();
     return true;
   }
   const ok = await probePortalSession();
   if (ok) {
-    void ensureEvaluationCredentialsSynced();
+    await refreshAccessTokenFromPortalSession().catch(() => null);
+    void ensureEvaluationCredentialsSynced({ force: true });
     redirectAfterLogin();
     return true;
   }

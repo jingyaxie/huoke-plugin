@@ -91,10 +91,16 @@ http.interceptors.response.use(
     const status = error.response?.status;
     const detail = String(error.response?.data?.detail || "");
     const hadToken = Boolean(getAccessToken());
+    const message = String(error.response?.data?.message || "").toLowerCase();
     const tokenRejected =
       status === 401 &&
       hadToken &&
-      (detail.includes("登录令牌") || detail.includes("登录用户无效") || detail.includes("请先登录"));
+      (
+        detail.includes("登录令牌")
+        || detail.includes("登录用户无效")
+        || detail.includes("请先登录")
+        || message.includes("token_expired")
+      );
     if (tokenRejected) {
       setAccessToken("");
       const config = error.config;

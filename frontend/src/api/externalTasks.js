@@ -2,6 +2,7 @@ import http from "./http";
 import {
   resolveAgentStrategy,
 } from "../utils/acquisitionStrategy";
+import { isNoRegion } from "../utils/huokeTaskForm";
 
 export async function fetchExternalCapabilities(platform) {
   const resp = await http.get("/agent/external/capabilities", {
@@ -89,7 +90,7 @@ export function buildAutoTaskPayload({
     scope.crawl_video_limit = Number(crawlVideoLimit);
   }
   const region = String(regionName || "").trim();
-  if (region && region !== "不限地区" && region !== "全国") {
+  if (region && !isNoRegion(region)) {
     scope.region = region;
   }
   const outreach = {

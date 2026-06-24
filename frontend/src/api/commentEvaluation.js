@@ -1,6 +1,8 @@
 import { getAccessToken, getApiBaseUrl, getTenantId, setAccessToken, setTenantId } from "./http";
 import { fetchLlmSettings, saveLlmSettings } from "./llmSettings";
 import { loginUser, loginUserSms } from "./auth";
+import { isPortalAuthenticated } from "../portal";
+import { refreshAccessTokenFromPortalSession } from "../portal/utils/portalLoginBridge";
 
 export function isEvaluationReady(settings) {
   if (!settings) return false;
@@ -61,7 +63,10 @@ let ensureSyncInFlight = null;
  * Sidecar 重启、首次启用后台评估、或登录时 Sidecar 不可达后恢复，都会用到。
  */
 export async function ensureEvaluationCredentialsSynced({ force = false } = {}) {
-  const token = String(getAccessToken() ?? "").trim();
+  let token = String(getAccessToken() ?? "").trim();
+  if (!token && isPortalAuthenticated()) {
+    token = String(await refreshAccessTokenFromPortalSession().catch(() => "") || "").trim();
+  }
   if (!token) {
     return { ok: false, skipped: true, reason: "no_token" };
   }
