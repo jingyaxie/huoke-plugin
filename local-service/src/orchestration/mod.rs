@@ -14,6 +14,7 @@ use crate::douyin::parser::{
 use crate::filters;
 use crate::job_config::JobConfig;
 use crate::job_run::JobRunRegistry;
+use crate::job_run_log::{append_step, StepStatus};
 use crate::platforms::parse_plugin_lab_search_results;
 use crate::lab_commands::LabCommands;
 use crate::orchestration::outreach::InlineOutreachRunner;
@@ -143,18 +144,67 @@ pub struct JobOrchestrator {
 }
 
 impl JobOrchestrator {
+    fn log_step(
+        &self,
+        job_id: &str,
+        step_key: &str,
+        step_label: &str,
+        status: StepStatus,
+        reason: &str,
+        detail: Option<serde_json::Value>,
+    ) {
+        append_step(
+            &self.db,
+            job_id,
+            self.generation,
+            step_key,
+            step_label,
+            status,
+            reason,
+            detail,
+        );
+    }
+
+    fn lab(&self, job_id: &str, platform: &str) -> LabCommands<'_> {
+        LabCommands::new(&self.hub, platform).with_run_log(self.db.clone(), job_id, self.generation)
+    }
+
     pub async fn run_job(&self, job_id: &str) -> Result<(), String> {
         if !self.job_runs.is_current(job_id, self.generation) {
             info!("job {job_id}: superseded before start (gen={})", self.generation);
             return Ok(());
         }
         if self.hub.client_count() == 0 {
+            self.log_step(
+                job_id,
+                "extension_check",
+                "检查 Chrome 插件连接",
+                StepStatus::Fail,
+                "未检测到已连接的 Huoke 扩展，无法下发浏览器指令",
+                None,
+            );
             return Err("no extension connected".into());
         }
 
         let job = self.db.get_job(job_id)?;
         let cfg = JobConfig::from_job(&job);
         let platform = job.platform.clone();
+        self.log_step(
+            job_id,
+            "run_start",
+            "任务开始执行",
+            StepStatus::Info,
+            "用户启动或继续采集，编排器开始按配置执行关键词搜索、评论采集与触达",
+            Some(serde_json::json!({
+                "generation": self.generation,
+                "platform": platform,
+                "keyword": job.keyword,
+                "job_type": job.job_type,
+                "target_count": cfg.target_count,
+                "limit_videos": job.limit_videos,
+                "intent": cfg.intent,
+            })),
+        );
         self.db
             .update_job_status(job_id, JobStatus::Running, None)?;
 
@@ -190,6 +240,14 @@ impl JobOrchestrator {
                 .await
                 {
                     warn!("job {job_id}: comment evaluation error: {err}");
+                    self.log_step(
+                        job_id,
+                        "evaluation",
+                        "评论意图评估",
+                        StepStatus::Warn,
+                        "采集完成后需评估评论是否为精准客户，评估过程出错但不阻断任务",
+                        Some(serde_json::json!({ "error": err })),
+                    );
                 }
                 if self.uses_precise_collect_target() && !cfg.collects_by_video_limit() {
                     let precise = self.db.count_precise_comments_for_job(job_id)?;
@@ -201,6 +259,18 @@ impl JobOrchestrator {
                         );
                         self.db
                             .update_job_status(job_id, JobStatus::Failed, Some(&msg))?;
+                        self.log_step(
+                            job_id,
+                            "run_failed",
+                            "任务失败",
+                            StepStatus::Fail,
+                            "精准线索数量未达到目标，任务标记为失败",
+                            Some(serde_json::json!({
+                                "precise": precise,
+                                "target": cfg.target_count,
+                                "total_comments": total,
+                            })),
+                        );
                         self.cleanup_job_workspace(&platform, job_id).await;
                         return Err(msg);
                     }
@@ -235,6 +305,14 @@ impl JobOrchestrator {
                     };
                     if let Err(err) = runner.run(job_id, &cfg).await {
                         warn!("job {job_id} outreach partial failure: {err}");
+                        self.log_step(
+                            job_id,
+                            "outreach",
+                            "自动触达",
+                            StepStatus::Warn,
+                            "采集完成后执行私信/评论回复/关注，部分步骤未完全成功",
+                            Some(serde_json::json!({ "error": err })),
+                        );
                     }
                 } else {
                     info!(
@@ -242,6 +320,18 @@ impl JobOrchestrator {
                         cfg.auto_outreach,
                         cfg.interaction.follow_per_day,
                         cfg.interaction.dm_per_day,
+                    );
+                    self.log_step(
+                        job_id,
+                        "outreach_skip",
+                        "跳过自动触达",
+                        StepStatus::Skip,
+                        "任务未开启自动触达或未配置私信/关注额度，仅完成评论采集",
+                        Some(serde_json::json!({
+                            "auto_outreach": cfg.auto_outreach,
+                            "follow_per_day": cfg.interaction.follow_per_day,
+                            "dm_per_day": cfg.interaction.dm_per_day,
+                        })),
                     );
                 }
 
@@ -251,6 +341,14 @@ impl JobOrchestrator {
                 }
                 self.db
                     .update_job_status(job_id, JobStatus::Completed, None)?;
+                self.log_step(
+                    job_id,
+                    "run_complete",
+                    "任务完成",
+                    StepStatus::Ok,
+                    "采集与后续步骤均已执行完毕",
+                    None,
+                );
                 if cfg.collects_by_video_limit() {
                     let scanned = self.scanned_video_count(job_id)?;
                     info!(
@@ -265,15 +363,39 @@ impl JobOrchestrator {
             }
             Err(err) if err == JOB_PAUSED => {
                 info!("job {job_id} paused");
+                self.log_step(
+                    job_id,
+                    "run_paused",
+                    "任务已暂停",
+                    StepStatus::Info,
+                    "用户暂停或编排代际失效，当前执行轮次中止",
+                    None,
+                );
                 Ok(())
             }
             Err(err) => {
                 if self.is_job_paused(job_id)? {
                     info!("job {job_id} paused");
+                    self.log_step(
+                        job_id,
+                        "run_paused",
+                        "任务已暂停",
+                        StepStatus::Info,
+                        "用户暂停任务，执行中止",
+                        None,
+                    );
                     return Ok(());
                 }
                 self.db
                     .update_job_status(job_id, JobStatus::Failed, Some(&err))?;
+                self.log_step(
+                    job_id,
+                    "run_failed",
+                    "任务失败",
+                    StepStatus::Fail,
+                    "执行过程中出现错误，任务已标记失败",
+                    Some(serde_json::json!({ "error": err })),
+                );
                 self.cleanup_job_workspace(&platform, job_id).await;
                 Err(err)
             }
@@ -282,7 +404,7 @@ impl JobOrchestrator {
 
     async fn cleanup_job_workspace(&self, platform: &str, job_id: &str) {
         info!("job {job_id}: closing task browser workspace");
-        let lab = LabCommands::new(&self.hub, platform);
+        let lab = self.lab(job_id, platform);
         match lab.close_browser().await {
             Ok(resp) => {
                 let closed = resp.get("closed").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -304,7 +426,7 @@ impl JobOrchestrator {
             cfg.target_count, job.limit_videos, cfg.comment_days
         );
 
-        let lab = LabCommands::new(&self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
         let existing_progress = self.collect_progress_count(job_id)?;
         let resume_collect = if cfg.collects_by_video_limit() {
             let videos_collected = self.db.count_scanned_videos_for_job(job_id)?;
@@ -320,6 +442,18 @@ impl JobOrchestrator {
                 existing_progress,
                 self.collect_progress_label(),
                 cfg.target_count
+            );
+            self.log_step(
+                job_id,
+                "resume_collect",
+                "继续上次采集",
+                StepStatus::Info,
+                "任务已有部分进度，重新搜索关键词后继续采集剩余目标",
+                Some(serde_json::json!({
+                    "progress": existing_progress,
+                    "target": cfg.target_count,
+                    "search_keyword": search_kw,
+                })),
             );
         }
 
@@ -396,7 +530,7 @@ impl JobOrchestrator {
             cfg.intent, input_url
         );
 
-        let lab = LabCommands::new(&self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
         let adapter = crate::platforms::get_platform_adapter(&job.platform);
         let open_url = adapter.normalize_manual_open_url(&input_url, &cfg.intent);
 
@@ -524,7 +658,7 @@ impl JobOrchestrator {
     ) -> Result<(), String> {
         use std::collections::HashMap;
 
-        let lab = LabCommands::new(&self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
         let scroll_rounds =
             scroll_rounds_for_video(job.max_comments_per_video, cfg.comment_days);
         let remaining_quota = self.videos_remaining_quota(job_id, job, cfg)? as u32;
@@ -554,6 +688,18 @@ impl JobOrchestrator {
 
         info!(
             "job {job_id}: playback chain start — remaining_quota={remaining_quota} scroll_rounds={scroll_rounds}"
+        );
+        self.log_step(
+            job_id,
+            "playback_chain_start",
+            "开始 Feed 连续采集",
+            StepStatus::Info,
+            "在搜索结果 Feed 中逐条播放视频，打开评论侧栏并滚动采集",
+            Some(serde_json::json!({
+                "remaining_quota": remaining_quota,
+                "scroll_rounds": scroll_rounds,
+                "open_label": open_label,
+            })),
         );
 
         loop {
@@ -600,6 +746,17 @@ impl JobOrchestrator {
                 warn!(
                     "job {job_id}: playback swipe failed {swipe_failures} times, stop playback chain"
                 );
+                self.log_step(
+                    job_id,
+                    "playback_chain_stop",
+                    "Feed 采集中止",
+                    StepStatus::Fail,
+                    "连续翻页/导航失败次数过多，停止 Feed 连续采集",
+                    Some(serde_json::json!({
+                        "swipe_failures": swipe_failures,
+                        "search_exhausted": search_exhausted,
+                    })),
+                );
                 break;
             }
 
@@ -625,6 +782,14 @@ impl JobOrchestrator {
                 Err(err) => {
                     swipe_failures += 1;
                     warn!("job {job_id}: playback navigation error — {err}");
+                    self.log_step(
+                        job_id,
+                        "playback_nav_error",
+                        "播放导航失败",
+                        StepStatus::Warn,
+                        "打开首个视频或滑动切下一个视频时出错，将重试",
+                        Some(serde_json::json!({ "error": err, "opening_first": opening_first })),
+                    );
                     if swipe_failures >= 2 && search_list_recoveries < MAX_SEARCH_LIST_RECOVERIES {
                         let in_feed = playback_mode == Some(DouyinPlaybackMode::Feed) && playback_open;
                         if let Some(recovered) = self
@@ -670,6 +835,18 @@ impl JobOrchestrator {
                     "job {job_id}: playback navigation not ready ({}) — {:?}",
                     playback_mode_label(mode),
                     resp.get("message").and_then(|v| v.as_str())
+                );
+                self.log_step(
+                    job_id,
+                    "playback_nav_not_ready",
+                    "播放未就绪",
+                    StepStatus::Warn,
+                    "视频页尚未进入可采集状态，将重试翻页或恢复搜索列表",
+                    Some(serde_json::json!({
+                        "mode": playback_mode_label(mode),
+                        "message": resp.get("message"),
+                        "opening_first": opening_first,
+                    })),
                 );
                 if !opening_first
                     && swipe_failures >= 2
@@ -723,6 +900,14 @@ impl JobOrchestrator {
             if aweme_id.is_empty() {
                 swipe_failures += 1;
                 warn!("job {job_id}: playback open but aweme_id unknown");
+                self.log_step(
+                    job_id,
+                    "playback_aweme_unknown",
+                    "无法识别视频 ID",
+                    StepStatus::Warn,
+                    "当前播放页未能解析 aweme_id，将尝试继续翻页",
+                    None,
+                );
                 continue;
             }
             last_aweme_id = Some(aweme_id.clone());
@@ -730,6 +915,14 @@ impl JobOrchestrator {
             if self.aweme_comments_already_collected(job_id, &aweme_id)? {
                 info!(
                     "job {job_id}: skip aweme {aweme_id} — already collected, swipe next"
+                );
+                self.log_step(
+                    job_id,
+                    "skip_video",
+                    "跳过已采集视频",
+                    StepStatus::Skip,
+                    "该视频评论已入库，滑动到下一条以节省配额",
+                    Some(serde_json::json!({ "aweme_id": aweme_id })),
                 );
                 continue;
             }
@@ -741,6 +934,14 @@ impl JobOrchestrator {
                 warn!(
                     "job {job_id}: stuck on aweme {aweme_id} ({stale} times), treat as swipe failure"
                 );
+                self.log_step(
+                    job_id,
+                    "playback_stuck",
+                    "卡在同一个视频",
+                    StepStatus::Warn,
+                    "多次停留在同一视频未能切换，计为翻页失败",
+                    Some(serde_json::json!({ "aweme_id": aweme_id, "stale_hits": stale })),
+                );
                 continue;
             }
 
@@ -748,6 +949,19 @@ impl JobOrchestrator {
                 "job {job_id}: collect comments in {} aweme={aweme_id} ({}/{remaining_quota})",
                 playback_mode_label(mode),
                 collected_videos + 1
+            );
+            self.log_step(
+                job_id,
+                "collect_video",
+                "采集视频评论",
+                StepStatus::Info,
+                "当前视频尚未采集，需打开评论侧栏并滚动加载评论",
+                Some(serde_json::json!({
+                    "aweme_id": aweme_id,
+                    "mode": playback_mode_label(mode),
+                    "index": collected_videos + 1,
+                    "remaining_quota": remaining_quota,
+                })),
             );
 
             let mut collect_result = match mode {
@@ -778,6 +992,17 @@ impl JobOrchestrator {
                     warn!(
                         "job {job_id}: retry {} collect for {aweme_id} after sidebar failure",
                         playback_mode_label(mode)
+                    );
+                    self.log_step(
+                        job_id,
+                        "sidebar_retry",
+                        "评论侧栏重试",
+                        StepStatus::Warn,
+                        "首次打开评论侧栏失败，等待后同视频再试一次，避免立刻滑到下一条",
+                        Some(serde_json::json!({
+                            "aweme_id": aweme_id,
+                            "error": err,
+                        })),
                     );
                     self.wait_human_if_not_paused(job_id, 2500, 4000).await?;
                     collect_result = match mode {
@@ -829,6 +1054,17 @@ impl JobOrchestrator {
                     warn!(
                         "job {job_id}: {} collect failed for {aweme_id} — {err}",
                         playback_mode_label(mode)
+                    );
+                    self.log_step(
+                        job_id,
+                        "collect_video_fail",
+                        "视频评论采集失败",
+                        StepStatus::Fail,
+                        "本条视频采集未成功，将滑动尝试下一条（侧栏/滚动/网络等原因）",
+                        Some(serde_json::json!({
+                            "aweme_id": aweme_id,
+                            "error": err,
+                        })),
                     );
                     simulate::pause(Duration::from_millis(600)).await;
                 }
@@ -903,7 +1139,7 @@ impl JobOrchestrator {
         input_url: &str,
         open_url: &str,
     ) -> Result<(), String> {
-        let lab = LabCommands::new(&self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
         let adapter = crate::platforms::get_platform_adapter(&job.platform);
         let scroll_rounds =
             scroll_rounds_for_video(job.max_comments_per_video, cfg.comment_days);
@@ -1041,7 +1277,7 @@ impl JobOrchestrator {
         playback_mode: &str,
     ) -> Result<(), String> {
         self.bail_if_paused(job_id)?;
-        let lab = LabCommands::new(&self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
 
         let placeholder = ParsedVideo {
             aweme_id: aweme_hint.to_string(),
@@ -1072,6 +1308,19 @@ impl JobOrchestrator {
                 .unwrap_or("failed to open comment sidebar");
             warn!(
                 "job {job_id}: comment sidebar attempt {attempt}/2 ({playback_mode}) — {msg}"
+            );
+            self.log_step(
+                job_id,
+                "sidebar_retry_plan",
+                "评论侧栏将重试",
+                StepStatus::Warn,
+                "点击评论按钮后侧栏未就绪，等待后再次尝试",
+                Some(serde_json::json!({
+                    "aweme_id": aweme_hint,
+                    "playback_mode": playback_mode,
+                    "attempt": attempt,
+                    "message": msg,
+                })),
             );
             self.wait_human_if_not_paused(job_id, 2000, 3500).await?;
         }
@@ -1272,7 +1521,7 @@ impl JobOrchestrator {
         let mut expand_attempts = 0_u32;
         const MAX_EXPAND_ATTEMPTS: u32 = 3;
 
-        let lab = LabCommands::new(&self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
         if cfg.intent == "account_home" {
             let _ = lab.prepare_profile_for_video().await;
             simulate::pause(Duration::from_millis(500)).await;
@@ -1353,7 +1602,7 @@ impl JobOrchestrator {
                 break;
             }
             if opened_videos > 0 {
-                let lab = LabCommands::new(&self.hub, &job.platform);
+                let lab = self.lab(job_id, &job.platform);
                 let _ = lab
                     .scroll_comments(4, job.max_comments_per_video, cfg.comment_days)
                     .await;
@@ -2021,7 +2270,7 @@ impl JobOrchestrator {
         is_last: bool,
     ) -> Result<(), String> {
         self.bail_if_paused(job_id)?;
-        let lab = LabCommands::new(&self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
         if cfg.intent == "account_home" {
             let aweme_hint = if is_dom_poster_aweme_id(&video.aweme_id) {
                 parse_aweme_id_from_page_url(&video.video_url)

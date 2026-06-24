@@ -4,6 +4,8 @@ use serde_json::{json, Value};
 
 use tracing::{info, warn};
 
+use crate::db::Database;
+use crate::job_run_log::{log_bridge_command, log_lab_action};
 use crate::platforms::PlatformCollectAdapter;
 use crate::plugin_lab;
 use crate::simulate;
@@ -13,6 +15,7 @@ use crate::ws::BridgeHub;
 pub struct LabCommands<'a> {
     hub: &'a BridgeHub,
     platform: String,
+    run_log: Option<(Database, String, u64)>,
 }
 
 impl<'a> LabCommands<'a> {
@@ -20,7 +23,13 @@ impl<'a> LabCommands<'a> {
         Self {
             hub,
             platform: crate::platforms::normalize_platform(platform).to_string(),
+            run_log: None,
         }
+    }
+
+    pub fn with_run_log(mut self, db: Database, job_id: impl Into<String>, run_id: u64) -> Self {
+        self.run_log = Some((db, job_id.into(), run_id));
+        self
     }
 
     fn adapter(&self) -> &'static dyn PlatformCollectAdapter {
@@ -41,8 +50,11 @@ impl<'a> LabCommands<'a> {
         );
 
         match self
-            .hub
-            .request_command("huoke.extension.reload", json!({}), Duration::from_secs(10))
+            .request_bridge(
+                "huoke.extension.reload",
+                json!({}),
+                Duration::from_secs(10),
+            )
             .await
         {
             Ok(_) => info!("extension reload acknowledged"),
@@ -82,8 +94,7 @@ impl<'a> LabCommands<'a> {
         let mut last_err = String::new();
         for attempt in 1..=MAX_ATTEMPTS {
             match self
-                .hub
-                .request_command(
+                .request_bridge(
                     "network.hook.enable",
                     json!({ "patterns": patterns, "platform": self.platform }),
                     Duration::from_secs(45),
@@ -862,6 +873,25 @@ impl<'a> LabCommands<'a> {
         self.action("send_dm", json!({ "dm_text": text })).await
     }
 
+    async fn request_bridge(
+        &self,
+        bridge_action: &str,
+        payload: Value,
+        timeout: Duration,
+    ) -> Result<Value, String> {
+        let result = self
+            .hub
+            .request_command(bridge_action, payload.clone(), timeout)
+            .await;
+        if let Some((db, job_id, run_id)) = &self.run_log {
+            match &result {
+                Ok(v) => log_bridge_command(db, job_id, *run_id, bridge_action, &payload, Ok(v)),
+                Err(e) => log_bridge_command(db, job_id, *run_id, bridge_action, &payload, Err(e)),
+            }
+        }
+        result
+    }
+
     async fn action(&self, action_id: &str, mut payload: Value) -> Result<Value, String> {
         let bridge_action = plugin_lab::bridge_action_for(action_id).ok_or_else(|| {
             format!("unsupported plugin-lab action: {action_id}")
@@ -876,10 +906,18 @@ impl<'a> LabCommands<'a> {
                 obj.insert("platform".to_string(), json!(self.platform));
             }
         }
-        let normalized = plugin_lab::normalize_payload(action_id, payload);
-        self.hub
+        let normalized = plugin_lab::normalize_payload(action_id, payload.clone());
+        let result = self
+            .hub
             .request_command(bridge_action, normalized, action_timeout(action_id))
-            .await
+            .await;
+        if let Some((db, job_id, run_id)) = &self.run_log {
+            match &result {
+                Ok(v) => log_lab_action(db, job_id, *run_id, action_id, &payload, Ok(v)),
+                Err(e) => log_lab_action(db, job_id, *run_id, action_id, &payload, Err(e)),
+            }
+        }
+        result
     }
 
     fn lab_ok(data: &Value) -> bool {

@@ -1,6 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,7 @@ use serde_json::json;
 
 use crate::db::{CollectJob, JobStatus};
 use crate::job_config::{build_config_json, InteractionSettings, JobConfig, PresetRef};
+use crate::job_run_log::{format_run_log_text, JobRunDetailResponse, JobRunLogsResponse};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -413,6 +415,72 @@ pub async fn pause_job(
         .update_job_status(&job_id, JobStatus::Paused, None)
         .map_err(internal_error)?;
     Ok(Json(json!({ "job_id": job_id, "status": "paused" })))
+}
+
+#[derive(Deserialize)]
+pub struct RunLogQuery {
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+pub async fn list_job_run_logs(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Result<Json<JobRunLogsResponse>, ApiError> {
+    let _ = state.db.get_job(&job_id).map_err(|_| not_found())?;
+    let runs = state
+        .db
+        .list_job_run_summaries(&job_id)
+        .map_err(internal_error)?;
+    Ok(Json(JobRunLogsResponse { job_id, runs }))
+}
+
+pub async fn get_job_run_log_detail(
+    State(state): State<AppState>,
+    Path((job_id, run_id)): Path<(String, i64)>,
+) -> Result<Json<JobRunDetailResponse>, ApiError> {
+    let _ = state.db.get_job(&job_id).map_err(|_| not_found())?;
+    let steps = state
+        .db
+        .list_job_run_steps(&job_id, run_id)
+        .map_err(internal_error)?;
+    Ok(Json(JobRunDetailResponse {
+        job_id,
+        run_id,
+        steps,
+    }))
+}
+
+pub async fn download_job_run_log(
+    State(state): State<AppState>,
+    Path((job_id, run_id)): Path<(String, i64)>,
+    Query(query): Query<RunLogQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let job = state.db.get_job(&job_id).map_err(|_| not_found())?;
+    let steps = state
+        .db
+        .list_job_run_steps(&job_id, run_id)
+        .map_err(internal_error)?;
+    let as_json = query.format.as_deref() == Some("json");
+    if as_json {
+        return Ok(Json(JobRunDetailResponse {
+            job_id: job_id.clone(),
+            run_id,
+            steps,
+        })
+        .into_response());
+    }
+    let body = format_run_log_text(&job_id, run_id, Some(&job.name), &steps);
+    let filename = format!("huoke-run-log-{}-{}.txt", job_id, run_id);
+    let disposition = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+        .unwrap_or_else(|_| HeaderValue::from_static("attachment"));
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(header::CONTENT_DISPOSITION, disposition)
+        .body(body)
+        .map_err(|e| internal_error(e.to_string()))?
+        .into_response())
 }
 
 pub async fn delete_job(

@@ -8,6 +8,7 @@ pub mod douyin;
 pub mod filters;
 pub mod job_config;
 pub mod job_run;
+pub mod job_run_log;
 pub mod lab_commands;
 pub mod evaluation;
 pub mod llm_client;

@@ -51,6 +51,17 @@ function resolveClickableAncestor(el: Element, maxDepth = 8): HTMLElement | null
 
 /** 搜索 Feed 浮层内「下一个视频」下箭头按钮 */
 export function findFeedNextVideoButton(): HTMLElement | null {
+  const downOnly = findFeedDownArrowButton();
+  if (downOnly) return downOnly;
+  return findFeedVerticalPagerNextTarget();
+}
+
+/** 是否存在 Feed 内「下一个视频」翻页控件（下箭头或右侧上下翻页条） */
+export function hasFeedNextVideoButton(): boolean {
+  return Boolean(findFeedNextVideoButton());
+}
+
+function findFeedDownArrowButton(): HTMLElement | null {
   const feedRoot =
     (document.querySelector('[data-e2e="feed-active-video"]') as HTMLElement | null)?.closest(
       '[class*="Player"], [class*="player"], [class*="Feed"], section, div',
@@ -76,6 +87,40 @@ export function findFeedNextVideoButton(): HTMLElement | null {
     if (rect.width < 8 || rect.height < 8 || rect.top < 40) continue;
     const clickable = resolveClickableAncestor(svg);
     if (clickable) return clickable;
+  }
+  return null;
+}
+
+/** 右侧上下翻页条（部分账号/设备仅显示此控件，无独立下箭头）— 点击下半区切下一个 */
+function findFeedVerticalPagerNextTarget(): HTMLElement | null {
+  const minRight = window.innerWidth * 0.68;
+  const hosts = document.querySelectorAll("div, button, span");
+  for (let i = 0; i < hosts.length; i += 1) {
+    const host = hosts[i];
+    if (!(host instanceof HTMLElement) || !isVisible(host)) continue;
+    const rect = host.getBoundingClientRect();
+    if (rect.left < minRight || rect.width < 18 || rect.width > 64) continue;
+    if (rect.height < 36 || rect.height > 120) continue;
+
+    const svgs = host.querySelectorAll("svg");
+    if (svgs.length < 1 || svgs.length > 4) continue;
+
+    let downSvg: SVGElement | null = null;
+    for (let j = 0; j < svgs.length; j += 1) {
+      const svg = svgs[j];
+      if (svg instanceof SVGElement && isFeedNextArrowSvg(svg)) {
+        downSvg = svg;
+        break;
+      }
+    }
+    if (!downSvg) continue;
+
+    const downClickable = resolveClickableAncestor(downSvg);
+    if (downClickable) return downClickable;
+
+    if (svgs.length >= 2) {
+      return host;
+    }
   }
   return null;
 }
@@ -107,10 +152,7 @@ async function tryFeedNextViaArrowButton(
 
     const btn = findFeedNextVideoButton();
     if (!btn) {
-      if (attempt < NEXT_ARROW_MAX_ATTEMPTS) {
-        await sleep(randDelay(700, 1100));
-      }
-      continue;
+      return { ok: false, after: readFeedAwemeId(), attempt: 0 };
     }
 
     humanClick(btn);
@@ -398,21 +440,25 @@ export async function swipeSearchFeedNext() {
   const target = resolveFeedSwipeTarget();
   await focusFeedPlayer(target);
 
-  const arrow = await tryFeedNextViaArrowButton(before, target);
-  if (arrow.ok && arrow.after && arrow.after !== before) {
-    return {
-      ok: true,
-      is_search_feed: true,
-      aweme_id: arrow.after,
-      previous_aweme_id: before,
-      attempt: arrow.attempt,
-      method: "next_arrow_click",
-      url: location.href,
-      message:
-        arrow.attempt > 1
-          ? `已通过下箭头按钮切换到下一个视频（第 ${arrow.attempt} 次点击）`
-          : "已通过下箭头按钮切换到下一个视频",
-    };
+  const hasNextButton = hasFeedNextVideoButton();
+  if (hasNextButton) {
+    const arrow = await tryFeedNextViaArrowButton(before, target);
+    if (arrow.ok && arrow.after && arrow.after !== before) {
+      return {
+        ok: true,
+        is_search_feed: true,
+        aweme_id: arrow.after,
+        previous_aweme_id: before,
+        attempt: arrow.attempt,
+        method: "next_arrow_click",
+        has_next_button: true,
+        url: location.href,
+        message:
+          arrow.attempt > 1
+            ? `已通过下箭头按钮切换到下一个视频（第 ${arrow.attempt} 次点击）`
+            : "已通过下箭头按钮切换到下一个视频",
+      };
+    }
   }
 
   const methods: Array<() => Promise<void>> = [
@@ -445,8 +491,11 @@ export async function swipeSearchFeedNext() {
         previous_aweme_id: before,
         attempt: attempt + 1,
         method: methodNames[attempt - 1] ?? "unknown",
+        has_next_button: hasNextButton,
         url: location.href,
-        message: "已在 Feed 内切换到下一个视频",
+        message: hasNextButton
+          ? "翻页按钮未生效，已通过滑动切换到下一个视频"
+          : "未检测到翻页按钮，已通过滑动切换到下一个视频",
       };
     }
   }
@@ -457,6 +506,7 @@ export async function swipeSearchFeedNext() {
     is_search_feed: feedOverlayReady(),
     aweme_id: readFeedAwemeId(),
     previous_aweme_id: before,
+    has_next_button: hasNextButton,
     comment_sidebar_open: sidebar.sidebar_ready,
     url: location.href,
     message: sidebar.sidebar_ready

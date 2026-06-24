@@ -107,6 +107,18 @@ pub fn build_router(state: AppState) -> Router {
             "/api/douyin/jobs/:job_id/pause",
             post(api::douyin::pause_job),
         )
+        .route(
+            "/api/douyin/jobs/:job_id/run-logs",
+            get(api::douyin::list_job_run_logs),
+        )
+        .route(
+            "/api/douyin/jobs/:job_id/run-logs/:run_id",
+            get(api::douyin::get_job_run_log_detail),
+        )
+        .route(
+            "/api/douyin/jobs/:job_id/run-logs/:run_id/download",
+            get(api::douyin::download_job_run_log),
+        )
         .route("/api/douyin/quota", get(api::outreach::get_quota))
         .route(
             "/api/douyin/interaction/stats",

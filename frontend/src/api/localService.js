@@ -134,6 +134,35 @@ export async function deleteCollectJob(jobId) {
   return data;
 }
 
+export async function fetchCollectJobRunLogs(jobId) {
+  const { data } = await localService.get(`/api/douyin/jobs/${jobId}/run-logs`);
+  return data;
+}
+
+export async function fetchCollectJobRunLogDetail(jobId, runId) {
+  const { data } = await localService.get(`/api/douyin/jobs/${jobId}/run-logs/${runId}`);
+  return data;
+}
+
+export async function downloadCollectJobRunLog(jobId, runId, format = "txt") {
+  const url = `/api/douyin/jobs/${jobId}/run-logs/${runId}/download`;
+  const response = await localService.get(url, {
+    params: format === "json" ? { format: "json" } : undefined,
+    responseType: format === "json" ? "json" : "blob",
+  });
+  const blob =
+    format === "json"
+      ? new Blob([JSON.stringify(response.data, null, 2)], { type: "application/json" })
+      : response.data;
+  const ext = format === "json" ? "json" : "txt";
+  const filename = `huoke-run-log-${jobId}-${runId}.${ext}`;
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 export async function listOutreachTasks() {
   const { data } = await localService.get("/api/douyin/outreach/tasks");
   return data;

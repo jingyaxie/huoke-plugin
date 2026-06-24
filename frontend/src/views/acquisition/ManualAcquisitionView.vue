@@ -101,6 +101,12 @@
       :initial-view="outreachView"
       :loading="outreachLoading"
     />
+
+    <JobRunLogsModal
+      v-model="runLogsOpen"
+      :job-id="runLogsJobId"
+      :job-name="runLogsJobName"
+    />
   </div>
 </template>
 
@@ -112,6 +118,7 @@ import AcquisitionStatsCards from "../../components/AcquisitionStatsCards.vue";
 import CollectJobRowActions from "../../components/CollectJobRowActions.vue";
 import CollectJobStatusTag from "../../components/CollectJobStatusTag.vue";
 import CreateExtensionManualTaskDialog from "../../components/CreateExtensionManualTaskDialog.vue";
+import JobRunLogsModal from "../../components/JobRunLogsModal.vue";
 import MetricLink from "../../components/MetricLink.vue";
 import {
   deleteCollectJob,
@@ -141,6 +148,10 @@ const outreachLoading = ref(false);
 const outreachJob = ref(null);
 const outreachView = ref("all");
 
+const runLogsOpen = ref(false);
+const runLogsJobId = ref("");
+const runLogsJobName = ref("");
+
 const manualJobs = computed(() =>
   (allJobs.value || []).filter((row) => row.job_type === "manual"),
 );
@@ -167,10 +178,18 @@ function platformLabel(platform) {
 
 function onCollectJobAction(row, action) {
   if (action === "view") openCollectData(row, "all");
+  else if (action === "run_logs") openRunLogs(row);
   else if (action === "evaluate") onEvaluateCollect(row);
   else if (action === "start") onStartCollect(row);
   else if (action === "pause") onPauseCollect(row);
   else if (action === "delete") onDeleteCollect(row);
+}
+
+function openRunLogs(row) {
+  if (!row?.id) return;
+  runLogsJobId.value = row.id;
+  runLogsJobName.value = jobDisplayName(row);
+  runLogsOpen.value = true;
 }
 
 async function onEvaluateCollect(row) {

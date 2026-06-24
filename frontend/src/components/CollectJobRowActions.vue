@@ -6,6 +6,7 @@
     <template #dropdown>
       <el-dropdown-menu>
         <el-dropdown-item command="view">查看数据</el-dropdown-item>
+        <el-dropdown-item command="run_logs">运行日志</el-dropdown-item>
         <el-dropdown-item command="evaluate" :disabled="!canEvaluate">
           评估评论
         </el-dropdown-item>

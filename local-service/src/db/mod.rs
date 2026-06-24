@@ -123,6 +123,36 @@ pub struct InteractionRecord {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobRunLogEntry {
+    pub id: String,
+    pub job_id: String,
+    pub run_id: i64,
+    pub seq: i64,
+    pub step_key: String,
+    pub step_label: String,
+    pub status: String,
+    pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<serde_json::Value>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobRunSummary {
+    pub run_id: i64,
+    pub step_count: i64,
+    pub started_at: i64,
+    pub ended_at: i64,
+    pub ok_count: i64,
+    pub fail_count: i64,
+    pub warn_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_label: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
@@ -261,6 +291,19 @@ impl Database {
             SELECT job_id, aweme_id, MIN(created_at)
             FROM captured_comments
             GROUP BY job_id, aweme_id;
+            CREATE TABLE IF NOT EXISTS job_run_logs (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                run_id INTEGER NOT NULL,
+                seq INTEGER NOT NULL,
+                step_key TEXT NOT NULL,
+                step_label TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL,
+                reason TEXT NOT NULL DEFAULT '',
+                detail_json TEXT,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_job_run_logs_job_run ON job_run_logs(job_id, run_id, seq);
             "#,
         );
         Ok(())
@@ -737,6 +780,11 @@ impl Database {
             params![job_id],
         )
         .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM job_run_logs WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
         let n = conn
             .execute("DELETE FROM collect_jobs WHERE id = ?1", params![job_id])
             .map_err(|e| e.to_string())?;
@@ -1149,6 +1197,142 @@ impl Database {
             }
         }
         Ok(comments)
+    }
+
+    pub fn append_job_run_log(
+        &self,
+        job_id: &str,
+        run_id: i64,
+        step_key: &str,
+        step_label: &str,
+        status: &str,
+        reason: &str,
+        detail: Option<serde_json::Value>,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let seq: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM job_run_logs WHERE job_id = ?1 AND run_id = ?2",
+                params![job_id, run_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let detail_json = detail
+            .as_ref()
+            .and_then(|v| serde_json::to_string(v).ok());
+        conn.execute(
+            "INSERT INTO job_run_logs (id, job_id, run_id, seq, step_key, step_label, status, reason, detail_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                Uuid::new_v4().to_string(),
+                job_id,
+                run_id,
+                seq,
+                step_key,
+                step_label,
+                status,
+                reason,
+                detail_json,
+                Self::now_ms(),
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn list_job_run_summaries(&self, job_id: &str) -> Result<Vec<JobRunSummary>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT run_id,
+                        COUNT(*) AS step_count,
+                        MIN(created_at) AS started_at,
+                        MAX(created_at) AS ended_at,
+                        SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS ok_count,
+                        SUM(CASE WHEN status = 'fail' THEN 1 ELSE 0 END) AS fail_count,
+                        SUM(CASE WHEN status = 'warn' THEN 1 ELSE 0 END) AS warn_count
+                 FROM job_run_logs
+                 WHERE job_id = ?1
+                 GROUP BY run_id
+                 ORDER BY run_id DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![job_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut summaries = Vec::new();
+        for row in rows {
+            let (run_id, step_count, started_at, ended_at, ok_count, fail_count, warn_count) =
+                row.map_err(|e| e.to_string())?;
+            let (last_status, last_label): (Option<String>, Option<String>) = conn
+                .query_row(
+                    "SELECT status, step_label FROM job_run_logs
+                     WHERE job_id = ?1 AND run_id = ?2
+                     ORDER BY seq DESC LIMIT 1",
+                    params![job_id, run_id],
+                    |row| Ok((Some(row.get(0)?), Some(row.get(1)?))),
+                )
+                .unwrap_or((None, None));
+            summaries.push(JobRunSummary {
+                run_id,
+                step_count,
+                started_at,
+                ended_at,
+                ok_count,
+                fail_count,
+                warn_count,
+                last_status,
+                last_label,
+            });
+        }
+        Ok(summaries)
+    }
+
+    pub fn list_job_run_steps(
+        &self,
+        job_id: &str,
+        run_id: i64,
+    ) -> Result<Vec<JobRunLogEntry>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, job_id, run_id, seq, step_key, step_label, status, reason, detail_json, created_at
+                 FROM job_run_logs
+                 WHERE job_id = ?1 AND run_id = ?2
+                 ORDER BY seq ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![job_id, run_id], |row| {
+                let detail_raw: Option<String> = row.get(8)?;
+                let detail = detail_raw.and_then(|text| serde_json::from_str(&text).ok());
+                Ok(JobRunLogEntry {
+                    id: row.get(0)?,
+                    job_id: row.get(1)?,
+                    run_id: row.get(2)?,
+                    seq: row.get(3)?,
+                    step_key: row.get(4)?,
+                    step_label: row.get(5)?,
+                    status: row.get(6)?,
+                    reason: row.get(7)?,
+                    detail,
+                    created_at: row.get(9)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 }
 

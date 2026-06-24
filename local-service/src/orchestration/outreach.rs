@@ -2,12 +2,14 @@ use std::time::Duration;
 
 use rand::Rng;
 use crate::simulate;
+use serde_json::json;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
 use crate::db::{CapturedComment, Database, JobStatus};
 use crate::job_config::JobConfig;
 use crate::job_run::JobRunRegistry;
+use crate::job_run_log::{append_step, StepStatus};
 use crate::lab_commands::LabCommands;
 use crate::ws::BridgeHub;
 
@@ -20,6 +22,10 @@ pub struct InlineOutreachRunner<'a> {
 }
 
 impl<'a> InlineOutreachRunner<'a> {
+    fn lab(&self, job_id: &str, platform: &str) -> LabCommands<'a> {
+        LabCommands::new(self.hub, platform).with_run_log(self.db.clone(), job_id, self.generation)
+    }
+
     pub async fn run(&self, job_id: &str, cfg: &JobConfig) -> Result<OutreachStats, String> {
         let precise_only = self.db.job_has_evaluated_comments(job_id)?;
         let eligible = self.db.list_eligible_comments_for_outreach(
@@ -70,6 +76,21 @@ impl<'a> InlineOutreachRunner<'a> {
         info!(
             "job {job_id}: outreach budgets reply={reply_budget} dm={dm_budget} follow={follow_budget} eligible={}",
             eligible.len()
+        );
+        append_step(
+            self.db,
+            job_id,
+            self.generation,
+            "outreach_start",
+            "开始自动触达",
+            StepStatus::Info,
+            "采集完成后对精准客户依次执行回复、私信或关注",
+            Some(json!({
+                "eligible": eligible.len(),
+                "reply_budget": reply_budget,
+                "dm_budget": dm_budget,
+                "follow_budget": follow_budget,
+            })),
         );
 
         let (interval_min, interval_max) = cfg.interaction.interval_ms_range();
@@ -144,6 +165,20 @@ impl<'a> InlineOutreachRunner<'a> {
             "job {job_id}: outreach done replies={} dms={} follows={}",
             stats.replies, stats.dms, stats.follows
         );
+        append_step(
+            self.db,
+            job_id,
+            self.generation,
+            "outreach_complete",
+            "自动触达完成",
+            StepStatus::Ok,
+            "本轮触达动作已全部尝试完毕",
+            Some(json!({
+                "replies": stats.replies,
+                "dms": stats.dms,
+                "follows": stats.follows,
+            })),
+        );
         Ok(stats)
     }
 
@@ -172,7 +207,7 @@ impl<'a> InlineOutreachRunner<'a> {
 
     async fn send_reply(&self, job_id: &str, comment: &CapturedComment, text: &str) -> Result<bool, String> {
         let job = self.db.get_job(job_id)?;
-        let lab = LabCommands::new(self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
         let data = lab
             .reply_to_comment(
                 &comment.aweme_id,
@@ -196,7 +231,7 @@ impl<'a> InlineOutreachRunner<'a> {
 
     async fn send_dm(&self, job_id: &str, comment: &CapturedComment, text: &str) -> Result<bool, String> {
         let job = self.db.get_job(job_id)?;
-        let lab = LabCommands::new(self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
 
         let opened = lab
             .open_profile_from_comment(
@@ -226,7 +261,7 @@ impl<'a> InlineOutreachRunner<'a> {
 
     async fn send_follow(&self, job_id: &str, comment: &CapturedComment) -> Result<bool, String> {
         let job = self.db.get_job(job_id)?;
-        let lab = LabCommands::new(self.hub, &job.platform);
+        let lab = self.lab(job_id, &job.platform);
         let result = lab
             .follow_from_comment(
                 &comment.aweme_id,
