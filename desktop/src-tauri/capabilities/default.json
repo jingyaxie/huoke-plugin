@@ -3,5 +3,13 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": ["main"],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:18765/*",
+      "http://127.0.0.1:*/*",
+      "http://localhost:18765/*",
+      "http://localhost:*/*"
+    ]
+  },
   "permissions": ["core:default", "shell-commands"]
 }

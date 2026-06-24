@@ -232,26 +232,29 @@ pub fn open_external_url(url: &str) -> Result<(), String> {
     if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
         return Err("仅支持 http/https 链接".to_string());
     }
+    open_external_url_impl(trimmed)
+}
 
-    if cfg!(windows) {
-        // Avoid cmd.exe "start" — it splits on &/% and other shell metacharacters in URLs.
-        let mut command = Command::new("rundll32");
-        command.args(["url.dll,FileProtocolHandler", trimmed]);
-        crate::win_process::hide_console(&mut command);
-        command
-            .spawn()
-            .map_err(|err| format!("打开链接失败: {err}"))?;
-        return Ok(());
-    }
-    if cfg!(target_os = "macos") {
-        Command::new("open")
-            .arg(trimmed)
-            .spawn()
-            .map_err(|err| format!("打开链接失败: {err}"))?;
-        return Ok(());
-    }
+#[cfg(windows)]
+fn open_external_url_impl(url: &str) -> Result<(), String> {
+    // ShellExecuteW via `open` crate — avoids cmd.exe metacharacter issues and
+    // is more reliable than rundll32 url.dll,FileProtocolHandler on WebView2 shells.
+    open::that(url).map_err(|err| format!("打开链接失败: {err}"))
+}
+
+#[cfg(target_os = "macos")]
+fn open_external_url_impl(url: &str) -> Result<(), String> {
+    Command::new("open")
+        .arg(url)
+        .spawn()
+        .map_err(|err| format!("打开链接失败: {err}"))?;
+    Ok(())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn open_external_url_impl(url: &str) -> Result<(), String> {
     Command::new("xdg-open")
-        .arg(trimmed)
+        .arg(url)
         .spawn()
         .map_err(|err| format!("打开链接失败: {err}"))?;
     Ok(())
