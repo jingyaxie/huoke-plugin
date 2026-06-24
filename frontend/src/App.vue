@@ -7,6 +7,7 @@ import { onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { handlePortalMessage } from "./portal";
 import { mapH5PathToCloudRoute } from "./config/cloudNav";
+import { ensureEvaluationCredentialsSynced } from "./api/commentEvaluation";
 
 const router = useRouter();
 
@@ -26,9 +27,18 @@ function onPortalMessage(event) {
 
 onMounted(() => {
   window.addEventListener("message", onPortalMessage);
+  void ensureEvaluationCredentialsSynced();
+  document.addEventListener("visibilitychange", onVisibilitySync);
 });
 
 onUnmounted(() => {
   window.removeEventListener("message", onPortalMessage);
+  document.removeEventListener("visibilitychange", onVisibilitySync);
 });
+
+function onVisibilitySync() {
+  if (document.visibilityState === "visible") {
+    void ensureEvaluationCredentialsSynced();
+  }
+}
 </script>

@@ -99,6 +99,7 @@ import {
   syncPortalDisplayName,
 } from "../portal";
 import { canAccessSettings } from "../utils/settingsAccess";
+import { clearBackendCredentialsOnLogout, ensureEvaluationCredentialsSynced } from "../api/commentEvaluation";
 
 const route = useRoute();
 const router = useRouter();
@@ -205,6 +206,7 @@ const fillContent = computed(() => route.meta.fillContent === true);
 function onPortalAuthChanged() {
   portalLoggedIn.value = isPortalAuthenticated();
   portalDisplayName.value = getPortalDisplayName();
+  void ensureEvaluationCredentialsSynced();
 }
 
 async function handlePortalLogout() {
@@ -216,6 +218,7 @@ async function handlePortalLogout() {
     portalLoggedIn.value = false;
     portalDisplayName.value = "";
     markPortalLogoutPending();
+    await clearBackendCredentialsOnLogout();
     const loginRoute = { name: "portal-login" };
     if (redirect && redirect !== "/portal-login") {
       loginRoute.query = { redirect };
@@ -237,6 +240,7 @@ function isActive(path) {
 onMounted(() => {
   syncActiveSection();
   window.addEventListener("huoke-portal-auth-changed", onPortalAuthChanged);
+  void ensureEvaluationCredentialsSynced();
   if (portalEnabled && portalLoggedIn.value && !getPortalDisplayName()) {
     syncPortalDisplayName().then((name) => {
       portalLoggedIn.value = isPortalAuthenticated();

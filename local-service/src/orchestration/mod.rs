@@ -1818,7 +1818,7 @@ impl JobOrchestrator {
     }
 
     fn uses_precise_collect_target(&self) -> bool {
-        crate::llm_client::LlmClient::from_data_dir(&self.data_dir).is_some()
+        crate::evaluation_provider::evaluation_ready(&self.data_dir)
     }
 
     fn collect_progress_label(&self) -> &'static str {

@@ -1,6 +1,8 @@
 /** 盈小蚁 iframe 嵌入 Huoke 壳层时的 postMessage 协议 */
 import { getPortalBaseUrl } from "../config/cloudNav";
 import { isLocalAcquisitionPath } from "../config/authPaths";
+import { setAccessToken, setTenantId } from "../../api/http";
+import { syncBackendCredentialsFromLogin, ensureEvaluationCredentialsSynced } from "../../api/commentEvaluation";
 
 export const PORTAL_AUTH_MESSAGE = "huoke:portal-authenticated";
 export const PORTAL_PING_MESSAGE = "huoke:shell-ping";
@@ -83,6 +85,17 @@ export function setPortalAuthenticated(payload = {}) {
     at: Date.now(),
   };
   sessionStorage.setItem(PORTAL_AUTH_STORAGE_KEY, JSON.stringify(next));
+
+  const accessToken = String(payload.accessToken || payload.access_token || "").trim();
+  const tenantId = String(payload.tenantId || payload.tenant_id || "").trim();
+  if (accessToken) {
+    setAccessToken(accessToken);
+    if (tenantId) setTenantId(tenantId);
+    void syncBackendCredentialsFromLogin({ accessToken, tenantId }).catch(() => {});
+  } else {
+    void ensureEvaluationCredentialsSynced().catch(() => {});
+  }
+
   window.dispatchEvent(new CustomEvent("huoke-portal-auth-changed", { detail: next }));
   return next;
 }
@@ -136,6 +149,8 @@ export function handlePortalMessage(event) {
       displayName: data.displayName || data.userName || "",
       username: data.userName || data.displayName || "",
       path: data.path || "",
+      accessToken: data.accessToken || data.access_token || "",
+      tenantId: data.tenantId || data.tenant_id || "",
     });
   }
 

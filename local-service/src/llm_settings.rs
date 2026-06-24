@@ -3,39 +3,48 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/v1";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
-/// 内置默认 Key，用户未配置 .env 时也可使用评论评估等 LLM 能力。
-const DEFAULT_DEEPSEEK_API_KEY: &str = "sk-63aca3444e6d41c09fe3d53afd3444c9";
-
 const LLM_ENV_KEYS: &[&str] = &[
-    "AGENT_DEFAULT_PROVIDER",
-    "DEEPSEEK_API_KEY",
-    "DEEPSEEK_BASE_URL",
-    "DEEPSEEK_MODEL",
+    "COMMENT_EVAL_PROVIDER",
+    "AI_BACKEND_BASE_URL",
+    "AI_BACKEND_ACCESS_TOKEN",
 ];
 
 #[derive(Debug, Clone, Serialize)]
-pub struct LlmProviderSettingsOut {
+pub struct BackendSettingsOut {
     pub configured: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub api_key_masked: Option<String>,
     pub base_url: String,
-    pub model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_token_masked: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BackendSettings {
+    pub configured: bool,
+    pub base_url: String,
+    pub access_token: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LlmSettingsOut {
     pub env_file: String,
-    pub deepseek: LlmProviderSettingsOut,
+    /// 兼容旧前端字段，等同 evaluation_ready
     pub llm_configured: bool,
+    pub evaluation_ready: bool,
+    pub backend: BackendSettingsOut,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct LlmSettingsUpdate {
+    #[serde(default)]
     pub deepseek_api_key: Option<String>,
+    #[serde(default)]
     pub deepseek_base_url: Option<String>,
+    #[serde(default)]
     pub deepseek_model: Option<String>,
+    #[serde(default)]
+    pub evaluation_provider: Option<String>,
+    pub backend_base_url: Option<String>,
+    pub backend_access_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -172,66 +181,64 @@ fn write_env_updates(path: &Path, updates: &HashMap<String, Option<String>>) -> 
     std::fs::write(path, content).map_err(|e| e.to_string())
 }
 
-fn effective_deepseek_api_key(parsed: &HashMap<String, String>) -> String {
-    let raw = parsed
-        .get("DEEPSEEK_API_KEY")
-        .map(|s| s.as_str())
-        .unwrap_or("")
-        .trim();
-    if raw.is_empty() {
-        DEFAULT_DEEPSEEK_API_KEY.to_string()
-    } else {
-        raw.to_string()
+fn backend_from_env(parsed: &HashMap<String, String>) -> BackendSettings {
+    let base_url = parsed
+        .get("AI_BACKEND_BASE_URL")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let access_token = parsed
+        .get("AI_BACKEND_ACCESS_TOKEN")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let configured = !base_url.is_empty() && !access_token.is_empty();
+    BackendSettings {
+        configured,
+        base_url,
+        access_token,
     }
 }
 
-pub fn deepseek_api_key_for_data_dir(data_dir: &Path) -> String {
+pub fn read_backend_settings(data_dir: &Path) -> BackendSettings {
     let parsed = parse_env_file(&resolve_llm_env_file(data_dir));
-    effective_deepseek_api_key(&parsed)
-}
-
-fn deepseek_from_env(parsed: &HashMap<String, String>) -> (String, String, String) {
-    let api_key = effective_deepseek_api_key(parsed);
-    let base_url = parsed
-        .get("DEEPSEEK_BASE_URL")
-        .filter(|v| !v.trim().is_empty())
-        .cloned()
-        .unwrap_or_else(|| DEFAULT_DEEPSEEK_BASE_URL.to_string());
-    let model = parsed
-        .get("DEEPSEEK_MODEL")
-        .filter(|v| !v.trim().is_empty())
-        .cloned()
-        .unwrap_or_else(|| DEFAULT_DEEPSEEK_MODEL.to_string());
-    (api_key, base_url, model)
+    backend_from_env(&parsed)
 }
 
 pub fn read_llm_settings(data_dir: &Path) -> LlmSettingsOut {
     let env_path = resolve_llm_env_file(data_dir);
     let parsed = parse_env_file(&env_path);
-    let (api_key, base_url, model) = deepseek_from_env(&parsed);
-    let configured = !api_key.trim().is_empty();
+    let backend = backend_from_env(&parsed);
+    let ready = backend.configured;
     LlmSettingsOut {
         env_file: env_path.display().to_string(),
-        deepseek: LlmProviderSettingsOut {
-            configured,
-            api_key_masked: if configured {
-                mask_api_key(&api_key)
-            } else {
+        llm_configured: ready,
+        evaluation_ready: ready,
+        backend: BackendSettingsOut {
+            configured: backend.configured,
+            base_url: backend.base_url.clone(),
+            access_token_masked: if backend.access_token.is_empty() {
                 None
+            } else {
+                mask_api_key(&backend.access_token)
             },
-            base_url,
-            model,
         },
-        llm_configured: configured,
     }
 }
 
 fn build_env_updates(payload: &LlmSettingsUpdate) -> HashMap<String, Option<String>> {
     let mut updates = HashMap::new();
-    if let Some(base_url) = &payload.deepseek_base_url {
+    if payload.backend_base_url.is_some()
+        || payload.backend_access_token.is_some()
+        || payload.evaluation_provider.is_some()
+    {
+        updates.insert(
+            "COMMENT_EVAL_PROVIDER".to_string(),
+            Some("backend".to_string()),
+        );
+    }
+    if let Some(base_url) = &payload.backend_base_url {
         let trimmed = base_url.trim();
         updates.insert(
-            "DEEPSEEK_BASE_URL".to_string(),
+            "AI_BACKEND_BASE_URL".to_string(),
             if trimmed.is_empty() {
                 None
             } else {
@@ -239,32 +246,15 @@ fn build_env_updates(payload: &LlmSettingsUpdate) -> HashMap<String, Option<Stri
             },
         );
     }
-    if let Some(model) = &payload.deepseek_model {
-        let trimmed = model.trim();
+    if let Some(token) = &payload.backend_access_token {
+        let trimmed = token.trim();
         updates.insert(
-            "DEEPSEEK_MODEL".to_string(),
+            "AI_BACKEND_ACCESS_TOKEN".to_string(),
             if trimmed.is_empty() {
                 None
             } else {
                 Some(trimmed.to_string())
             },
-        );
-    }
-    if let Some(api_key) = &payload.deepseek_api_key {
-        let trimmed = api_key.trim();
-        updates.insert(
-            "DEEPSEEK_API_KEY".to_string(),
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            },
-        );
-    }
-    if !updates.is_empty() {
-        updates.insert(
-            "AGENT_DEFAULT_PROVIDER".to_string(),
-            Some("deepseek".to_string()),
         );
     }
     updates
@@ -305,28 +295,24 @@ mod tests {
     }
 
     #[test]
-    fn default_api_key_when_env_empty() {
-        let tmp = std::env::temp_dir().join(format!("huoke-llm-default-{}", uuid::Uuid::new_v4()));
+    fn evaluation_not_ready_without_backend() {
+        let tmp = std::env::temp_dir().join(format!("huoke-llm-empty-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&tmp).unwrap();
         let env_path = tmp.join(".env.local");
         fs::write(&env_path, "# empty\n").unwrap();
         std::env::set_var("HUOKE_ENV_PATH", env_path.to_string_lossy().to_string());
 
         let payload = read_llm_settings(&tmp);
-        assert!(payload.llm_configured);
-        assert!(payload.deepseek.configured);
-        assert_eq!(
-            deepseek_api_key_for_data_dir(&tmp),
-            DEFAULT_DEEPSEEK_API_KEY
-        );
+        assert!(!payload.evaluation_ready);
+        assert!(!payload.llm_configured);
 
         std::env::remove_var("HUOKE_ENV_PATH");
         let _ = fs::remove_dir_all(tmp);
     }
 
     #[test]
-    fn save_and_read_roundtrip() {
-        let tmp = std::env::temp_dir().join(format!("huoke-llm-{}", uuid::Uuid::new_v4()));
+    fn save_backend_roundtrip() {
+        let tmp = std::env::temp_dir().join(format!("huoke-llm-backend-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&tmp).unwrap();
         let env_path = tmp.join(".env.local");
         std::env::set_var("HUOKE_ENV_PATH", env_path.to_string_lossy().to_string());
@@ -334,9 +320,9 @@ mod tests {
         let result = save_llm_settings(
             &tmp,
             LlmSettingsUpdate {
-                deepseek_api_key: Some("sk-test-deepseek-key".to_string()),
-                deepseek_base_url: None,
-                deepseek_model: Some("deepseek-chat".to_string()),
+                backend_base_url: Some("https://example.com/api".to_string()),
+                backend_access_token: Some("token-abcdefgh".to_string()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -344,10 +330,9 @@ mod tests {
         assert!(result.llm_configured);
 
         let payload = read_llm_settings(&tmp);
-        assert!(payload.llm_configured);
-        assert!(payload.deepseek.configured);
-        assert_eq!(payload.deepseek.api_key_masked, Some("sk-***-key".to_string()));
-        assert_eq!(payload.deepseek.model, "deepseek-chat");
+        assert!(payload.evaluation_ready);
+        assert!(payload.backend.configured);
+        assert_eq!(payload.backend.base_url, "https://example.com/api");
 
         std::env::remove_var("HUOKE_ENV_PATH");
         let _ = fs::remove_dir_all(tmp);

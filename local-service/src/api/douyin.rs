@@ -348,7 +348,7 @@ pub async fn start_job(
                 return Ok(Json(json!({ "job_id": job_id, "status": "completed", "message": "already completed" })));
             }
         } else {
-        let uses_precise = crate::llm_client::LlmClient::from_data_dir(&state.data_dir).is_some();
+        let uses_precise = crate::evaluation_provider::evaluation_ready(&state.data_dir);
         let progress = if uses_precise {
             state
                 .db

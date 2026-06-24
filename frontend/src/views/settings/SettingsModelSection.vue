@@ -1,50 +1,39 @@
 <template>
   <section class="settings-section panel">
     <header class="section-head">
-      <h2 class="section-title">大模型</h2>
+      <h2 class="section-title">评论评估</h2>
       <p class="section-desc">
-        配置 DeepSeek API，用于评论评估与线索筛选。密钥保存在本机 .env.local，不会上传云端。
+        线索精准度评估统一走盈小蚁后台默认 LLM。登录后会自动同步访问令牌，无需在本机填写 API Key。
       </p>
     </header>
 
     <el-alert
-      v-if="loaded && !form.llm_configured"
+      v-if="loaded && !form.evaluation_ready"
       type="warning"
       :closable="false"
       show-icon
       class="status-alert"
-      title="尚未配置 DeepSeek API Key，智能编排与线索评估将无法使用 LLM。"
+      title="评估未就绪：请先登录盈小蚁，系统会自动写入本机 Sidecar。"
     />
     <el-alert
-      v-else-if="loaded && form.llm_configured"
+      v-else-if="loaded && form.evaluation_ready"
       type="success"
       :closable="false"
       show-icon
       class="status-alert"
-      title="DeepSeek 已就绪，配置保存在本机。"
+      title="后台评估已就绪，将使用盈小蚁默认 LLM 识别精准客户。"
     />
 
     <div class="provider-card">
       <div class="field-block">
-        <label class="field-label">API Key</label>
-        <el-input
-          v-model="form.deepseek_api_key"
-          type="password"
-          show-password
-          :placeholder="deepseekKeyPlaceholder"
-          autocomplete="off"
-        />
+        <label class="field-label">后台 API 地址</label>
+        <el-input v-model="form.backend_base_url" placeholder="/api 或 https://your-domain.com/api" />
       </div>
-      <div class="field-block">
-        <label class="field-label">Base URL</label>
-        <el-input v-model="form.deepseek_base_url" placeholder="https://api.deepseek.com/v1" />
-      </div>
-      <div class="field-block">
-        <label class="field-label">模型</label>
-        <el-input v-model="form.deepseek_model" placeholder="deepseek-chat" />
-      </div>
-      <p v-if="form.deepseek.configured" class="hint-text">
-        当前已配置：{{ form.deepseek.api_key_masked || "已设置" }} · {{ form.deepseek.model }}
+      <p v-if="form.backend.configured" class="hint-text">
+        已同步令牌：{{ form.backend.access_token_masked || "已设置" }}
+      </p>
+      <p v-else-if="portalAccessToken" class="hint-text">
+        已检测到登录令牌，保存后将写入 Sidecar。
       </p>
     </div>
 
@@ -60,10 +49,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { fetchLlmSettings, saveLlmSettings } from "../../api/llmSettings";
-import { useAgentPreferences } from "../../composables/useAgentPreferences";
-
-const { provider } = useAgentPreferences();
+import {
+  defaultBackendBaseUrl,
+  ensureEvaluationCredentialsSynced,
+  isEvaluationReady,
+  loadEvaluationSettings,
+  saveEvaluationSettings,
+} from "../../api/commentEvaluation";
+import { getAccessToken } from "../../api/http";
 
 const loading = ref(false);
 const saving = ref(false);
@@ -71,31 +64,25 @@ const loaded = ref(false);
 const envFile = ref("");
 
 const form = reactive({
-  llm_configured: false,
-  deepseek_api_key: "",
-  deepseek_base_url: "",
-  deepseek_model: "",
-  deepseek: { configured: false, api_key_masked: null, model: "" },
+  evaluation_ready: false,
+  backend_base_url: "",
+  backend: { configured: false, access_token_masked: null, base_url: "" },
 });
 
-const deepseekKeyPlaceholder = computed(() =>
-  form.deepseek.configured ? "留空表示不修改已保存的 Key" : "sk-...",
-);
+const portalAccessToken = computed(() => getAccessToken());
 
 function applyPayload(data) {
-  form.llm_configured = !!data.llm_configured;
-  form.deepseek = data.deepseek || form.deepseek;
-  form.deepseek_base_url = data.deepseek?.base_url || "";
-  form.deepseek_model = data.deepseek?.model || "";
-  form.deepseek_api_key = "";
+  form.evaluation_ready = isEvaluationReady(data);
+  form.backend = data.backend || form.backend;
+  form.backend_base_url = data.backend?.base_url || defaultBackendBaseUrl();
   envFile.value = data.env_file || "";
-  provider.value = "deepseek";
 }
 
 async function load() {
   loading.value = true;
   try {
-    const data = await fetchLlmSettings();
+    await ensureEvaluationCredentialsSynced();
+    const data = await loadEvaluationSettings();
     applyPayload(data);
     loaded.value = true;
   } catch (err) {
@@ -108,16 +95,10 @@ async function load() {
 async function save() {
   saving.value = true;
   try {
-    const payload = {
-      deepseek_base_url: form.deepseek_base_url,
-      deepseek_model: form.deepseek_model,
-    };
-    if (form.deepseek_api_key.trim()) {
-      payload.deepseek_api_key = form.deepseek_api_key.trim();
-    }
-    const result = await saveLlmSettings(payload);
+    const result = await saveEvaluationSettings({
+      backendBaseUrl: form.backend_base_url,
+    });
     ElMessage.success(result.message || "已保存");
-    provider.value = "deepseek";
     await load();
     window.dispatchEvent(new CustomEvent("huoke-agent-prefs-changed"));
   } catch (err) {

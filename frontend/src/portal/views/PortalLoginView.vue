@@ -114,6 +114,7 @@ import { onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { sendPortalSmsCode } from "../api/portalAuth";
+import { syncPortalCredentialsAfterLogin, ensureEvaluationCredentialsSynced } from "../../api/commentEvaluation";
 import { mapH5PathToCloudRoute } from "../config/cloudNav";
 import { probePortalSession, submitPortalLoginForm, syncPortalDisplayName } from "../utils/portalLoginBridge";
 import {
@@ -156,11 +157,13 @@ async function tryExistingSession() {
     return false;
   }
   if (isPortalAuthenticated()) {
+    void ensureEvaluationCredentialsSynced();
     redirectAfterLogin();
     return true;
   }
   const ok = await probePortalSession();
   if (ok) {
+    void ensureEvaluationCredentialsSynced();
     redirectAfterLogin();
     return true;
   }
@@ -233,6 +236,11 @@ async function onSubmit() {
     await submitPortalLoginForm(fields);
     const loginLabel = loginMethod.value === "sms" ? fields.sms_phone : fields.username;
     setPortalAuthenticated({ displayName: loginLabel, username: loginLabel });
+    try {
+      await syncPortalCredentialsAfterLogin({ loginMethod: loginMethod.value, fields });
+    } catch (syncErr) {
+      console.warn("portal token sync failed:", syncErr);
+    }
     ElMessage.success("登录成功");
     redirectAfterLogin();
     void syncPortalDisplayName().catch(() => {});

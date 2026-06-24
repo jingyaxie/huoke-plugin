@@ -106,7 +106,7 @@ async function onCreateAgentJob(payload) {
     const method = job?.result?.orchestration?.compile_method;
     const tpl = job?.result?.orchestration?.template_name;
     if (job?.result?.orchestration?.llm_fallback) {
-      ElMessage.warning("大模型未配置，已回退规则编译；请配置 DEEPSEEK_API_KEY 后重试");
+      ElMessage.warning("大模型未配置，已回退规则编译；请登录盈小蚁后重试");
     } else if (method === "hybrid" || method === "llm") {
       ElMessage.success(tpl ? `大模型已理解任务，编排方案：${tpl}` : "大模型已理解任务并生成编排");
     } else if (payload.auto_execute) {

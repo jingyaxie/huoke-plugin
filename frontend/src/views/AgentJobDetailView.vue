@@ -56,7 +56,7 @@
       <template v-if="job">
         <el-alert
           v-if="orchestration?.llm_fallback"
-          title="大模型未可用，当前编排为规则回退结果。配置 DEEPSEEK_API_KEY 后重新创建任务可获得 LLM 理解编排。"
+          title="大模型未可用，当前编排为规则回退结果。登录盈小蚁后重新创建任务可获得 LLM 理解编排。"
           type="warning"
           show-icon
           :closable="false"

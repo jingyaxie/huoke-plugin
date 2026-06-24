@@ -11,6 +11,8 @@ pub mod job_run;
 pub mod job_run_log;
 pub mod lab_commands;
 pub mod evaluation;
+pub mod evaluation_prompt;
+pub mod evaluation_provider;
 pub mod llm_client;
 pub mod llm_settings;
 pub mod orchestration;
