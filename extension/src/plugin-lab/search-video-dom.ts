@@ -167,34 +167,20 @@ export async function openSearchFeedAtIndex(payload: {
     };
   }
 
-  if (awemeHint) {
-    const modal = await openFeedViaModalId(awemeHint);
-    if (modal.ok) {
-      return {
-        ok: true,
-        feed_open: true,
-        is_search_feed: true,
-        mode: modal.mode,
-        video_index: index,
-        aweme_id: awemeHint,
-        url: modal.url,
-        message: modal.message,
-      };
-    }
-  }
-
+  // 优先 DOM 点击海报；modal_id 仅作兜底（避免 background 侧 CDP + 多轮 probe）
   const clicked = await clickSearchPosterAtIndex(index);
-  let feedOpen = await waitForSearchFeedOverlay(feedWaitMs);
+  let feedOpen = clicked.clicked ? await waitForSearchFeedOverlay(feedWaitMs) : false;
   let awemeId = clicked.aweme_id || awemeHint;
+
+  if (!feedOpen && awemeHint) {
+    const modal = await openFeedViaModalId(awemeHint);
+    feedOpen = modal.ok;
+    if (feedOpen) awemeId = awemeHint;
+  }
 
   if (!feedOpen && isStandaloneVideoPage() && awemeId) {
     const recovered = await recoverSearchFeedFromDetailPage(awemeId);
     feedOpen = recovered.ok;
-  }
-
-  if (!feedOpen && awemeId) {
-    const retryModal = await openFeedViaModalId(awemeId);
-    feedOpen = retryModal.ok;
   }
 
   const phase = classifyDouyinSearchPhase();
@@ -210,10 +196,10 @@ export async function openSearchFeedAtIndex(payload: {
     aweme_id: awemeId,
     url: location.href,
     message: phase.is_search_feed
-      ? `已打开第 ${index} 个搜索 Feed 浮层`
+      ? `已打开第 ${index} 个搜索 Feed 浮层（DOM 点击）`
       : phase.is_standalone_video
         ? "误入独立视频详情页（评论在下方），未能恢复 Feed 浮层"
-        : clicked.message,
+        : clicked.message || "DOM 点击后未进入 Feed 浮层",
   };
 }
 

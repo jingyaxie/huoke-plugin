@@ -76,25 +76,6 @@ async function domOpenFeed(tabId: number, payload: Record<string, unknown>): Pro
   )) as ClickResult;
 }
 
-async function waitSearchFeedOpen(tabId: number, videoIndex: number, maxPolls = 24): Promise<boolean> {
-  for (let i = 0; i < maxPolls; i += 1) {
-    await sleep(140 + i * 30);
-    const status = await probeVideo(tabId, { video_index: videoIndex, status_only: true });
-    if (status.is_search_feed) return true;
-    if (status.is_standalone_video) return false;
-  }
-  return Boolean((await probeVideo(tabId, { video_index: videoIndex, status_only: true })).is_search_feed);
-}
-
-async function cdpClickAt(tabId: number, x: number, y: number): Promise<void> {
-  await withTabDebugger(tabId, async () => {
-    await moveMouse(tabId, x, y);
-    await sleep(humanPace.mouseHover());
-    await clickMouse(tabId, x, y);
-    await sleep(humanPace.posterClick());
-  });
-}
-
 function searchFeedSuccess(result: ClickResult): boolean {
   return Boolean(result.ok && result.is_search_feed);
 }
@@ -148,146 +129,80 @@ async function enrichSearchVideoPayload(
   return next;
 }
 
-async function tryOpenKnownAweme(
-  tabId: number,
-  videoIndex: number,
-  payload: Record<string, unknown>,
-  awemeId: string,
-): Promise<ClickResult | null> {
-  const prepPayload = payload.fresh_search ? { fresh_search: true, skip_restore: true } : {};
-  await prepareSearchPage(tabId, prepPayload);
-  const modal = await domOpenFeed(tabId, {
-    ...payload,
-    video_index: videoIndex,
-    aweme_id: awemeId,
-    strategy: "modal_only",
-  });
-  if (searchFeedSuccess(modal)) {
-    return { ...modal, mode: "modal_aweme", aweme_id: awemeId };
-  }
-  return null;
-}
-
-async function runFeedOpenAttempts(
+async function runDomFeedOpen(
   tabId: number,
   videoIndex: number,
   payload: Record<string, unknown>,
   initialUrl: string,
 ): Promise<ClickResult> {
+  const freshSearch = Boolean(payload.fresh_search);
+  const prepPayload = freshSearch
+    ? { fresh_search: true, skip_restore: true }
+    : { skip_restore: true };
   let lastMessage = "未打开搜索 Feed 浮层";
   let lastUrl = initialUrl;
-  let awemeHint = String(payload.aweme_id ?? payload.aweme_hint ?? "").trim();
-  const freshSearch = Boolean(payload.fresh_search);
-  const prepPayload = freshSearch ? { fresh_search: true, skip_restore: true } : {};
 
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
     const prep = await prepareSearchPage(tabId, prepPayload);
     if (!prep.ok) {
       lastMessage = prep.message ?? "搜索列表未就绪";
-      await sleep(freshSearch ? 400 + attempt * 200 : 800 + attempt * 350);
+      await sleep(600 + attempt * 400);
       continue;
     }
 
-    const probeAweme = await probeVideo(tabId, { ...payload, video_index: videoIndex, aweme_id: awemeHint });
-    if (!awemeHint && probeAweme.aweme_id && isRealAwemeId(probeAweme.aweme_id)) {
-      awemeHint = probeAweme.aweme_id;
-    }
-
-    if (probeAweme.is_search_feed) {
+    const status = await probeVideo(tabId, { video_index: videoIndex, status_only: true });
+    if (status.is_search_feed) {
       return {
         ok: true,
         feed_open: true,
         is_search_feed: true,
         mode: "already_open",
         video_index: videoIndex,
-        aweme_id: awemeHint || probeAweme.aweme_id,
-        url: probeAweme.url ?? lastUrl,
+        aweme_id: status.aweme_id,
+        url: status.url ?? lastUrl,
         attempt,
         message: "搜索 Feed 浮层已打开",
       };
     }
 
-    if (awemeHint) {
-      const modalResult = await domOpenFeed(tabId, {
-        ...payload,
-        video_index: videoIndex,
-        aweme_id: awemeHint,
-        strategy: "modal_only",
-      });
-      lastUrl = modalResult.url ?? lastUrl;
-      if (searchFeedSuccess(modalResult)) {
-        return { ...modalResult, attempt, aweme_id: awemeHint };
-      }
-      lastMessage = modalResult.message ?? lastMessage;
-    }
-
-    const hadAwemeBeforeProbe = Boolean(awemeHint);
-    const probe = await probeVideo(tabId, { ...payload, video_index: videoIndex, aweme_id: awemeHint });
-    lastUrl = probe.url ?? lastUrl;
-    if (!awemeHint && probe.aweme_id && isRealAwemeId(probe.aweme_id)) {
-      awemeHint = probe.aweme_id;
-    }
-
-    if (!hadAwemeBeforeProbe && awemeHint) {
-      const modalAfterProbe = await domOpenFeed(tabId, {
-        ...payload,
-        video_index: videoIndex,
-        aweme_id: awemeHint,
-        strategy: "modal_only",
-      });
-      lastUrl = modalAfterProbe.url ?? lastUrl;
-      if (searchFeedSuccess(modalAfterProbe)) {
-        return { ...modalAfterProbe, attempt, aweme_id: awemeHint };
-      }
-      lastMessage = modalAfterProbe.message ?? lastMessage;
-    }
-
-    if (probe.ok && probe.center) {
-      const { x, y } = probe.center;
-      await cdpClickAt(tabId, x, y);
-      if (await waitSearchFeedOpen(tabId, videoIndex)) {
-        return {
-          ok: true,
-          clicked: true,
-          feed_open: true,
-          is_search_feed: true,
-          mode: "cdp_real_mouse",
-          click_by: probe.click_by ?? "cdp",
-          video_index: probe.video_index ?? videoIndex,
-          available: probe.available,
-          aweme_id: awemeHint || probe.aweme_id,
-          url: lastUrl,
-          attempt,
-          message: `已点击第 ${probe.video_index ?? videoIndex} 个搜索结果并打开 Feed 浮层（CDP）`,
-        };
-      }
-      lastMessage = "CDP 点击后未进入搜索 Feed 浮层";
-    } else {
-      lastMessage = probe.message ?? "未找到搜索结果视频卡片";
-    }
-
-    const domFallback = await domOpenFeed(tabId, {
+    const dom = await domOpenFeed(tabId, {
       ...payload,
       video_index: videoIndex,
-      aweme_id: awemeHint,
       strategy: "full",
+      fresh_search: freshSearch,
     });
-    lastUrl = domFallback.url ?? lastUrl;
-    if (searchFeedSuccess(domFallback)) {
-      return { ...domFallback, attempt, aweme_id: awemeHint || domFallback.aweme_id };
+    lastUrl = dom.url ?? lastUrl;
+    if (searchFeedSuccess(dom)) {
+      return { ...dom, attempt, mode: dom.mode ?? "dom_poster" };
+    }
+    lastMessage = dom.message ?? lastMessage;
+
+    const awemeHint = String(
+      payload.aweme_id ?? payload.aweme_hint ?? dom.aweme_id ?? "",
+    ).trim();
+    if (isRealAwemeId(awemeHint)) {
+      const modal = await domOpenFeed(tabId, {
+        ...payload,
+        video_index: videoIndex,
+        aweme_id: awemeHint,
+        strategy: "modal_only",
+      });
+      lastUrl = modal.url ?? lastUrl;
+      if (searchFeedSuccess(modal)) {
+        return { ...modal, attempt, mode: "modal_aweme", aweme_id: awemeHint };
+      }
+      lastMessage = modal.message ?? lastMessage;
     }
 
-    lastMessage = domFallback.message ?? lastMessage;
-    await sleep(1000 + attempt * 400);
+    await sleep(700 + attempt * 350);
   }
 
   return {
     ok: false,
     feed_open: false,
     is_search_feed: false,
-    mode: "feed_attempts",
+    mode: "dom_feed_open",
     video_index: videoIndex,
-    aweme_id: awemeHint,
     url: lastUrl,
     message: lastMessage,
   };
@@ -301,18 +216,15 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
   const openStrategy = String(payload.open_strategy ?? "auto").trim().toLowerCase();
   const detailOnly = openStrategy === "detail";
   const feedOnly = openStrategy === "feed" || payload.use_detail_window === false;
-  const enrichedPayload = await enrichSearchVideoPayload(tabId, videoIndex, payload);
+  const enrichedPayload =
+    feedOnly && !detailOnly
+      ? payload
+      : await enrichSearchVideoPayload(tabId, videoIndex, payload);
 
   let feedResult: ClickResult | null = null;
 
   if (!detailOnly) {
-    const awemeHint = String(enrichedPayload.aweme_id ?? enrichedPayload.aweme_hint ?? "").trim();
-    if (isRealAwemeId(awemeHint)) {
-      const fast = await tryOpenKnownAweme(tabId, videoIndex, enrichedPayload, awemeHint);
-      if (fast?.ok) return fast;
-    }
-
-    feedResult = await runFeedOpenAttempts(tabId, videoIndex, enrichedPayload, tab.url ?? "");
+    feedResult = await runDomFeedOpen(tabId, videoIndex, enrichedPayload, tab.url ?? "");
     if (searchFeedSuccess(feedResult)) {
       return feedResult;
     }
@@ -386,7 +298,7 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
     };
   }
 
-  return runFeedOpenAttempts(tabId, videoIndex, enrichedPayload, tab.url ?? "");
+  return runDomFeedOpen(tabId, videoIndex, enrichedPayload, tab.url ?? "");
 }
 
 function isDouyinSearchUrl(url?: string | null): boolean {
