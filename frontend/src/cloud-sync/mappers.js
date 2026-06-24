@@ -12,12 +12,14 @@ const PRECISE_STATUSES = new Set([
 
 export function isDesktopCloudTask(task) {
   if (!task || typeof task !== "object") return false;
+  const execSource = String(task.execution_source || task.config?.execution_source || "").toLowerCase();
+  if (execSource === "local_huoke") return true;
   const config = task.config && typeof task.config === "object" ? task.config : {};
   const desktop = config[CONFIG_KEY];
-  if (!desktop || typeof desktop !== "object") return false;
-  const execSource = String(config.execution_source || task.execution_source || "").toLowerCase();
-  if (execSource === "local_huoke") return true;
-  return config.execution === "local_sidecar" && Boolean(desktop.local_job_id);
+  if (desktop && typeof desktop === "object" && config.execution === "local_sidecar") {
+    return Boolean(desktop.local_job_id);
+  }
+  return false;
 }
 
 export function mapCloudStatusToLocal(status) {

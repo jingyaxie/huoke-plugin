@@ -14,9 +14,20 @@ pub fn build_payload(db: &Database, job: &CollectJob, cloud_task_id: &str) -> Re
         .into_iter()
         .map(|video| (video.aweme_id.clone(), (video.title, video.video_url)))
         .collect();
+    let mut keyword = job.keyword.trim().to_string();
+    if keyword.is_empty() {
+        keyword = job
+            .config
+            .as_ref()
+            .and_then(|cfg| cfg.get("keyword"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+    }
     let leads: Vec<Value> = comments
         .iter()
-        .map(|comment| comment_to_lead(comment, video_map.get(&comment.aweme_id)))
+        .map(|comment| comment_to_lead(comment, video_map.get(&comment.aweme_id), &keyword))
         .collect();
     let interactions = db.list_interactions_for_job(&job.id, 200)?;
     let outreach_events: Vec<Value> = interactions
@@ -103,10 +114,28 @@ fn ms_to_iso(value: Option<i64>) -> Option<String> {
     })
 }
 
-fn comment_to_lead(comment: &CapturedComment, video: Option<&(String, String)>) -> Value {
-    let (video_title, video_url) = video
+fn sanitize_comment_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.len() <= 64 {
+        return trimmed.to_string();
+    }
+    trimmed.chars().take(64).collect()
+}
+
+fn comment_to_lead(
+    comment: &CapturedComment,
+    video: Option<&(String, String)>,
+    keyword: &str,
+) -> Value {
+    let (mut video_title, video_url) = video
         .map(|(title, url)| (title.clone(), url.clone()))
         .unwrap_or_default();
+    if video_title.trim().is_empty() && !keyword.trim().is_empty() {
+        video_title = keyword.trim().to_string();
+    }
     let evaluation = if comment.evaluated_at.is_some() {
         json!({
             "is_lead": comment.is_precise,
@@ -117,7 +146,7 @@ fn comment_to_lead(comment: &CapturedComment, video: Option<&(String, String)>) 
         Value::Null
     };
     json!({
-        "comment_id": comment.comment_id,
+        "comment_id": sanitize_comment_id(&comment.comment_id),
         "comment_text": comment.content,
         "nickname": comment.username,
         "target_user_id": comment.user_id,
@@ -126,6 +155,7 @@ fn comment_to_lead(comment: &CapturedComment, video: Option<&(String, String)>) 
         "content_id": comment.aweme_id,
         "video_url": video_url,
         "content_title": video_title,
+        "keyword": keyword,
         "created_at": ms_to_iso(comment.create_time.or(Some(comment.created_at))),
         "evaluation": evaluation,
     })
