@@ -13,8 +13,7 @@ import {
 } from "./search-feed-open";
 import { humanClick, isVisible, randDelay, sleep } from "./search-input";
 
-/** 临时关闭右侧翻页按钮，仅用手势/键盘测试滑动稳定性 */
-const USE_FEED_PAGER_BUTTON = false;
+const USE_FEED_PAGER_BUTTON = true;
 
 /** 搜索 Feed 右侧「下一个」下箭头 SVG path 特征（viewBox 0 0 26 26） */
 const FEED_NEXT_ARROW_PATH_MARKERS = [

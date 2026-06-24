@@ -5,8 +5,7 @@ import {
 import { isStandaloneVideoPage } from "./search-feed-open";
 import { humanClick, isVisible, randDelay, sleep } from "./search-input";
 
-/** 临时关闭右侧翻页按钮，仅用手势/键盘测试滑动稳定性 */
-const USE_DETAIL_PAGER_BUTTON = false;
+const USE_DETAIL_PAGER_BUTTON = true;
 
 /** 详情页 /video/ 右侧「下一个」下箭头 SVG（与 Feed 浮层相同 viewBox 0 0 26 26） */
 const DETAIL_NEXT_ARROW_PATH_MARKERS = [
