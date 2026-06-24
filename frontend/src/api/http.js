@@ -1,7 +1,11 @@
 import axios from "axios";
 
 export function getApiBaseUrl() {
-  return import.meta.env.VITE_API_BASE_URL || "/api";
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  if (configured) return configured;
+  // 桌面安装包 / production 构建无本地 /api 代理，必须直连云端
+  if (import.meta.env.PROD) return "https://www.tanjiyunai.com/api";
+  return "/api";
 }
 
 /** 将 HTTP API base 转为 WebSocket base（支持相对路径 /api） */

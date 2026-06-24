@@ -1,4 +1,5 @@
 import { getAccessToken } from "../api/http";
+import { isPortalAuthenticated } from "../portal";
 import { loadCollectJobForModal } from "../utils/extensionCollectJobs";
 import { listCloudLeadTasks, listCloudLeads } from "./api";
 import {
@@ -67,19 +68,26 @@ export function mergeLocalAndCloudJobs(localJobs, cloudTasks, { cloudTaskFilter 
   return { merged, cloudOnlyCount };
 }
 
-export function detectRecoveryState(localJobs, cloudOnlyCount) {
+export function detectRecoveryState(localJobs, cloudOnlyCount, { error = "" } = {}) {
   const localCount = Array.isArray(localJobs) ? localJobs.length : 0;
   return {
     showBanner: localCount === 0 && cloudOnlyCount > 0,
     cloudOnlyCount,
+    error: String(error || "").trim(),
+    needsLogin: !getAccessToken() && localCount === 0,
   };
 }
 
 export async function loadCloudRecoveryJobs(localJobs, { cloudTaskFilter } = {}) {
-  if (!getAccessToken()) {
+  const token = getAccessToken();
+  if (!token) {
     return {
       merged: localJobs || [],
-      recovery: detectRecoveryState(localJobs, 0),
+      recovery: detectRecoveryState(localJobs, 0, {
+        error: isPortalAuthenticated()
+          ? "云端登录态未同步，请退出后重新登录"
+          : "请先登录云端账号以恢复历史任务",
+      }),
     };
   }
   try {
@@ -91,10 +99,14 @@ export async function loadCloudRecoveryJobs(localJobs, { cloudTaskFilter } = {})
       merged,
       recovery: detectRecoveryState(localJobs, cloudOnlyCount),
     };
-  } catch {
+  } catch (err) {
+    const message = err?.response?.data?.message
+      || err?.response?.data?.detail
+      || err?.message
+      || "拉取云端任务失败";
     return {
       merged: localJobs || [],
-      recovery: detectRecoveryState(localJobs, 0),
+      recovery: detectRecoveryState(localJobs, 0, { error: message }),
     };
   }
 }

@@ -28,6 +28,17 @@
           云端任务为只读，可查看线索数据；如需继续采集请重新创建任务。
         </template>
       </el-alert>
+
+      <el-alert
+        v-else-if="recoveryBanner.error"
+        type="warning"
+        :closable="true"
+        show-icon
+        title="云端恢复未成功"
+        class="panel-block"
+      >
+        <template #default>{{ recoveryBanner.error }}</template>
+      </el-alert>
     </div>
 
     <el-card shadow="never" class="list-card panel-block">
@@ -156,7 +167,7 @@ import { collectJobStartMessage, collectJobStartSuccessMessage } from "../../uti
 
 const loading = ref(false);
 const allJobs = ref([]);
-const recoveryBanner = ref({ show: false, cloudOnlyCount: 0 });
+const recoveryBanner = ref({ show: false, cloudOnlyCount: 0, error: "" });
 const bridgeStatus = ref({ connected_clients: 0 });
 const createOpen = ref(false);
 let pollTimer = null;
@@ -251,6 +262,7 @@ async function refreshAll({ silent = false } = {}) {
     recoveryBanner.value = {
       show: recovery.showBanner,
       cloudOnlyCount: recovery.cloudOnlyCount,
+      error: recovery.error || "",
     };
   } catch (err) {
     if (!silent) {

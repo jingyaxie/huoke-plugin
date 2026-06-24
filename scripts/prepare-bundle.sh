@@ -24,7 +24,11 @@ cd "$FRONTEND_DIR"
 if [[ ! -d node_modules ]]; then
   if [[ -f package-lock.json ]]; then npm ci; else npm install; fi
 fi
-VITE_LOCAL_SERVICE_URL=http://127.0.0.1:18766 npm run build
+VITE_LOCAL_SERVICE_URL=http://127.0.0.1:18766 \
+VITE_API_BASE_URL=https://www.tanjiyunai.com/api \
+VITE_PORTAL_ENABLED=1 \
+VITE_PORTAL_BASE_URL=https://www.tanjiyunai.com \
+npm run build
 
 if [[ ! -f "$FRONTEND_DIR/dist/index.html" ]]; then
   echo "frontend dist 缺失" >&2

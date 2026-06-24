@@ -76,6 +76,17 @@
       </template>
     </el-alert>
 
+    <el-alert
+      v-else-if="recoveryBanner.error"
+      type="warning"
+      :closable="true"
+      show-icon
+      title="云端恢复未成功"
+      class="panel-block"
+    >
+      <template #default>{{ recoveryBanner.error }}</template>
+    </el-alert>
+
     <AcquisitionStatsCards :data="dashboard" :loading="loading" class="panel-block" />
     </div>
 
@@ -197,6 +208,7 @@ import {
   startCollectJob,
 } from "../../api/localService";
 import { collectJobStartMessage, collectJobStartSuccessMessage } from "../../utils/collectJobStart";
+import { ensureEvaluationCredentialsSynced } from "../../api/commentEvaluation";
 import {
   collectJobRegionLabel,
   computeExtensionDashboard,
@@ -217,7 +229,7 @@ const launchingExtension = ref(false);
 const desktopMode = ref(false);
 const extensionSetup = ref({ message: "" });
 const collectJobs = ref([]);
-const recoveryBanner = ref({ show: false, cloudOnlyCount: 0 });
+const recoveryBanner = ref({ show: false, cloudOnlyCount: 0, error: "" });
 const bridgeStatus = ref({ connected_clients: 0 });
 const createCollectOpen = ref(false);
 let pollTimer = null;
@@ -361,6 +373,7 @@ async function onOpenExtensionFolder() {
 async function refreshAll({ silent = false } = {}) {
   if (!silent) loading.value = true;
   try {
+    await ensureEvaluationCredentialsSynced();
     const [status, jobs] = await Promise.all([fetchBridgeStatus(), listCollectJobs()]);
     bridgeStatus.value = status;
     const localJobs = (Array.isArray(jobs) ? jobs : []).filter((row) => row.job_type !== "manual");
@@ -371,6 +384,7 @@ async function refreshAll({ silent = false } = {}) {
     recoveryBanner.value = {
       show: recovery.showBanner,
       cloudOnlyCount: recovery.cloudOnlyCount,
+      error: recovery.error || "",
     };
   } catch (err) {
     if (!silent) {
