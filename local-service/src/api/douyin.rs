@@ -332,7 +332,7 @@ pub async fn start_job(
         if cfg.collects_by_video_limit() {
             let videos_collected = state
                 .db
-                .count_distinct_comment_awemes_for_job(&job_id)
+                .count_scanned_videos_for_job(&job_id)
                 .map_err(internal_error)?;
             if videos_collected >= job.limit_videos.max(1) {
                 return Ok(Json(json!({ "job_id": job_id, "status": "completed", "message": "already completed" })));

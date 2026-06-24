@@ -287,7 +287,7 @@ impl JobOrchestrator {
         let lab = LabCommands::new(&self.hub, &job.platform);
         let existing_progress = self.collect_progress_count(job_id)?;
         let resume_collect = if cfg.collects_by_video_limit() {
-            let videos_collected = self.db.count_distinct_comment_awemes_for_job(job_id)?;
+            let videos_collected = self.db.count_scanned_videos_for_job(job_id)?;
             videos_collected > 0 && videos_collected < job.limit_videos.max(1)
         } else {
             existing_progress > 0 && existing_progress < cfg.target_count
@@ -935,7 +935,10 @@ impl JobOrchestrator {
     }
 
     fn aweme_comments_already_collected(&self, job_id: &str, aweme_id: &str) -> Result<bool, String> {
-        Ok(self.db.count_comments_for_aweme(job_id, aweme_id)? > 0)
+        if self.db.count_comments_for_aweme(job_id, aweme_id)? > 0 {
+            return Ok(true);
+        }
+        Ok(self.db.is_video_scanned(job_id, aweme_id)?)
     }
 
     async fn scroll_and_persist_feed_comments(
@@ -1113,6 +1116,10 @@ impl JobOrchestrator {
             &aweme_id,
             page_url,
         );
+        let _ = self.db.mark_video_scanned(job_id, &aweme_id);
+        if aweme_hint != aweme_id {
+            let _ = self.db.mark_video_scanned(job_id, aweme_hint);
+        }
 
         if playback_mode == "feed" {
             let _ = lab.prepare_feed_for_swipe().await;
@@ -1405,10 +1412,9 @@ impl JobOrchestrator {
         }
     }
 
+    /// 已打开并尝试采集评论的视频数（含无评论），不含搜索列表预写入。
     fn scanned_video_count(&self, job_id: &str) -> Result<i64, String> {
-        let video_count = self.db.list_videos_for_job(job_id)?.len() as i64;
-        let with_comments = self.db.count_distinct_comment_awemes_for_job(job_id)?;
-        Ok(video_count.max(with_comments))
+        self.db.count_scanned_videos_for_job(job_id)
     }
 
     /// 关键词视频上限任务：仅当已扫视频数达到 limit_videos 时视为完成。
@@ -1806,7 +1812,7 @@ impl JobOrchestrator {
         job_id: &str,
         video: &CapturedVideo,
     ) -> Result<bool, String> {
-        if self.db.count_comments_for_aweme(job_id, &video.aweme_id)? > 0 {
+        if self.aweme_comments_already_collected(job_id, &video.aweme_id)? {
             return Ok(true);
         }
         let stored_url = self
@@ -1819,16 +1825,8 @@ impl JobOrchestrator {
             stored_url.as_str()
         };
         if let Some(real_id) = parse_aweme_id_from_page_url(video_url) {
-            if self.db.count_comments_for_aweme(job_id, &real_id)? > 0 {
+            if self.aweme_comments_already_collected(job_id, &real_id)? {
                 return Ok(true);
-            }
-        }
-        if is_dom_poster_aweme_id(&video.aweme_id) {
-            if let Some(idx) = dom_poster_index(&video.aweme_id) {
-                let distinct = self.db.count_distinct_comment_awemes_for_job(job_id)?;
-                if distinct >= idx as i64 {
-                    return Ok(true);
-                }
             }
         }
         Ok(false)

@@ -169,6 +169,14 @@ impl Database {
                 UNIQUE(job_id, aweme_id)
             );
 
+            CREATE TABLE IF NOT EXISTS video_scans (
+                job_id TEXT NOT NULL,
+                aweme_id TEXT NOT NULL,
+                scanned_at INTEGER NOT NULL,
+                PRIMARY KEY (job_id, aweme_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_video_scans_job ON video_scans(job_id);
+
             CREATE TABLE IF NOT EXISTS captured_comments (
                 id TEXT PRIMARY KEY,
                 job_id TEXT NOT NULL,
@@ -240,6 +248,21 @@ impl Database {
             "ALTER TABLE captured_comments ADD COLUMN evaluated_at INTEGER",
             [],
         );
+        let _ = conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS video_scans (
+                job_id TEXT NOT NULL,
+                aweme_id TEXT NOT NULL,
+                scanned_at INTEGER NOT NULL,
+                PRIMARY KEY (job_id, aweme_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_video_scans_job ON video_scans(job_id);
+            INSERT OR IGNORE INTO video_scans (job_id, aweme_id, scanned_at)
+            SELECT job_id, aweme_id, MIN(created_at)
+            FROM captured_comments
+            GROUP BY job_id, aweme_id;
+            "#,
+        );
         Ok(())
     }
 
@@ -263,7 +286,13 @@ impl Database {
         updated_at: i64,
         config_json: Option<String>,
     ) -> Result<CollectJob, String> {
-        let (video_count, comment_count) = self.counts_for_job(&id)?;
+        let (listed_video_count, comment_count) = self.counts_for_job(&id)?;
+        // 关键词任务进度/「视频数」= 已打开并尝试采集的视频数（含无评论），不含搜索预写入列表。
+        let video_count = if job_type == "keyword" {
+            self.count_scanned_videos_for_job(&id)?
+        } else {
+            listed_video_count
+        };
         let (reply_count, dm_count, follow_count) = self.interaction_counts_for_job(&id)?;
         let precise_count = self.count_precise_comments_for_job(&id)?;
         Ok(CollectJob {
@@ -654,9 +683,7 @@ impl Database {
     }
 
     fn scanned_video_count_for_job(&self, job_id: &str) -> Result<i64, String> {
-        let (video_count, _) = self.counts_for_job(job_id)?;
-        let with_comments = self.count_distinct_comment_awemes_for_job(job_id)?;
-        Ok(video_count.max(with_comments))
+        self.count_scanned_videos_for_job(job_id)
     }
 
     fn collect_goal_met_for_job(&self, job: &CollectJob) -> Result<bool, String> {
@@ -697,6 +724,11 @@ impl Database {
         }
         conn.execute(
             "DELETE FROM captured_comments WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM video_scans WHERE job_id = ?1",
             params![job_id],
         )
         .map_err(|e| e.to_string())?;
@@ -790,6 +822,48 @@ impl Database {
             |row| row.get(0),
         )
         .map_err(|e| e.to_string())
+    }
+
+    /// 已打开并尝试采集评论的视频数（含无评论视频），不含搜索 Hook 预写入的列表。
+    pub fn count_scanned_videos_for_job(&self, job_id: &str) -> Result<i64, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM video_scans WHERE job_id = ?1",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn is_video_scanned(&self, job_id: &str, aweme_id: &str) -> Result<bool, String> {
+        if aweme_id.trim().is_empty() {
+            return Ok(false);
+        }
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM video_scans WHERE job_id = ?1 AND aweme_id = ?2",
+                params![job_id, aweme_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n > 0)
+    }
+
+    pub fn mark_video_scanned(&self, job_id: &str, aweme_id: &str) -> Result<(), String> {
+        let aweme_id = aweme_id.trim();
+        if aweme_id.is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO video_scans (job_id, aweme_id, scanned_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(job_id, aweme_id) DO NOTHING",
+            params![job_id, aweme_id, Self::now_ms()],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn get_video_url_for_job(&self, job_id: &str, aweme_id: &str) -> Result<String, String> {
