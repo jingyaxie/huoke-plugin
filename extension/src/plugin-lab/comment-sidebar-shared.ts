@@ -1,4 +1,53 @@
-import { humanClick } from "./search-input";
+import { humanClick, sleep } from "./search-input";
+
+/** 评论侧栏：面板已展开（有标题或已有评论项） */
+export function isCommentSidebarPanelOpen(): boolean {
+  return findAllCommentsHeader() !== null || hasVisibleCommentItems();
+}
+
+export const COMMENT_SIDEBAR_TIMING = {
+  maxDomClicks: 2,
+  maxCdpClicks: 2,
+  panelPollMs: 12_000,
+  afterClickPollMs: 4_000,
+  pollIntervalMs: 450,
+} as const;
+
+/** 轮询等待评论面板/列表就绪，不触发任何点击 */
+export async function pollCommentSidebarState(options: {
+  maxMs?: number;
+  intervalMs?: number;
+  requireVisibleItems?: boolean;
+} = {}): Promise<{
+  panel_open: boolean;
+  comment_item_count: number;
+  collect_ready: boolean;
+}> {
+  const maxMs = options.maxMs ?? COMMENT_SIDEBAR_TIMING.panelPollMs;
+  const intervalMs = options.intervalMs ?? COMMENT_SIDEBAR_TIMING.pollIntervalMs;
+  const requireVisibleItems = options.requireVisibleItems ?? false;
+  const deadline = Date.now() + maxMs;
+
+  while (Date.now() < deadline) {
+    const comment_item_count = countVisibleCommentItems();
+    const panel_open = isCommentSidebarPanelOpen();
+    const collect_ready = requireVisibleItems
+      ? comment_item_count > 0
+      : panel_open;
+    if (collect_ready) {
+      return { panel_open, comment_item_count, collect_ready: true };
+    }
+    await sleep(intervalMs);
+  }
+
+  const comment_item_count = countVisibleCommentItems();
+  const panel_open = isCommentSidebarPanelOpen();
+  return {
+    panel_open,
+    comment_item_count,
+    collect_ready: requireVisibleItems ? comment_item_count > 0 : panel_open,
+  };
+}
 
 /** 禁止误点的互动按钮（收藏/点赞/分享等） */
 export const EXCLUDED_ACTION_E2E =

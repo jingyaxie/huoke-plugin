@@ -3,6 +3,7 @@ import { isStandaloneVideoPage } from "./search-feed-open";
 import {
   centerOf,
   clickTargetAt,
+  COMMENT_SIDEBAR_TIMING,
   countVisibleCommentItems,
   dismissTransientOverlay,
   findAllCommentsHeader,
@@ -10,7 +11,9 @@ import {
   IconTarget,
   isCollectOverlayOpen,
   isCommentActionElement,
+  isCommentSidebarPanelOpen,
   isVisible,
+  pollCommentSidebarState,
   pushIconTarget,
   resolveClickTarget,
   serializeRect,
@@ -91,7 +94,7 @@ export function isDouyinVideoDetailSidePanel(url = location.href): boolean {
 }
 
 export function isVideoDetailCommentSidebarActive(): boolean {
-  return countVisibleCommentItems() > 0 || findAllCommentsHeader() !== null;
+  return isCommentSidebarPanelOpen();
 }
 
 /** /video/ 详情页：可见评论项或「全部评论」标题即算展开 */
@@ -165,104 +168,103 @@ function clickVideoDetailCommentIconViaDom(): string {
   return "";
 }
 
-/** /video/ 详情页：展开评论区 */
-export async function activateVideoDetailCommentSidebar(maxAttempts = 5): Promise<{
+function clickVideoDetailCommentIconOnce(sidePanel: boolean): string {
+  if (sidePanel) {
+    const side = collectVideoDetailSideCommentTargets()[0]
+      ?? collectVideoDetailCommentIconTargets()[0];
+    if (side && clickTargetAt(side)) return side.selector;
+  }
+
+  const targets = collectVideoDetailCommentIconTargets();
+  const primary = targets[0];
+  if (primary && clickTargetAt(primary)) return primary.selector;
+  return clickVideoDetailCommentIconViaDom();
+}
+
+function buildVideoDetailActivateSuccess(method: string, message: string) {
+  return {
+    ok: true,
+    method,
+    comment_item_count: countVisibleCommentItems(),
+    message,
+  };
+}
+
+/** /video/ 详情页：展开评论区（少点、多等） */
+export async function activateVideoDetailCommentSidebar(maxClicks: number = COMMENT_SIDEBAR_TIMING.maxDomClicks): Promise<{
   ok: boolean;
   method: string;
   comment_item_count: number;
   message: string;
 }> {
   if (isVideoDetailCommentSidebarReadyForCollect()) {
-    return {
-      ok: true,
-      method: "already_open",
-      comment_item_count: countVisibleCommentItems(),
-      message: "视频详情页评论区已展开",
-    };
+    return buildVideoDetailActivateSuccess("already_open", "视频详情页评论区已展开");
+  }
+
+  if (isVideoDetailCommentSidebarActive()) {
+    const waited = await pollCommentSidebarState({
+      maxMs: COMMENT_SIDEBAR_TIMING.panelPollMs,
+    });
+    if (waited.collect_ready) {
+      return buildVideoDetailActivateSuccess("wait_load", "视频详情页评论区已展开（等待加载完成）");
+    }
   }
 
   const sidePanel = isDouyinVideoDetailSidePanel();
   let lastMethod = "";
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    if (isVideoDetailCommentSidebarReadyForCollect()) {
-      return {
-        ok: true,
-        method: lastMethod || "probe",
-        comment_item_count: countVisibleCommentItems(),
-        message: "视频详情页评论区已展开",
-      };
+  for (let click = 0; click < maxClicks; click += 1) {
+    if (isVideoDetailCommentSidebarActive()) break;
+
+    const hit = clickVideoDetailCommentIconOnce(sidePanel);
+    if (!hit) {
+      if (!sidePanel && click === 0) {
+        window.scrollBy({ top: 320, behavior: "instant" });
+        await sleep(humanPace.beforeCommentAction());
+        continue;
+      }
+      break;
+    }
+    lastMethod = hit;
+    await sleep(humanPace.afterCommentClick());
+
+    if (isCollectOverlayOpen()) {
+      dismissTransientOverlay();
+      await sleep(300);
     }
 
-    if (sidePanel && attempt === 0) {
-      const side = collectVideoDetailSideCommentTargets()[0]
-        ?? collectVideoDetailCommentIconTargets()[0];
-      if (side && clickTargetAt(side)) {
-        lastMethod = side.selector;
-        await sleep(humanPace.afterCommentClick());
-        if (isVideoDetailCommentSidebarReadyForCollect()) {
-          return {
-            ok: true,
-            method: lastMethod,
-            comment_item_count: countVisibleCommentItems(),
-            message: "已通过右侧评论图标打开评论区",
-          };
-        }
-      }
-    }
-
-    const targets = collectVideoDetailCommentIconTargets();
-    const primary = targets[0];
-    if (primary && clickTargetAt(primary)) {
-      lastMethod = primary.selector;
-      await sleep(humanPace.afterCommentClick());
-      if (isVideoDetailCommentSidebarReadyForCollect()) {
-        return {
-          ok: true,
-          method: lastMethod,
-          comment_item_count: countVisibleCommentItems(),
-          message: `已通过 ${lastMethod} 打开视频详情页评论区`,
-        };
-      }
-      if (isCollectOverlayOpen()) {
-        dismissTransientOverlay();
-        await sleep(300);
-      }
-    }
-
-    const domHit = clickVideoDetailCommentIconViaDom();
-    if (domHit) {
-      lastMethod = domHit;
-      await sleep(humanPace.afterCommentClick());
-      if (isVideoDetailCommentSidebarReadyForCollect()) {
-        return {
-          ok: true,
-          method: domHit,
-          comment_item_count: countVisibleCommentItems(),
-          message: `已通过 DOM 点击 ${domHit} 打开视频详情页评论区`,
-        };
-      }
-      if (isCollectOverlayOpen()) {
-        dismissTransientOverlay();
-        await sleep(300);
-      }
-    }
-
-    if (!sidePanel) {
-      window.scrollBy({ top: 320, behavior: "instant" });
-      await sleep(humanPace.beforeCommentAction());
-    }
+    const opened = await pollCommentSidebarState({
+      maxMs: COMMENT_SIDEBAR_TIMING.afterClickPollMs,
+    });
+    if (opened.panel_open) break;
 
     await sleep(humanPace.beforeCommentAction());
   }
 
+  if (!isVideoDetailCommentSidebarActive()) {
+    return {
+      ok: false,
+      method: lastMethod || "none",
+      comment_item_count: countVisibleCommentItems(),
+      message: sidePanel
+        ? "视频详情页未能展开右侧评论区，请确认评论图标可见"
+        : "视频详情页未能展开评论区，请确认「评论」Tab 可见",
+    };
+  }
+
+  const loaded = await pollCommentSidebarState({
+    maxMs: COMMENT_SIDEBAR_TIMING.panelPollMs,
+  });
+
   return {
-    ok: false,
-    method: lastMethod || "none",
-    comment_item_count: countVisibleCommentItems(),
-    message: sidePanel
-      ? "视频详情页未能展开右侧评论区，请确认评论图标可见"
-      : "视频详情页未能展开评论区，请确认「评论」Tab 可见",
+    ok: loaded.panel_open,
+    method: lastMethod || "poll",
+    comment_item_count: loaded.comment_item_count,
+    message: loaded.collect_ready
+      ? lastMethod
+        ? `已通过 ${lastMethod} 打开视频详情页评论区`
+        : "视频详情页评论区已展开"
+      : "视频详情页评论面板已打开，评论列表仍在加载",
   };
 }
 

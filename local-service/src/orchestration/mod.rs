@@ -40,6 +40,26 @@ fn feed_aweme_from_response(resp: &serde_json::Value) -> Option<String> {
         })
 }
 
+fn sidebar_response_open(sidebar: &serde_json::Value) -> bool {
+    if sidebar.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    for key in ["sidebar_active", "active", "has_comments_header", "sidebar_ready"] {
+        if sidebar.get(key).and_then(|v| v.as_bool()) == Some(true) {
+            return true;
+        }
+    }
+    sidebar
+        .get("comment_item_count")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        > 0
+}
+
+fn is_sidebar_open_failure(err: &str) -> bool {
+    err.contains("comment sidebar")
+}
+
 /// 插件已打开可采评论的视频上下文：Feed 浮层 / 右侧独立窗 / 工作窗 /video/ 页
 fn video_ready_for_collect(resp: &serde_json::Value) -> bool {
     if resp.get("ok").and_then(|v| v.as_bool()) != Some(true) {
@@ -730,7 +750,7 @@ impl JobOrchestrator {
                 collected_videos + 1
             );
 
-            let collect_result = match mode {
+            let mut collect_result = match mode {
                 DouyinPlaybackMode::Feed => {
                     self.scroll_and_persist_feed_comments(
                         job_id,
@@ -752,6 +772,38 @@ impl JobOrchestrator {
                     .await
                 }
             };
+
+            if let Err(ref err) = collect_result {
+                if is_sidebar_open_failure(err) {
+                    warn!(
+                        "job {job_id}: retry {} collect for {aweme_id} after sidebar failure",
+                        playback_mode_label(mode)
+                    );
+                    self.wait_human_if_not_paused(job_id, 2500, 4000).await?;
+                    collect_result = match mode {
+                        DouyinPlaybackMode::Feed => {
+                            self.scroll_and_persist_feed_comments(
+                                job_id,
+                                job,
+                                cfg,
+                                &aweme_id,
+                                scroll_rounds,
+                            )
+                            .await
+                        }
+                        DouyinPlaybackMode::VideoDetail => {
+                            self.scroll_and_persist_video_detail_comments(
+                                job_id,
+                                job,
+                                cfg,
+                                &aweme_id,
+                                scroll_rounds,
+                            )
+                            .await
+                        }
+                    };
+                }
+            }
 
             match collect_result {
                 Ok(()) => {
@@ -1003,26 +1055,28 @@ impl JobOrchestrator {
         self.wait_human_if_not_paused(job_id, 5500, 8500).await?;
 
         let mut sidebar_ok = false;
-        for attempt in 1..=3 {
+        for attempt in 1..=2 {
             self.bail_if_paused(job_id)?;
             let sidebar = if playback_mode == "video_detail" {
                 lab.open_video_detail_comment_sidebar().await?
             } else {
                 lab.open_feed_comment_sidebar().await?
             };
-            sidebar_ok = sidebar.get("ok").and_then(|v| v.as_bool()).unwrap_or(false)
-                || sidebar
-                    .get("comment_item_count")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0)
-                    > 0;
+            sidebar_ok = sidebar_response_open(&sidebar);
             if sidebar_ok {
                 break;
             }
-            self.wait_human_if_not_paused(job_id, 1200, 2200).await?;
+            let msg = sidebar
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("failed to open comment sidebar");
+            warn!(
+                "job {job_id}: comment sidebar attempt {attempt}/2 ({playback_mode}) — {msg}"
+            );
+            self.wait_human_if_not_paused(job_id, 2000, 3500).await?;
         }
         if !sidebar_ok {
-            return Err("failed to open comment sidebar after 3 attempts".into());
+            return Err("failed to open comment sidebar after 2 attempts".into());
         }
         self.wait_human_if_not_paused(job_id, 1500, 2800).await?;
 
@@ -2106,15 +2160,10 @@ impl JobOrchestrator {
 
         info!("job {job_id}: opening comment sidebar for aweme={}", video.aweme_id);
         let mut sidebar_ok = false;
-        for attempt in 1..=3 {
+        for attempt in 1..=2 {
             self.bail_if_paused(job_id)?;
             let sidebar = lab.open_comment_sidebar().await?;
-            sidebar_ok = sidebar.get("ok").and_then(|v| v.as_bool()).unwrap_or(false)
-                || (sidebar
-                    .get("comment_item_count")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0)
-                    > 0);
+            sidebar_ok = sidebar_response_open(&sidebar);
             if sidebar_ok {
                 break;
             }
@@ -2122,11 +2171,11 @@ impl JobOrchestrator {
                 .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("failed to open comment sidebar");
-            warn!("job {job_id}: comment sidebar attempt {attempt}/3 — {msg}");
-            self.wait_human_if_not_paused(job_id, 1200, 2200).await?;
+            warn!("job {job_id}: comment sidebar attempt {attempt}/2 — {msg}");
+            self.wait_human_if_not_paused(job_id, 2000, 3500).await?;
         }
         if !sidebar_ok {
-            return Err("failed to open comment sidebar after 3 attempts".into());
+            return Err("failed to open comment sidebar after 2 attempts".into());
         }
         self.wait_human_if_not_paused(job_id, 1500, 2800).await?;
 

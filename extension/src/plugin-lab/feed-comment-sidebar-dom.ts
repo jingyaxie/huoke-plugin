@@ -2,15 +2,17 @@ import { humanClick, humanPace, sleep } from "./search-input";
 import { isSearchFeedOverlay } from "./search-feed-open";
 import {
   clickTargetAt,
+  COMMENT_SIDEBAR_TIMING,
   countVisibleCommentItems,
   dismissTransientOverlay,
   findAllCommentsHeader,
   findVideoPlayerCenter,
-  hasVisibleCommentItems,
   IconTarget,
   isCollectOverlayOpen,
   isCommentActionElement,
+  isCommentSidebarPanelOpen,
   isVisible,
+  pollCommentSidebarState,
   pushIconTarget,
   resolveClickTarget,
 } from "./comment-sidebar-shared";
@@ -46,12 +48,13 @@ export function isFeedOverlayOpen(): boolean {
 }
 
 export function isFeedCommentSidebarActive(): boolean {
-  return hasVisibleCommentItems() || findAllCommentsHeader() !== null;
+  return isCommentSidebarPanelOpen();
 }
 
-/** 搜索/主页 Feed：须可见评论项才算已展开 */
+/** Feed：可见评论项或「全部评论」标题即视为可采集 */
 export function isFeedCommentSidebarReadyForCollect(): boolean {
-  return countVisibleCommentItems() > 0;
+  if (countVisibleCommentItems() > 0) return true;
+  return findAllCommentsHeader() !== null;
 }
 
 export function collectFeedCommentIconTargets(): IconTarget[] {
@@ -112,89 +115,90 @@ export function clickFeedCommentIconViaDom(): string {
   return "";
 }
 
-/** Feed 浮层：展开右侧评论区 */
-export async function activateFeedCommentSidebar(maxAttempts = 5): Promise<{
+function clickFeedCommentIconOnce(): string {
+  const targets = collectFeedCommentIconTargets();
+  const primary = targets[0];
+  if (primary && clickTargetAt(primary)) return primary.selector;
+  return clickFeedCommentIconViaDom();
+}
+
+function buildActivateSuccess(method: string, message: string) {
+  return {
+    ok: true,
+    method,
+    comment_item_count: countVisibleCommentItems(),
+    message,
+  };
+}
+
+/** Feed 浮层：展开右侧评论区（少点、多等，避免 toggle 误触） */
+export async function activateFeedCommentSidebar(maxClicks: number = COMMENT_SIDEBAR_TIMING.maxDomClicks): Promise<{
   ok: boolean;
   method: string;
   comment_item_count: number;
   message: string;
 }> {
   if (isFeedCommentSidebarReadyForCollect()) {
-    return {
-      ok: true,
-      method: "already_open",
-      comment_item_count: countVisibleCommentItems(),
-      message: "Feed 评论区已展开",
-    };
+    return buildActivateSuccess("already_open", "Feed 评论区已展开");
+  }
+
+  if (isFeedCommentSidebarActive()) {
+    const waited = await pollCommentSidebarState({
+      maxMs: COMMENT_SIDEBAR_TIMING.panelPollMs,
+    });
+    if (waited.collect_ready) {
+      return buildActivateSuccess("wait_load", "Feed 评论区已展开（等待加载完成）");
+    }
   }
 
   const searchFeed = isSearchFeedOverlay();
   let lastMethod = "";
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    if (isFeedCommentSidebarReadyForCollect()) {
-      return {
-        ok: true,
-        method: lastMethod || "probe",
-        comment_item_count: countVisibleCommentItems(),
-        message: "Feed 评论区已展开",
-      };
-    }
+  for (let click = 0; click < maxClicks; click += 1) {
+    if (isFeedCommentSidebarActive()) break;
 
-    const targets = collectFeedCommentIconTargets();
-    const primary = targets[0];
-    if (primary && clickTargetAt(primary)) {
-      lastMethod = primary.selector;
-      await sleep(humanPace.afterCommentClick());
-      if (isFeedCommentSidebarReadyForCollect()) {
-        return {
-          ok: true,
-          method: lastMethod,
-          comment_item_count: countVisibleCommentItems(),
-          message: `已通过 ${lastMethod} 打开 Feed 评论区`,
-        };
-      }
-      if (isCollectOverlayOpen()) {
-        dismissTransientOverlay();
-        await sleep(300);
-      }
-    }
+    const hit = clickFeedCommentIconOnce();
+    if (!hit) break;
+    lastMethod = hit;
+    await sleep(humanPace.afterCommentClick());
 
-    const domHit = clickFeedCommentIconViaDom();
-    if (domHit) {
-      lastMethod = domHit;
-      await sleep(humanPace.afterCommentClick());
-      if (isFeedCommentSidebarReadyForCollect()) {
-        return {
-          ok: true,
-          method: domHit,
-          comment_item_count: countVisibleCommentItems(),
-          message: `已通过 DOM 点击 ${domHit} 打开 Feed 评论区`,
-        };
-      }
-      if (isCollectOverlayOpen()) {
-        dismissTransientOverlay();
-        await sleep(300);
-      }
-    }
-
-    if (!searchFeed) {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }),
-      );
+    if (isCollectOverlayOpen()) {
+      dismissTransientOverlay();
       await sleep(300);
     }
+
+    const opened = await pollCommentSidebarState({
+      maxMs: COMMENT_SIDEBAR_TIMING.afterClickPollMs,
+    });
+    if (opened.panel_open) break;
 
     await sleep(humanPace.beforeCommentAction());
   }
 
+  if (!isFeedCommentSidebarActive()) {
+    return {
+      ok: false,
+      method: lastMethod || "none",
+      comment_item_count: countVisibleCommentItems(),
+      message: searchFeed
+        ? "搜索 Feed 浮层已打开，但未能展开右侧评论区"
+        : "未能打开 Feed 评论区，请确认步骤 9 已打开视频 Feed",
+    };
+  }
+
+  const loaded = await pollCommentSidebarState({
+    maxMs: COMMENT_SIDEBAR_TIMING.panelPollMs,
+  });
+
   return {
-    ok: false,
-    method: lastMethod || "none",
-    comment_item_count: countVisibleCommentItems(),
-    message: searchFeed
-      ? "搜索 Feed 浮层已打开，但未能展开右侧评论区"
-      : "未能打开 Feed 评论区，请确认步骤 9 已打开视频 Feed",
+    ok: loaded.panel_open,
+    method: lastMethod || "poll",
+    comment_item_count: loaded.comment_item_count,
+    message: loaded.collect_ready
+      ? lastMethod
+        ? `已通过 ${lastMethod} 打开 Feed 评论区`
+        : "Feed 评论区已展开"
+      : "Feed 评论面板已打开，评论列表仍在加载",
   };
 }
 
@@ -223,8 +227,10 @@ export function probeFeedCommentSidebar() {
     icon_targets: icons,
     video_player_center: findVideoPlayerCenter(),
     url: location.href,
-    message: sidebarActive
-      ? `Feed 评论区已打开（${commentCount} 条可见评论）`
+    message: sidebarReady
+      ? hasHeader && commentCount === 0
+        ? "Feed 评论区已打开（可见「全部评论」标题）"
+        : `Feed 评论区已打开（${commentCount} 条可见评论）`
       : searchFeed
         ? icons.length
           ? `搜索 Feed 已打开，找到 ${icons.length} 个评论入口`

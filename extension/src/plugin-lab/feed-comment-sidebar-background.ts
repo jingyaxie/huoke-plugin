@@ -4,6 +4,7 @@ import {
   clickMouse,
   moveMouse,
 } from "./real-mouse";
+import { COMMENT_SIDEBAR_TIMING } from "./comment-sidebar-shared";
 import { humanPace } from "./search-input";
 import { sendContentPluginLabCommand } from "./tab-command";
 
@@ -13,6 +14,8 @@ function sleep(ms: number) {
 
 interface SidebarProbe {
   sidebar_ready?: boolean;
+  sidebar_active?: boolean;
+  active?: boolean;
   feed_open?: boolean;
   is_search_feed?: boolean;
   comment_item_count?: number;
@@ -22,8 +25,10 @@ interface SidebarProbe {
   message?: string;
 }
 
-function sidebarReady(probe: SidebarProbe): boolean {
+function sidebarPanelOpen(probe: SidebarProbe): boolean {
   if (probe.sidebar_ready === true) return true;
+  if (probe.sidebar_active === true || probe.active === true) return true;
+  if (probe.has_comments_header === true) return true;
   return (probe.comment_item_count ?? 0) > 0;
 }
 
@@ -56,12 +61,25 @@ function buildFeedSuccessResult(
     already_open: extra.already_open ?? false,
     mode: extra.mode,
     method: extra.method,
+    sidebar_active: status.sidebar_active ?? status.active ?? true,
+    has_comments_header: status.has_comments_header ?? false,
     is_search_feed: status.is_search_feed,
     is_standalone_video: false,
     comment_item_count: status.comment_item_count ?? 0,
     url: status.url ?? tab.url,
     message: extra.message ?? status.message ?? "Feed 评论区已展开",
   };
+}
+
+async function waitForSidebarPanel(tabId: number, maxMs = COMMENT_SIDEBAR_TIMING.panelPollMs) {
+  const deadline = Date.now() + maxMs;
+  let status = await probeFeed(tabId);
+  while (Date.now() < deadline) {
+    if (sidebarPanelOpen(status)) return status;
+    await sleep(COMMENT_SIDEBAR_TIMING.pollIntervalMs);
+    status = await probeFeed(tabId);
+  }
+  return status;
 }
 
 async function tryCdpCommentClick(
@@ -75,7 +93,9 @@ async function tryCdpCommentClick(
   }
 
   await withTabDebugger(tabId, async () => {
-    for (let attempt = 0; attempt < 6 && !sidebarReady(status); attempt += 1) {
+    for (let attempt = 0; attempt < COMMENT_SIDEBAR_TIMING.maxCdpClicks; attempt += 1) {
+      if (sidebarPanelOpen(status)) break;
+
       const primary = (status.icon_targets ?? targets)[0];
       if (!primary) break;
 
@@ -86,7 +106,7 @@ async function tryCdpCommentClick(
       await sleep(humanPace.afterCommentClick());
 
       status = await probeFeed(tabId);
-      if (sidebarReady(status)) break;
+      if (sidebarPanelOpen(status)) break;
       await sleep(humanPace.beforeCommentAction());
     }
   });
@@ -111,10 +131,11 @@ export async function clickFeedCommentButtonBackground(payload: Record<string, u
     throw new Error("feed comment sidebar probe failed");
   }
 
-  if (sidebarReady(status)) {
+  if (sidebarPanelOpen(status)) {
+    status = await waitForSidebarPanel(tabId);
     return buildFeedSuccessResult(tab, status, {
       already_open: true,
-      mode: "cdp_real_mouse",
+      mode: "content_dom",
     });
   }
 
@@ -126,7 +147,7 @@ export async function clickFeedCommentButtonBackground(payload: Record<string, u
       return {
         ok: false,
         playback_mode: "feed",
-        mode: "cdp_real_mouse",
+        mode: "content_dom",
         feed_open: false,
         is_search_feed: false,
         url: status.url ?? tab.url,
@@ -136,41 +157,38 @@ export async function clickFeedCommentButtonBackground(payload: Record<string, u
   }
 
   const domResult = await activateFeedViaContent(tabId);
-  status = await probeFeed(tabId);
-  if (domResult.ok || sidebarReady(status)) {
+  status = await waitForSidebarPanel(tabId);
+  if (domResult.ok || sidebarPanelOpen(status)) {
     return buildFeedSuccessResult(tab, status, {
       mode: "content_dom",
       method: domResult.method,
-      message: domResult.message ?? "已通过 DOM 展开搜索 Feed 评论区",
+      message: domResult.message ?? "已通过 DOM 展开 Feed 评论区",
     });
   }
 
   const targets = status.icon_targets ?? [];
-  const cdp = await tryCdpCommentClick(tabId, status, targets);
-  status = cdp.status;
-  let method = cdp.method;
-
-  if (!sidebarReady(status)) {
-    const retryDom = await activateFeedViaContent(tabId);
-    status = await probeFeed(tabId);
-    if (retryDom.ok || sidebarReady(status)) {
+  if (targets.length > 0) {
+    const cdp = await tryCdpCommentClick(tabId, status, targets);
+    status = await waitForSidebarPanel(tabId);
+    if (sidebarPanelOpen(status)) {
       return buildFeedSuccessResult(tab, status, {
-        mode: "content_dom",
-        method: retryDom.method ?? method,
-        message: retryDom.message ?? "已通过 DOM 展开 Feed 评论区",
+        mode: "cdp_real_mouse",
+        method: cdp.method,
+        message: status.message ?? "已通过 CDP 展开 Feed 评论区",
       });
     }
   }
 
-  const ok = sidebarReady(status);
+  const ok = sidebarPanelOpen(status);
   return {
     ok,
     playback_mode: "feed",
     already_open: false,
-    mode: ok ? "cdp_real_mouse" : targets.length > 0 ? "cdp_real_mouse" : "content_dom",
-    method,
+    mode: ok ? "content_dom" : targets.length > 0 ? "cdp_real_mouse" : "content_dom",
+    method: domResult.method,
+    sidebar_active: status.sidebar_active ?? status.active ?? false,
+    has_comments_header: status.has_comments_header ?? false,
     comment_item_count: status.comment_item_count ?? 0,
-    has_comments_header: status.has_comments_header,
     is_search_feed: status.is_search_feed,
     icon_targets_tried: targets.length,
     url: status.url ?? tab.url,
