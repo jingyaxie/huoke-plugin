@@ -338,17 +338,13 @@ function resetState() {
   --outreach-scrollbar-size: 12px;
 }
 
-.outreach-table-wrap :deep(.el-table__header-wrapper table),
-.outreach-table-wrap :deep(.el-table__body-wrapper table) {
-  min-width: 1280px;
-}
-
-.outreach-table-wrap :deep(.el-table__body-wrapper) {
-  overflow-x: scroll !important;
-  scrollbar-gutter: stable;
-  scrollbar-width: auto;
-  scrollbar-color: rgba(64, 158, 255, 0.65) var(--el-fill-color-lighter);
-}
+/*
+ * 不要用 CSS（min-width）去“偷偷”把内部表格撑宽：el-table 的表头/表体同步逻辑
+ * 只在它自己算出的 layout.scrollX 为 true（即真实列宽合计 > 容器宽度）时才会执行，
+ * 否则 syncPosition 会直接 return，导致“表体能滚、表头不动”的错位。
+ * 这里改为通过列自身的 width / min-width 让内容自然超宽，交给 el-table 原生的
+ * 横向滚动 + 表头同步，从而保证横向滚动时每一列表头与表体始终对齐。
+ */
 
 .outreach-table-wrap :deep(.el-scrollbar__bar.is-horizontal) {
   height: var(--outreach-scrollbar-size) !important;

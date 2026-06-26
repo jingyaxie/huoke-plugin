@@ -12,19 +12,15 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="选择地区">
-              <el-select
-                v-model="form.regionCode"
+              <el-cascader
+                v-model="form.regionPath"
+                :options="REGION_CASCADER_OPTIONS"
+                :props="regionCascaderProps"
+                clearable
                 filterable
-                placeholder="不选地区"
+                placeholder="不选地区（默认全国）"
                 style="width: 100%"
-              >
-                <el-option
-                  v-for="item in REGION_OPTIONS"
-                  :key="item.code || 'none'"
-                  :label="item.name"
-                  :value="item.code"
-                />
-              </el-select>
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -75,7 +71,7 @@
           />
           <p v-if="composedSearchKeyword" class="field-hint">
             实际搜索词：<strong>{{ composedSearchKeyword }}</strong>
-            <span v-if="regionName">（{{ regionName }} + 关键词）</span>
+            <span v-if="regionFullName">（地区：{{ regionFullName }}，搜索只取末级城市名）</span>
           </p>
         </el-form-item>
 
@@ -185,7 +181,7 @@ import {
 } from "../api/presets";
 import { setActiveAccount } from "../api/accounts";
 import {
-  REGION_OPTIONS,
+  REGION_CASCADER_OPTIONS,
   FALLBACK_COMMENT_DAYS_OPTIONS,
   FALLBACK_PUBLISH_TIME_OPTIONS,
   applyDefaultCommentDays,
@@ -198,7 +194,7 @@ import {
   hasScopeField,
   listSupportedPlatforms,
   platformLabel,
-  regionLabelFromCode,
+  regionSelectionFromPath,
   validateRequiredScopeFields,
 } from "../utils/huokeTaskForm";
 import { buildAutoPreflightPayload } from "../utils/huokeTaskPreflight";
@@ -226,9 +222,11 @@ const selectedCommentPresetIds = ref([]);
 const selectedDmPresetIds = ref([]);
 const settings = ref({ ...DEFAULT_INTERACTION_SETTINGS });
 
+const regionCascaderProps = { checkStrictly: true, expandTrigger: "hover" };
+
 const form = reactive({
   name: "",
-  regionCode: "",
+  regionPath: [],
   selectedAccountKey: "",
   platform: "douyin",
   agentStrategy: "",
@@ -266,7 +264,10 @@ const commentOptions = computed(() =>
   getFieldOptions(capabilities.value, "comment_days", FALLBACK_COMMENT_DAYS_OPTIONS),
 );
 const evaluationTemplates = computed(() => capabilities.value?.evaluation_templates || []);
-const regionName = computed(() => regionLabelFromCode(form.regionCode));
+const regionSelection = computed(() => regionSelectionFromPath(form.regionPath));
+// 后端/搜索只用最后一级城市名（如「通州区」），完整路径仅用于界面展示
+const regionName = computed(() => regionSelection.value.name);
+const regionFullName = computed(() => regionSelection.value.fullName);
 const composedSearchKeyword = computed(() => {
   const keyword = keywordList()[0] || "";
   if (!keyword) return "";
@@ -380,7 +381,7 @@ watch(
     form.targetCount,
     form.commentDays,
     form.publishTimeRange,
-    form.regionCode,
+    form.regionPath,
     form.browserMode,
     form.name,
     form.agentStrategy,
@@ -416,7 +417,7 @@ watch(
           target: form.targetCount,
           crawlVideoLimit: isStandalone.value ? form.crawlVideoLimit : undefined,
           regionName: regionName.value || undefined,
-          regionCode: form.regionCode || undefined,
+          regionCode: regionSelection.value.code || undefined,
           headless: browserModeToHeadless(form.browserMode),
           settings: settings.value,
           commentPresetIds: selectedCommentPresetIds.value,
@@ -440,7 +441,7 @@ watch(
 
 function resetForm() {
   form.name = "";
-  form.regionCode = "";
+  form.regionPath = [];
   form.selectedAccountKey = "";
   form.platform = "douyin";
   form.agentStrategy = "";
@@ -473,7 +474,7 @@ async function submit() {
       target_count: form.targetCount,
       comment_days: form.commentDays,
       publish_time_range: form.publishTimeRange,
-      region: regionName.value || form.regionCode,
+      region: regionName.value || regionSelection.value.code,
     },
     capabilities.value,
   );

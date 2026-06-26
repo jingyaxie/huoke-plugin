@@ -13,17 +13,59 @@ pub fn map_publish_time_range(value: &str) -> Option<i64> {
     }
 }
 
-/// 地域拼入搜索词（Python SearchFilterOptions.composed_keyword）。
+/// 去掉行政区划后缀，得到更易命中的搜索词（如「通州区」→「通州」）。
+fn strip_admin_suffix(name: &str) -> String {
+    let mut s = name.trim().to_string();
+    for suf in [
+        "维吾尔自治区",
+        "壮族自治区",
+        "回族自治区",
+        "特别行政区",
+        "自治区",
+        "自治州",
+        "自治县",
+        "地区",
+        "林区",
+    ] {
+        if s.ends_with(suf) && s.len() > suf.len() {
+            return s[..s.len() - suf.len()].to_string();
+        }
+    }
+    for suf in ["省", "市", "区", "县", "旗", "盟"] {
+        if s.ends_with(suf) && s.len() > suf.len() {
+            s = s[..s.len() - suf.len()].to_string();
+            break;
+        }
+    }
+    s
+}
+
+/// 地区搜索词：只取最后一级城市名并去后缀，
+/// 避免把全路径（如「江苏省 南通市 通州区」）整体拼入导致搜不到内容。
+fn region_search_token(region: &str) -> String {
+    let leaf = region
+        .split(|c: char| c.is_whitespace() || c == '·')
+        .filter(|s| !s.trim().is_empty())
+        .last()
+        .unwrap_or("")
+        .trim();
+    if leaf.is_empty() {
+        return String::new();
+    }
+    strip_admin_suffix(leaf)
+}
+
+/// 地域拼入搜索词：地区只取最后一级城市名（Python SearchFilterOptions.composed_keyword）。
 pub fn composed_keyword(keyword: &str, region: Option<&str>) -> String {
     let kw = keyword.trim();
-    let region = region.unwrap_or("").trim();
-    if region.is_empty() {
+    let token = region.map(region_search_token).unwrap_or_default();
+    if token.is_empty() {
         return kw.to_string();
     }
-    if kw.contains(region) {
+    if kw.contains(&token) {
         return kw.to_string();
     }
-    format!("{region} {kw}")
+    format!("{token} {kw}")
 }
 
 pub fn within_days(create_time: Option<i64>, days: i64) -> bool {
@@ -109,6 +151,20 @@ mod tests {
     fn composed_keyword_adds_region() {
         assert_eq!(composed_keyword("团餐", Some("深圳")), "深圳 团餐");
         assert_eq!(composed_keyword("深圳团餐", Some("深圳")), "深圳团餐");
+    }
+
+    #[test]
+    fn composed_keyword_uses_last_city_name() {
+        // 只取最后一级城市名，不拼全路径
+        assert_eq!(composed_keyword("团餐", Some("江苏省 南通市 通州区")), "通州 团餐");
+        assert_eq!(composed_keyword("团餐", Some("通州区")), "通州 团餐");
+        assert_eq!(composed_keyword("团餐", Some("南通市")), "南通 团餐");
+        assert_eq!(composed_keyword("团餐", Some("广东")), "广东 团餐");
+        // 兼容旧的 · 分隔
+        assert_eq!(composed_keyword("团餐", Some("广东·深圳")), "深圳 团餐");
+        // 无地区
+        assert_eq!(composed_keyword("团餐", Some("")), "团餐");
+        assert_eq!(composed_keyword("团餐", None), "团餐");
     }
 
     #[test]

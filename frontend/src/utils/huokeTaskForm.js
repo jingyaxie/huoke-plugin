@@ -1,5 +1,12 @@
 import { listExtensionCollectPlatforms } from "../config/extensionPlatformCapabilities";
-import { REGION_OPTIONS, isNoRegion, regionLabelFromCode } from "../data/chinaRegions";
+import {
+  REGION_OPTIONS,
+  REGION_CASCADER_OPTIONS,
+  isNoRegion,
+  regionLabelFromCode,
+  regionSelectionFromPath,
+  regionSearchToken,
+} from "../data/chinaRegions";
 
 export const FALLBACK_PUBLISH_TIME_OPTIONS = [
   { value: "unlimited", label: "不限" },
@@ -19,7 +26,14 @@ export const FALLBACK_COMMENT_DAYS_OPTIONS = [
 /** @deprecated 请使用 REGION_OPTIONS */
 export const REGION_PRESETS = REGION_OPTIONS;
 
-export { REGION_OPTIONS, isNoRegion, regionLabelFromCode };
+export {
+  REGION_OPTIONS,
+  REGION_CASCADER_OPTIONS,
+  isNoRegion,
+  regionLabelFromCode,
+  regionSelectionFromPath,
+  regionSearchToken,
+};
 
 const INTENT_BY_TASK_TYPE = {
   home_auto: "keyword_auto",
@@ -173,12 +187,9 @@ export function saveExtensionAutoStartPref(value) {
   }
 }
 
-/** 搜索词前缀：省级名称，如「广东」 */
+/** 搜索词前缀：只取最后一级城市名（如「江苏省 南通市 通州区」→「通州」） */
 export function regionSearchKeyword(regionName) {
-  const name = String(regionName ?? "").trim();
-  if (isNoRegion(name)) return "";
-  const province = name.split("·")[0].trim();
-  return province.replace(/(省|市|自治区|壮族|回族|维吾尔)$/u, "");
+  return regionSearchToken(regionName);
 }
 
 /** 与后端 filters::composed_keyword 一致：地区拼入搜索词 */

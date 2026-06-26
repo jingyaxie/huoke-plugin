@@ -12,19 +12,15 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="选择地区">
-              <el-select
-                v-model="form.regionCode"
+              <el-cascader
+                v-model="form.regionPath"
+                :options="REGION_CASCADER_OPTIONS"
+                :props="regionCascaderProps"
+                clearable
                 filterable
-                placeholder="不选地区"
+                placeholder="不选地区（默认全国）"
                 style="width: 100%"
-              >
-                <el-option
-                  v-for="item in REGION_OPTIONS"
-                  :key="item.code || 'none'"
-                  :label="item.name"
-                  :value="item.code"
-                />
-              </el-select>
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -52,7 +48,7 @@
           <el-input v-model="form.keywords" placeholder="输入产品或服务关键词，例如：团餐配送" />
           <p v-if="composedSearchKeyword" class="field-hint">
             实际搜索词：<strong>{{ composedSearchKeyword }}</strong>
-            <span v-if="regionName">（{{ regionName }} + 关键词）</span>
+            <span v-if="regionFullName">（地区：{{ regionFullName }}，搜索只取末级城市名）</span>
           </p>
         </el-form-item>
 
@@ -124,14 +120,14 @@ import { registerCollectJobToCloud } from "../cloud-sync";
 import { mergeExtensionCapabilities, isExtensionCollectPlatform } from "../config/extensionPlatformCapabilities";
 import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/presets";
 import {
-  REGION_OPTIONS,
+  REGION_CASCADER_OPTIONS,
   FALLBACK_COMMENT_DAYS_OPTIONS,
   computeAutoOutreach,
   buildEvaluationPayload,
   defaultEvaluation,
   composeSearchKeyword,
   loadExtensionAutoStartPref,
-  regionLabelFromCode,
+  regionSelectionFromPath,
   saveExtensionAutoStartPref,
 } from "../utils/huokeTaskForm";
 import { validateTaskPresetSelection } from "../utils/presetSelection";
@@ -150,9 +146,11 @@ const selectedDmPresetIds = ref([]);
 const settings = ref({ ...DEFAULT_INTERACTION_SETTINGS });
 const platformOptions = ref(mergeExtensionCapabilities());
 
+const regionCascaderProps = { checkStrictly: true, expandTrigger: "hover" };
+
 const form = reactive({
   name: "",
-  regionCode: "",
+  regionPath: [],
   platform: "douyin",
   keywords: "",
   commentDays: 3,
@@ -167,7 +165,10 @@ const form = reactive({
 
 const commentOptions = FALLBACK_COMMENT_DAYS_OPTIONS;
 
-const regionName = computed(() => regionLabelFromCode(form.regionCode));
+const regionSelection = computed(() => regionSelectionFromPath(form.regionPath));
+// 后端/搜索只用最后一级城市名（如「通州区」），完整路径仅用于界面展示
+const regionName = computed(() => regionSelection.value.name);
+const regionFullName = computed(() => regionSelection.value.fullName);
 const composedSearchKeyword = computed(() => {
   const keyword = keywordList()[0] || "";
   if (!keyword) return "";
@@ -238,7 +239,7 @@ async function reloadPresets() {
 
 function resetForm() {
   form.name = "";
-  form.regionCode = "";
+  form.regionPath = [];
   form.platform = "douyin";
   form.keywords = "";
   form.commentDays = 3;
@@ -297,7 +298,7 @@ async function submit() {
       keyword: keywords[0],
       limit_videos: limitVideos,
       max_comments_per_video: 50,
-      region_code: form.regionCode || undefined,
+      region_code: regionSelection.value.code || undefined,
       region_name: regionName.value || undefined,
       comment_days: form.commentDays,
       interaction: { ...settings.value, comment_dm_percentage: 0 },
@@ -316,7 +317,7 @@ async function submit() {
       localJob: result?.job,
       jobType: "keyword",
       keyword: keywords[0],
-      regionCode: form.regionCode || undefined,
+      regionCode: regionSelection.value.code || undefined,
       regionName: regionName.value || undefined,
       commentDays: form.commentDays,
       publishTimeRange: "unlimited",
