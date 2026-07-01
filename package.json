@@ -12,6 +12,8 @@
     "build:extension": "bash scripts/build-extension-release.sh",
     "build:mac": "bash scripts/build-desktop-mac.sh",
     "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-win.ps1",
+    "build:win:light": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-win.ps1 -Mode light",
+    "build:win:offline": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-win.ps1 -Mode offline",
     "test:collect": "bash scripts/test-douyin-collect.sh",
     "test:lab-task": "bash scripts/test-lab-task-smoke.sh",
     "test:search-return": "node scripts/test-search-return-smoke.mjs",

@@ -91,7 +91,7 @@ scripts/
 |------|------|
 | 桌面应用 | 打开即用，自动启动 local-service |
 | Chrome 插件 | 首次启动自动解压，并尝试拉起 Chrome 加载 |
-| WebView2 | Windows 安装包会自动下载（如系统未安装） |
+| WebView2 | Windows 轻量包会在线安装；离线完整包内置 WebView2 安装器 |
 
 客户仍需安装 **Google Chrome**（未内置浏览器）。首次启动会打开专用 Chrome 窗口，**登录抖音一次**即可。
 
@@ -101,12 +101,13 @@ scripts/
 
 | 文件 | 说明 |
 |------|------|
-| `huoke-desktop-v{版本}-windows-setup.exe` | Windows 安装包（含 local-service + 插件） |
+| `huoke-desktop-v{版本}-windows-setup.exe` | Windows 轻量安装包（含 local-service + 插件，安装 WebView2 时需要联网） |
+| `huoke-desktop-v{版本}-windows-offline-setup.exe` | Windows 离线完整安装包（含 local-service + 插件 + WebView2 离线安装器） |
 | `huoke-desktop-v{版本}-macos.dmg` | macOS 安装包（含 local-service + 插件） |
 | `huoke-extension-v{版本}.zip` | Chrome 插件（手动更新用） |
 | `index.html` / `RELEASES.json` | 下载页与清单 |
 
-同一平台完整打包时只会出现 **1 个安装包 + 1 个插件 zip**；脚本会自动清理旧的 standalone local-service 等多余文件。
+Windows 完整打包会出现 **轻量安装包 + 离线完整安装包 + 1 个插件 zip**；macOS 完整打包会出现 **1 个 DMG + 1 个插件 zip**。脚本会自动清理旧的 standalone local-service 等多余文件。
 
 `npm run bundle` 仅组装 `desktop/bundle/`，不写入 `dist/releases/`。
 
@@ -121,6 +122,14 @@ npm run build:win
 ```
 
 产物：`dist/releases/huoke-desktop-v*-windows-setup.exe`（Tauri 原始产物仍在 `desktop/src-tauri/target/release/bundle/nsis/`）
+同时会产出：`dist/releases/huoke-desktop-v*-windows-offline-setup.exe`
+
+只打其中一种 Windows 包：
+
+```powershell
+npm run build:win:light
+npm run build:win:offline
+```
 
 用户流程：
 
@@ -144,6 +153,7 @@ npm run build:win
 ```
 
 产物：`dist/releases/huoke-desktop-v*-windows-setup.exe`（Tauri 原始产物仍在 `desktop/src-tauri/target/release/bundle/nsis/`）
+同时会产出：`dist/releases/huoke-desktop-v*-windows-offline-setup.exe`
 
 ### Tauri 开发
 
