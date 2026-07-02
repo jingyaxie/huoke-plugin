@@ -118,18 +118,7 @@ function extensionArtifact(copied, versions) {
 function windowsDesktopArtifact(copied, versions) {
   return {
     id: "desktop-windows-setup",
-    label: "盈小蚁 Windows 轻量安装包",
-    filename: copied.filename,
-    platform: "windows",
-    version: versions.desktop_version,
-    size_bytes: copied.size_bytes,
-  };
-}
-
-function windowsOfflineDesktopArtifact(copied, versions) {
-  return {
-    id: "desktop-windows-offline-setup",
-    label: "盈小蚁 Windows 离线完整安装包",
+    label: "盈小蚁 Windows 安装包",
     filename: copied.filename,
     platform: "windows",
     version: versions.desktop_version,
@@ -216,37 +205,28 @@ export function publishExtensionZip(srcPath, versions = getVersions()) {
 /** Windows 桌面完整发布：仅保留 setup.exe + 插件 zip */
 export function publishWindowsDesktopRelease(extensionZipPath, setupOptions, versions = getVersions()) {
   const setupPath = typeof setupOptions === "string" ? setupOptions : setupOptions?.setupPath;
-  const offlineSetupPath = typeof setupOptions === "object" ? setupOptions?.offlineSetupPath : null;
   requireFile(extensionZipPath, "extension zip");
-  if (!setupPath && !offlineSetupPath) {
-    throw new Error("至少需要指定一个 Windows 安装包");
+  if (!setupPath) {
+    throw new Error("需要指定 Windows 安装包");
   }
-  if (setupPath) requireFile(setupPath, "Windows 轻量安装包");
-  if (offlineSetupPath) requireFile(offlineSetupPath, "Windows 离线完整安装包");
+  requireFile(setupPath, "Windows 安装包");
 
   const extCopied = copyArtifact(
     extensionZipPath,
     `huoke-extension-v${versions.extension_version}.zip`,
   );
-  const setupCopied = setupPath
-    ? copyArtifact(
-        setupPath,
-        `huoke-desktop-v${versions.desktop_version}-windows-setup.exe`,
-      )
-    : null;
-  const offlineSetupCopied = offlineSetupPath
-    ? copyArtifact(
-        offlineSetupPath,
-        `huoke-desktop-v${versions.desktop_version}-windows-offline-setup.exe`,
-      )
-    : null;
+  const setupCopied = copyArtifact(
+    setupPath,
+    `huoke-desktop-v${versions.desktop_version}-windows-setup.exe`,
+  );
 
   const manifest = freshManifest(versions);
-  manifest.artifacts = [extensionArtifact(extCopied, versions)];
-  if (setupCopied) manifest.artifacts.push(windowsDesktopArtifact(setupCopied, versions));
-  if (offlineSetupCopied) manifest.artifacts.push(windowsOfflineDesktopArtifact(offlineSetupCopied, versions));
+  manifest.artifacts = [
+    extensionArtifact(extCopied, versions),
+    windowsDesktopArtifact(setupCopied, versions),
+  ];
   writeManifest(manifest);
-  return [extCopied.path, setupCopied?.path, offlineSetupCopied?.path].filter(Boolean);
+  return [extCopied.path, setupCopied.path];
 }
 
 /** macOS 桌面完整发布：仅保留 dmg + 插件 zip */

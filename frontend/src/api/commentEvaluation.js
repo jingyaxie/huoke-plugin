@@ -29,11 +29,24 @@ export async function saveEvaluationSettings({ backendBaseUrl, backendAccessToke
 }
 
 export function defaultBackendBaseUrl() {
-  const base = getApiBaseUrl();
-  if (base.startsWith("/")) {
-    return `${window.location.origin}${base}`;
+  const base = String(getApiBaseUrl() || "").trim();
+  if (/^https?:\/\//i.test(base)) {
+    return base.replace(/\/+$/, "");
   }
-  return base;
+
+  const path = base.startsWith("/") ? base : `/${base || "api"}`;
+  const proxyTarget = String(import.meta.env.VITE_PROXY_TARGET || "").trim();
+  if (/^https?:\/\//i.test(proxyTarget)) {
+    return `${proxyTarget.replace(/\/+$/, "")}${path}`;
+  }
+
+  // Sidecar cannot call a browser-relative dev proxy reliably. Fall back to the
+  // production API host when VITE_API_BASE_URL is relative and no proxy target is exposed.
+  if (import.meta.env.DEV) {
+    return `https://www.tanjiyunai.com${path}`;
+  }
+
+  return `${window.location.origin}${path}`;
 }
 
 /** 登录成功后把后台 API 地址与 token 写入本机 Sidecar */

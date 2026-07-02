@@ -1,7 +1,7 @@
 # Windows 桌面应用打包（Tauri NSIS）
 param(
-  [ValidateSet("both", "light", "offline")]
-  [string]$Mode = "both"
+  [ValidateSet("light")]
+  [string]$Mode = "light"
 )
 
 $ErrorActionPreference = "Stop"
@@ -90,12 +90,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
   }
 
-  if ($Mode -eq "both" -or $Mode -eq "light") {
-    $BuiltInstallers["light"] = Invoke-NsisBuild -Name "light (downloads WebView2 only when needed)" -OutputName "huoke-windows-light-setup.exe"
-  }
-  if ($Mode -eq "both" -or $Mode -eq "offline") {
-    $BuiltInstallers["offline"] = Invoke-NsisBuild -Name "offline (embeds WebView2 installer)" -OutputName "huoke-windows-offline-setup.exe" -ExtraArgs @("--config", "src-tauri/tauri.windows.offline.conf.json")
-  }
+  $BuiltInstallers["light"] = Invoke-NsisBuild -Name "light (downloads WebView2 only when needed)" -OutputName "huoke-windows-light-setup.exe"
 } finally {
   Pop-Location
 }
@@ -111,9 +106,6 @@ $ExtensionZip = Join-Path $BundleDir "huoke-extension.zip"
 $publishArgs = @("--windows-release", "--extension-zip", $ExtensionZip)
 if ($BuiltInstallers.ContainsKey("light")) {
   $publishArgs += @("--setup", $BuiltInstallers["light"].FullName)
-}
-if ($BuiltInstallers.ContainsKey("offline")) {
-  $publishArgs += @("--offline-setup", $BuiltInstallers["offline"].FullName)
 }
 node $PublishScript @publishArgs
 if ($LASTEXITCODE -ne 0) { throw "publish-release-artifacts failed" }

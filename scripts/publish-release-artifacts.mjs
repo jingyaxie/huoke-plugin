@@ -31,8 +31,7 @@ function usage() {
 选项:
   --windows-release               发布 Windows 完整包（setup.exe + 插件 zip，并清理旧产物）
     --extension-zip <path>
-    --setup <path>                 轻量安装包（安装时按需下载 WebView2）
-    --offline-setup <path>         离线完整安装包（内置 WebView2）
+    --setup <path>                 Windows 安装包
   --macos-release                 发布 macOS 完整包（dmg + 插件 zip，并清理旧产物）
     --extension-zip <path>
     --dmg <path>
@@ -46,14 +45,13 @@ function main() {
   const published = [];
 
   if (options["windows-release"]) {
-    if (!options["extension-zip"] || (!options.setup && !options["offline-setup"])) {
+    if (!options["extension-zip"] || !options.setup) {
       usage();
       process.exit(1);
     }
     published.push(
       ...publishWindowsDesktopRelease(options["extension-zip"], {
         setupPath: options.setup,
-        offlineSetupPath: options["offline-setup"],
       }, versions),
     );
   } else if (options["macos-release"]) {
