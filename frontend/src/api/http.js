@@ -1,11 +1,23 @@
 import axios from "axios";
 
 export function getApiBaseUrl() {
-  const configured = import.meta.env.VITE_API_BASE_URL;
-  if (configured) return configured;
-  // 桌面安装包 / production 构建无本地 /api 代理，必须直连云端
-  if (import.meta.env.PROD) return "https://www.tanjiyunai.com/api";
-  return "/api";
+  const configured = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+  if (/^https?:\/\//i.test(configured)) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  const path = configured.startsWith("/") ? configured : `/${configured || "api"}`;
+  const proxyTarget = String(import.meta.env.VITE_PROXY_TARGET || "").trim();
+  if (/^https?:\/\//i.test(proxyTarget)) {
+    return `${proxyTarget.replace(/\/+$/, "")}${path}`;
+  }
+
+  if (import.meta.env.PROD) {
+    return "https://www.tanjiyunai.com/api";
+  }
+
+  // 本地开发默认直连盈小蚁线上 API，不依赖本机 18000 代理
+  return `https://www.tanjiyunai.com${path}`;
 }
 
 /** 将 HTTP API base 转为 WebSocket base（支持相对路径 /api） */
