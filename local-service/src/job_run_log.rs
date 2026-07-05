@@ -54,6 +54,10 @@ pub fn append_step(
         detail,
     ) {
         tracing::warn!("job {job_id}: failed to write run log: {err}");
+        return;
+    }
+    if matches!(step_key, "run_failed" | "run_complete") {
+        let _ = db.cloud_sync_mark_pending_if_linked(job_id);
     }
 }
 

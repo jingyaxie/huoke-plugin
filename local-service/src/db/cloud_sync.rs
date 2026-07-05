@@ -91,4 +91,48 @@ impl Database {
             .map_err(|e| e.to_string())?;
         rows.map(|row| row.map_err(|e| e.to_string())).collect()
     }
+
+    pub fn cloud_sync_logs_synced_through_run_id(job: &CollectJob) -> i64 {
+        job.config
+            .as_ref()
+            .and_then(|cfg| cfg.get(CONFIG_KEY))
+            .and_then(|desktop| desktop.get("logs_synced_through_run_id"))
+            .and_then(|value| value.as_i64())
+            .unwrap_or(0)
+    }
+
+    pub fn cloud_sync_set_logs_synced_through_run_id(
+        &self,
+        job_id: &str,
+        run_id: i64,
+    ) -> Result<(), String> {
+        let mut job = self.get_job(job_id)?;
+        let current = Self::cloud_sync_logs_synced_through_run_id(&job);
+        if run_id <= current {
+            return Ok(());
+        }
+        let mut config = job
+            .config
+            .take()
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        let mut desktop = config
+            .remove(CONFIG_KEY)
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        desktop.insert(
+            "logs_synced_through_run_id".into(),
+            serde_json::Value::Number(run_id.into()),
+        );
+        config.insert(CONFIG_KEY.into(), serde_json::Value::Object(desktop));
+        let config_text = serde_json::to_string(&serde_json::Value::Object(config))
+            .map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE collect_jobs SET config_json = ?1, updated_at = ?2 WHERE id = ?3",
+            params![config_text, Self::now_ms(), job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }

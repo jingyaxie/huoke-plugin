@@ -43,12 +43,23 @@ pub async fn sync_job(db: &Database, data_dir: &Path, job_id: &str) -> Result<()
     let cloud_task_id = Database::cloud_sync_cloud_task_id(&job)
         .ok_or_else(|| "cloud_task_id_missing".to_string())?;
     let payload = builder::build_payload(db, &job, &cloud_task_id)?;
-    client::push(&backend.base_url, &backend.access_token, &payload).await?;
+    client::push(&backend.base_url, &backend.access_token, &payload.value).await?;
+    if let Some(run_id) = payload.logs_synced_through_run_id {
+        db.cloud_sync_set_logs_synced_through_run_id(job_id, run_id)?;
+    }
     db.cloud_sync_clear_pending(job_id)?;
     tracing::info!(
-        "cloud sync ok job={job_id} cloud_task={cloud_task_id} leads={}",
+        "cloud sync ok job={job_id} cloud_task={cloud_task_id} leads={} run_logs={}",
         payload
+            .value
             .get("leads")
+            .and_then(|value| value.as_array())
+            .map(|rows| rows.len())
+            .unwrap_or(0),
+        payload
+            .value
+            .get("telemetry")
+            .and_then(|value| value.get("runs"))
             .and_then(|value| value.as_array())
             .map(|rows| rows.len())
             .unwrap_or(0)

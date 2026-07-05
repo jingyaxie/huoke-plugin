@@ -3,11 +3,18 @@ use std::collections::HashMap;
 use chrono::{TimeZone, Utc};
 use serde_json::{json, Value};
 
-use crate::db::{CapturedComment, CollectJob, Database, InteractionRecord, JobStatus};
+use crate::db::{CapturedComment, CollectJob, Database, InteractionRecord, JobRunLogEntry, JobRunSummary, JobStatus};
 
 pub const SYNC_SCHEMA: &str = "huoke.agent_job_sync.v1";
+const MAX_UNSYNCED_RUNS: usize = 5;
 
-pub fn build_payload(db: &Database, job: &CollectJob, cloud_task_id: &str) -> Result<Value, String> {
+#[derive(Debug, Clone)]
+pub struct SyncPayload {
+    pub value: Value,
+    pub logs_synced_through_run_id: Option<i64>,
+}
+
+pub fn build_payload(db: &Database, job: &CollectJob, cloud_task_id: &str) -> Result<SyncPayload, String> {
     let comments = db.list_comments_for_job(&job.id, None, 500)?;
     let videos = db.list_videos_for_job(&job.id)?;
     let video_map: HashMap<String, (String, String)> = videos
@@ -46,38 +53,120 @@ pub fn build_payload(db: &Database, job: &CollectJob, cloud_task_id: &str) -> Re
         .single()
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_else(|| Utc::now().to_rfc3339());
+    let (telemetry, logs_synced_through_run_id) = build_telemetry(db, job)?;
 
-    Ok(json!({
-        "schema": SYNC_SCHEMA,
-        "event": "job.delta",
-        "emitted_at": emitted_at,
-        "correlation": {
-            "external_system": "huoke_desktop",
-            "external_task_id": cloud_task_id,
-        },
-        "job": {
-            "job_id": job.id,
-            "platform": job.platform,
-            "status": map_job_status(&job.status),
-            "task_type": map_task_type(job),
-            "name": job.name,
-            "message": job.name,
-            "updated_at": emitted_at,
-        },
-        "progress": {
-            "target_leads": target_leads,
-            "leads_collected": comments.len() as i64,
-            "leads_qualified": precise_count,
-            "comments_captured": comments.len() as i64,
-            "comments_evaluated": comments.iter().filter(|row| row.evaluated_at.is_some()).count() as i64,
-        },
-        "stats": {
-            "leads_total": comments.len() as i64,
-            "outreach_total": outreach_events.len() as i64,
-        },
-        "leads": leads,
-        "outreach_events": outreach_events,
-    }))
+    Ok(SyncPayload {
+        value: json!({
+            "schema": SYNC_SCHEMA,
+            "event": "job.delta",
+            "emitted_at": emitted_at,
+            "correlation": {
+                "external_system": "huoke_desktop",
+                "external_task_id": cloud_task_id,
+            },
+            "job": {
+                "job_id": job.id,
+                "platform": job.platform,
+                "status": map_job_status(&job.status),
+                "task_type": map_task_type(job),
+                "name": job.name,
+                "message": job.name,
+                "error_message": job.error_message,
+                "updated_at": emitted_at,
+            },
+            "progress": {
+                "target_leads": target_leads,
+                "leads_collected": comments.len() as i64,
+                "leads_qualified": precise_count,
+                "comments_captured": comments.len() as i64,
+                "comments_evaluated": comments.iter().filter(|row| row.evaluated_at.is_some()).count() as i64,
+            },
+            "stats": {
+                "leads_total": comments.len() as i64,
+                "outreach_total": outreach_events.len() as i64,
+            },
+            "telemetry": telemetry,
+            "leads": leads,
+            "outreach_events": outreach_events,
+        }),
+        logs_synced_through_run_id,
+    })
+}
+
+fn build_telemetry(db: &Database, job: &CollectJob) -> Result<(Value, Option<i64>), String> {
+    let summaries = db.list_job_run_summaries(&job.id)?;
+    let synced_through = Database::cloud_sync_logs_synced_through_run_id(job);
+    let (runs, logs_synced_through_run_id) = build_unsynced_runs(db, job, &summaries, synced_through)?;
+
+    Ok((
+        json!({
+            "sidecar_version": env!("CARGO_PKG_VERSION"),
+            "error_message": job.error_message,
+            "run_summaries": summaries,
+            "runs": runs,
+        }),
+        logs_synced_through_run_id,
+    ))
+}
+
+fn build_unsynced_runs(
+    db: &Database,
+    job: &CollectJob,
+    summaries: &[JobRunSummary],
+    synced_through: i64,
+) -> Result<(Vec<Value>, Option<i64>), String> {
+    let mut run_ids = std::collections::BTreeSet::new();
+    for summary in summaries.iter().filter(|summary| summary.run_id > synced_through) {
+        run_ids.insert(summary.run_id);
+    }
+    if matches!(
+        job.status,
+        JobStatus::Failed | JobStatus::Completed | JobStatus::Paused
+    ) {
+        if let Some(latest) = summaries.first() {
+            run_ids.insert(latest.run_id);
+        }
+    }
+
+    let mut selected: Vec<&JobRunSummary> = summaries
+        .iter()
+        .filter(|summary| run_ids.contains(&summary.run_id))
+        .collect();
+    selected.sort_by_key(|summary| summary.run_id);
+    if selected.len() > MAX_UNSYNCED_RUNS {
+        selected = selected.split_off(selected.len() - MAX_UNSYNCED_RUNS);
+    }
+
+    let mut runs = Vec::new();
+    let mut max_run_id = synced_through;
+    for summary in selected {
+        let steps = db.list_job_run_steps(&job.id, summary.run_id)?;
+        max_run_id = max_run_id.max(summary.run_id);
+        runs.push(json!({
+            "run_id": summary.run_id,
+            "summary": summary,
+            "steps": steps.iter().map(run_step_to_json).collect::<Vec<_>>(),
+        }));
+    }
+
+    let logs_synced_through_run_id = if max_run_id > synced_through {
+        Some(max_run_id)
+    } else {
+        None
+    };
+    Ok((runs, logs_synced_through_run_id))
+}
+
+fn run_step_to_json(step: &JobRunLogEntry) -> Value {
+    json!({
+        "seq": step.seq,
+        "step_key": step.step_key,
+        "step_label": step.step_label,
+        "status": step.status,
+        "reason": step.reason,
+        "detail": step.detail,
+        "created_at": ms_to_iso(Some(step.created_at)),
+    })
 }
 
 fn map_job_status(status: &JobStatus) -> &'static str {
@@ -170,4 +259,28 @@ fn interaction_to_outreach_event(record: &InteractionRecord) -> Value {
         "status": "ok",
         "created_at": ms_to_iso(Some(record.created_at)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    #[test]
+    fn payload_includes_telemetry_fields() {
+        let payload = json!({
+            "job": {"error_message": "failed"},
+            "telemetry": {
+                "error_message": "failed",
+                "runs": [{"run_id": 1, "steps": []}],
+            }
+        });
+        assert_eq!(
+            payload
+                .get("telemetry")
+                .and_then(|value| value.get("runs"))
+                .and_then(|value| value.as_array())
+                .map(|rows| rows.len()),
+            Some(1)
+        );
+    }
 }
