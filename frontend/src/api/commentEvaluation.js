@@ -77,14 +77,19 @@ let ensureSyncInFlight = null;
  */
 export async function ensureEvaluationCredentialsSynced({ force = false } = {}) {
   let token = String(getAccessToken() ?? "").trim();
-  if (!token && isPortalAuthenticated()) {
-    token = String(await refreshAccessTokenFromPortalSession().catch(() => "") || "").trim();
+  let refreshedFromPortal = false;
+  if (isPortalAuthenticated()) {
+    const sessionToken = String(await refreshAccessTokenFromPortalSession().catch(() => "") || "").trim();
+    if (sessionToken) {
+      token = sessionToken;
+      refreshedFromPortal = true;
+    }
   }
   if (!token) {
     return { ok: false, skipped: true, reason: "no_token" };
   }
 
-  if (!force) {
+  if (!force && !refreshedFromPortal) {
     try {
       const settings = await fetchLlmSettings();
       if (isEvaluationReady(settings)) {
@@ -105,6 +110,11 @@ export async function ensureEvaluationCredentialsSynced({ force = false } = {}) 
 
 /** Portal 登录成功后，用同一套账号换取 API token 并自动同步到 Sidecar */
 export async function syncPortalCredentialsAfterLogin({ loginMethod, fields } = {}) {
+  const sessionToken = String(await refreshAccessTokenFromPortalSession().catch(() => "") || "").trim();
+  if (sessionToken) {
+    return syncBackendCredentialsFromLogin({ accessToken: sessionToken });
+  }
+
   const method = String(loginMethod || "password").trim().toLowerCase();
   const form = fields || {};
   let data;

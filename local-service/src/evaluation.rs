@@ -93,12 +93,14 @@ pub async fn evaluate_job_comments(
 
     let mut evaluated = 0usize;
     let mut precise = 0usize;
+    let mut batch_errors: Vec<String> = Vec::new();
 
     for chunk in pending.chunks(BATCH_SIZE) {
         let results = match evaluate_batch(data_dir, keyword, eval_cfg, chunk).await {
             Ok(rows) => rows,
             Err(err) => {
                 warn!("job {job_id}: evaluation batch failed: {err}");
+                batch_errors.push(err);
                 continue;
             }
         };
@@ -123,6 +125,10 @@ pub async fn evaluate_job_comments(
                 }
             }
         }
+    }
+
+    if evaluated == 0 && !batch_errors.is_empty() {
+        return Err(format!("评论评估失败: {}", batch_errors.join("; ")));
     }
 
     info!(
