@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use reqwest::StatusCode;
 use serde_json::{json, Value};
 
 use crate::db::CapturedComment;
@@ -76,6 +77,9 @@ async fn evaluate_batch_via_backend(
     let status = resp.status();
     let text = resp.text().await.map_err(|e| e.to_string())?;
     if !status.is_success() {
+        if status == StatusCode::UNAUTHORIZED && is_backend_auth_expired(&text) {
+            return Err("后台评估登录已过期：请在盈小蚁客户端退出后重新登录，再重新点击「评估评论」".to_string());
+        }
         return Err(format!("后台评估 HTTP {status}: {text}"));
     }
 
@@ -90,6 +94,26 @@ async fn evaluate_batch_via_backend(
     }
     let data = parsed.get("data").cloned().unwrap_or(Value::Null);
     Ok(parse_eval_batch(&data))
+}
+
+fn is_backend_auth_expired(text: &str) -> bool {
+    if text.contains("token_expired") || text.contains("session_replaced") {
+        return true;
+    }
+    let Ok(parsed) = serde_json::from_str::<Value>(text) else {
+        return false;
+    };
+    parsed.get("code").and_then(|v| v.as_i64()) == Some(40100)
+        || parsed
+            .pointer("/data/reason")
+            .and_then(|v| v.as_str())
+            .map(|reason| reason == "session_replaced" || reason == "token_expired")
+            .unwrap_or(false)
+        || parsed
+            .get("message")
+            .and_then(|v| v.as_str())
+            .map(|message| message.contains("token_expired"))
+            .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -107,5 +131,11 @@ mod tests {
         let rows = parse_eval_batch(&payload);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].comment_id, "c1");
+    }
+
+    #[test]
+    fn detects_backend_auth_expired_payload() {
+        let text = r#"{"code":40100,"data":{"reason":"session_replaced"},"message":"token_expired"}"#;
+        assert!(is_backend_auth_expired(text));
     }
 }

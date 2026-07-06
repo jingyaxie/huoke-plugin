@@ -1,4 +1,5 @@
 import axios from "axios";
+import { ensureEvaluationCredentialsSynced } from "./commentEvaluation";
 
 const DEFAULT_BASE = "http://127.0.0.1:18766";
 
@@ -80,6 +81,7 @@ export async function fetchCollectCapabilities() {
 }
 
 export async function evaluateCollectJob(jobId) {
+  await ensureEvaluationCredentialsSynced({ force: true }).catch(() => null);
   const { data } = await localService.post(`/api/douyin/jobs/${jobId}/evaluate`);
   return data;
 }
