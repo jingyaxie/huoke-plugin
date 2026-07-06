@@ -131,6 +131,10 @@ pub fn build_router(state: AppState) -> Router {
             post(api::outreach::create_outreach_task).get(api::outreach::list_outreach_tasks),
         )
         .route(
+            "/api/douyin/outreach/candidates",
+            get(api::outreach::list_outreach_candidates),
+        )
+        .route(
             "/api/douyin/outreach/tasks/:task_id",
             get(api::outreach::get_outreach_task),
         )

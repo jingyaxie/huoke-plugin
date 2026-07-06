@@ -187,6 +187,11 @@ export async function createOutreachTask(payload) {
   return data;
 }
 
+export async function listOutreachCandidates(params = {}) {
+  const { data } = await localService.get("/api/douyin/outreach/candidates", { params });
+  return data;
+}
+
 export async function startOutreachTask(taskId) {
   const { data } = await localService.post(`/api/douyin/outreach/tasks/${taskId}/start`);
   return data;

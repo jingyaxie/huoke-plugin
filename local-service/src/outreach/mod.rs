@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 
 use crate::lab_commands::LabCommands;
 
-use crate::db::{Database, OutreachTaskStatus};
+use crate::db::{Database, OutreachItem, OutreachTaskStatus};
 use crate::ws::BridgeHub;
 
 #[derive(Clone)]
@@ -71,17 +71,7 @@ impl OutreachService {
 
             self.db.mark_outreach_item_running(&item.id)?;
 
-            let lab = LabCommands::new(&self.hub, "douyin");
-            let result = lab
-                .reply_to_comment(
-                    &item.aweme_id,
-                    &item.comment_id,
-                    &item.comment_text,
-                    &item.reply_text,
-                    12,
-                    false,
-                )
-                .await;
+            let result = self.execute_item(&item).await;
 
             match result {
                 Ok(data) => {
@@ -90,6 +80,7 @@ impl OutreachService {
                         let _ = self.db.consume_reply_quota(current.daily_quota)?;
                         let result_json = serde_json::to_string(&data).unwrap_or_else(|_| "{}".into());
                         self.db.mark_outreach_item_completed(&item.id, &result_json)?;
+                        self.record_item_interactions(&item)?;
                         info!("outreach item {} completed", item.id);
                     } else {
                         let err = data
@@ -114,6 +105,91 @@ impl OutreachService {
             let delay_ms = jitter_delay(current.interval_ms);
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         }
+    }
+
+    async fn execute_item(&self, item: &OutreachItem) -> Result<serde_json::Value, String> {
+        let lab = LabCommands::new(&self.hub, &item.platform);
+        match item.action_type.as_str() {
+            "reply" => {
+                lab.reply_to_comment(
+                    &item.aweme_id,
+                    &item.comment_id,
+                    &item.comment_text,
+                    &item.reply_text,
+                    12,
+                    false,
+                )
+                .await
+            }
+            "follow" => self.follow_profile(&lab, item).await,
+            "dm" => self.dm_profile(&lab, item).await,
+            "follow_then_dm" => {
+                let followed = self.follow_profile(&lab, item).await?;
+                if !followed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    return Ok(followed);
+                }
+                tokio::time::sleep(Duration::from_millis(1200)).await;
+                self.dm_profile(&lab, item).await
+            }
+            other => Err(format!("unsupported outreach action_type: {other}")),
+        }
+    }
+
+    async fn open_profile(&self, lab: &LabCommands<'_>, item: &OutreachItem) -> Result<(), String> {
+        if !item.profile_url.trim().is_empty() {
+            let data = lab.open_url(&item.profile_url).await?;
+            if data.get("ok").and_then(|v| v.as_bool()).unwrap_or(true) {
+                tokio::time::sleep(Duration::from_millis(1800)).await;
+                return Ok(());
+            }
+        }
+        let opened = lab
+            .open_profile_from_comment(&item.aweme_id, &item.comment_id, &item.comment_text, 12)
+            .await?;
+        if opened.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+            Ok(())
+        } else {
+            Err(opened
+                .get("message")
+                .or_else(|| opened.get("error"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("failed to open profile")
+                .to_string())
+        }
+    }
+
+    async fn follow_profile(
+        &self,
+        lab: &LabCommands<'_>,
+        item: &OutreachItem,
+    ) -> Result<serde_json::Value, String> {
+        self.open_profile(lab, item).await?;
+        lab.click_follow_on_profile().await
+    }
+
+    async fn dm_profile(
+        &self,
+        lab: &LabCommands<'_>,
+        item: &OutreachItem,
+    ) -> Result<serde_json::Value, String> {
+        self.open_profile(lab, item).await?;
+        lab.send_dm_on_profile(&item.dm_text).await
+    }
+
+    fn record_item_interactions(&self, item: &OutreachItem) -> Result<(), String> {
+        let Some(job_id) = item.source_job_id.as_deref().filter(|s| !s.is_empty()) else {
+            return Ok(());
+        };
+        if item.action_type == "follow" || item.action_type == "follow_then_dm" {
+            self.db.record_interaction(job_id, "follow", &item.comment_id, &item.user_id)?;
+        }
+        if item.action_type == "dm" || item.action_type == "follow_then_dm" {
+            self.db.record_interaction(job_id, "dm", &item.comment_id, &item.user_id)?;
+        }
+        if item.action_type == "reply" {
+            self.db.record_interaction(job_id, "reply", &item.comment_id, &item.user_id)?;
+        }
+        Ok(())
     }
 }
 

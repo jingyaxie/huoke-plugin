@@ -69,15 +69,6 @@
           <p class="field-hint">每轮最多扫描多少个视频采集评论；扫满上限或搜索结果不足时即视为完成。</p>
         </el-form-item>
 
-        <TaskPresetSelect
-          label="私信模板"
-          :options="dmPresets"
-          :selected-ids="selectedDmPresetIds"
-          @update:selected-ids="selectedDmPresetIds = $event"
-        />
-
-        <TaskInteractionFields v-model="settings" />
-
         <TaskEvaluationSection
           v-model:eval-template-id="form.evalTemplateId"
           v-model:target-customer="form.targetCustomer"
@@ -112,17 +103,13 @@
 <script setup>
 import { computed, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import TaskInteractionFields from "./TaskInteractionFields.vue";
-import TaskPresetSelect from "./TaskPresetSelect.vue";
 import TaskEvaluationSection from "./TaskEvaluationSection.vue";
 import { createCollectJob, fetchCollectCapabilities } from "../api/localService";
 import { registerCollectJobToCloud } from "../cloud-sync";
 import { mergeExtensionCapabilities, isExtensionCollectPlatform } from "../config/extensionPlatformCapabilities";
-import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/presets";
 import {
   REGION_CASCADER_OPTIONS,
   FALLBACK_COMMENT_DAYS_OPTIONS,
-  computeAutoOutreach,
   buildEvaluationPayload,
   defaultEvaluation,
   composeSearchKeyword,
@@ -130,8 +117,6 @@ import {
   regionSelectionFromPath,
   saveExtensionAutoStartPref,
 } from "../utils/huokeTaskForm";
-import { validateTaskPresetSelection } from "../utils/presetSelection";
-import { listLocalPresets } from "../utils/localPresets";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -141,9 +126,6 @@ const emit = defineEmits(["update:modelValue", "created"]);
 
 const visible = ref(false);
 const submitting = ref(false);
-const dmPresets = ref([]);
-const selectedDmPresetIds = ref([]);
-const settings = ref({ ...DEFAULT_INTERACTION_SETTINGS });
 const platformOptions = ref(mergeExtensionCapabilities());
 
 const regionCascaderProps = { checkStrictly: true, expandTrigger: "hover" };
@@ -215,7 +197,6 @@ function evaluationPayload() {
 }
 
 async function loadDialogData() {
-  settings.value = { ...DEFAULT_INTERACTION_SETTINGS };
   form.autoStart = loadExtensionAutoStartPref(true);
   try {
     const remote = await fetchCollectCapabilities();
@@ -223,21 +204,10 @@ async function loadDialogData() {
   } catch {
     platformOptions.value = mergeExtensionCapabilities();
   }
-  await reloadPresets();
 }
 
 function onAutoStartChange(value) {
   saveExtensionAutoStartPref(Boolean(value));
-}
-
-async function reloadPresets() {
-  try {
-    const presets = await listPlatformPresets();
-    dmPresets.value = presets.dmOpeners;
-  } catch {
-    dmPresets.value = listLocalPresets("dm-openers").items || [];
-  }
-  selectedDmPresetIds.value = dmPresets.value.map((row) => row.id);
 }
 
 function resetForm() {
@@ -273,27 +243,10 @@ async function submit() {
     ElMessage.warning("单批扫描视频上限必须大于 0");
     return;
   }
-  const presetError = validateTaskPresetSelection(
-    { ...settings.value, comment_dm_percentage: 0 },
-    [],
-    selectedDmPresetIds.value,
-  );
-  if (presetError) {
-    ElMessage.warning(presetError);
-    return;
-  }
-
   const limitVideos = Math.min(20, Math.max(1, form.crawlVideoLimit));
 
   submitting.value = true;
   try {
-    const dmPresetPayload = selectedDmPresetIds.value
-      .map((id) => {
-        const row = dmPresets.value.find((item) => item.id === id);
-        return { id, content: row?.content || "" };
-      })
-      .filter((row) => row.content);
-
     const result = await createCollectJob({
       job_type: "keyword",
       name: form.name.trim(),
@@ -304,15 +257,9 @@ async function submit() {
       region_code: regionSelection.value.code || undefined,
       region_name: regionName.value || undefined,
       comment_days: form.commentDays,
-      interaction: { ...settings.value, comment_dm_percentage: 0 },
       comment_presets: [],
-      dm_presets: dmPresetPayload,
-      auto_outreach: computeAutoOutreach({
-        commentPresetPayload: [],
-        dmPresetPayload,
-        followPerDay: settings.value.follow_per_day,
-        dmPerDay: settings.value.dm_per_day,
-      }),
+      dm_presets: [],
+      auto_outreach: false,
       evaluation: evaluationPayload(),
       auto_start: form.autoStart,
     });
@@ -326,9 +273,9 @@ async function submit() {
       publishTimeRange: "unlimited",
       targetCount: limitVideos,
       evaluation: evaluationPayload(),
-      interaction: { ...settings.value, comment_dm_percentage: 0 },
+      interaction: {},
       commentPresets: [],
-      dmPresets: dmPresetPayload,
+      dmPresets: [],
     });
     ElMessage.success(
       result?.started

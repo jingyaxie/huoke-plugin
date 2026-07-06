@@ -905,6 +905,10 @@ impl<'a> LabCommands<'a> {
         self.action("click_follow_btn", json!({})).await
     }
 
+    pub async fn click_follow_on_profile(&self) -> Result<Value, String> {
+        self.action("click_follow_btn", json!({})).await
+    }
+
     pub async fn send_dm_on_profile(&self, text: &str) -> Result<Value, String> {
         let dm_open = self.action("click_dm_btn", json!({})).await?;
         if !Self::lab_ok(&dm_open) {

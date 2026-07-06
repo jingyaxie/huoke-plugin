@@ -6,14 +6,20 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::db::{OutreachItemDraft, OutreachTask, OutreachTaskStatus, QuotaStatus};
+use crate::db::{OutreachCandidate, OutreachItemDraft, OutreachTask, OutreachTaskStatus, QuotaStatus};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
 pub struct CreateOutreachTaskRequest {
     pub name: Option<String>,
     pub source_job_id: Option<String>,
+    #[serde(default = "default_platform")]
+    pub platform: String,
+    pub action_type: Option<String>,
+    #[serde(default)]
     pub reply_text: String,
+    #[serde(default)]
+    pub dm_text: String,
     #[serde(default = "default_max_items")]
     pub max_items: i64,
     #[serde(default = "default_max_retries")]
@@ -24,6 +30,12 @@ pub struct CreateOutreachTaskRequest {
     pub daily_quota: i64,
     #[serde(default)]
     pub min_digg_count: i64,
+    #[serde(default)]
+    pub include_contacted: bool,
+}
+
+fn default_platform() -> String {
+    "douyin".into()
 }
 
 fn default_max_items() -> i64 {
@@ -46,6 +58,26 @@ fn default_daily_quota() -> i64 {
 pub struct CreateOutreachTaskResponse {
     pub task: OutreachTask,
     pub inserted_items: usize,
+}
+
+#[derive(Serialize)]
+pub struct OutreachCandidateResponse {
+    pub candidates: Vec<OutreachCandidate>,
+    pub total: usize,
+}
+
+#[derive(Deserialize)]
+pub struct CandidateQuery {
+    pub platform: Option<String>,
+    pub source_job_id: Option<String>,
+    #[serde(default = "default_candidate_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub include_contacted: bool,
+}
+
+fn default_candidate_limit() -> i64 {
+    50
 }
 
 #[derive(Deserialize)]
@@ -71,54 +103,50 @@ pub async fn create_outreach_task(
     State(state): State<AppState>,
     Json(body): Json<CreateOutreachTaskRequest>,
 ) -> Result<Json<CreateOutreachTaskResponse>, ApiError> {
-    let reply_text = body.reply_text.trim();
-    if reply_text.is_empty() {
-        return Err(bad_request("reply_text is required"));
+    let platform = crate::platforms::normalize_platform(&body.platform).to_string();
+    let action_type = normalize_action_type(body.action_type.as_deref(), body.reply_text.trim())?;
+    if platform == "xiaohongshu" && action_type.contains("dm") {
+        return Err(bad_request("小红书 PC 网页版不支持私信任务"));
+    }
+    let dm_text = body.dm_text.trim();
+    if action_type.contains("dm") && dm_text.is_empty() {
+        return Err(bad_request("dm_text is required for dm outreach"));
     }
 
     let source_job_id = body.source_job_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    if source_job_id.is_none() {
-        return Err(bad_request("source_job_id is required"));
-    }
-    let source_job_id = source_job_id.unwrap();
-
-    let _ = state.db.get_job(source_job_id).map_err(|_| not_found("collect job not found"))?;
-    let comments = state
+    let candidates = state
         .db
-        .list_comments_for_job(source_job_id, None, body.max_items.clamp(1, 200))
+        .list_outreach_candidates(
+            Some(&platform),
+            source_job_id,
+            body.max_items.clamp(1, 500),
+            body.include_contacted,
+        )
         .map_err(internal_error)?;
 
-    let videos = state
-        .db
-        .list_videos_for_job(source_job_id)
-        .map_err(internal_error)?;
-    let video_url_by_aweme: std::collections::HashMap<String, String> = videos
-        .into_iter()
-        .map(|v| (v.aweme_id.clone(), v.video_url))
-        .collect();
-
-    let drafts: Vec<OutreachItemDraft> = comments
+    let drafts: Vec<OutreachItemDraft> = candidates
         .into_iter()
         .filter(|c| c.digg_count >= body.min_digg_count)
-        .filter(|c| c.parent_comment_id.is_none())
-        .take(body.max_items.clamp(1, 200) as usize)
-        .map(|comment| {
-            let video_url = video_url_by_aweme
-                .get(&comment.aweme_id)
-                .cloned()
-                .unwrap_or_else(|| format!("https://www.douyin.com/video/{}", comment.aweme_id));
-            OutreachItemDraft {
-                video_url,
-                aweme_id: comment.aweme_id,
-                comment_id: comment.comment_id,
-                comment_text: comment.content,
-                reply_text: reply_text.to_string(),
-            }
+        .take(body.max_items.clamp(1, 500) as usize)
+        .map(|candidate| OutreachItemDraft {
+            platform: candidate.platform,
+            action_type: action_type.clone(),
+            source_job_id: Some(candidate.job_id),
+            video_url: candidate.video_url,
+            aweme_id: candidate.aweme_id,
+            comment_id: candidate.comment_id,
+            comment_text: candidate.comment_text,
+            username: candidate.username,
+            user_id: candidate.user_id,
+            sec_uid: candidate.sec_uid,
+            profile_url: candidate.profile_url,
+            reply_text: body.reply_text.trim().to_string(),
+            dm_text: dm_text.to_string(),
         })
         .collect();
 
     if drafts.is_empty() {
-        return Err(bad_request("no eligible comments found in source job"));
+        return Err(bad_request("no eligible precise comments found"));
     }
 
     let name = body
@@ -126,14 +154,16 @@ pub async fn create_outreach_task(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or("抖音评论触达")
+        .unwrap_or_else(|| default_outreach_name(&platform, &action_type))
         .to_string();
 
     let task = state
         .db
         .create_outreach_task(
             &name,
-            Some(source_job_id),
+            source_job_id,
+            &platform,
+            &action_type,
             body.max_retries.clamp(0, 5),
             body.interval_ms.clamp(1000, 30000),
             body.daily_quota.clamp(1, 500),
@@ -146,6 +176,30 @@ pub async fn create_outreach_task(
         .map_err(internal_error)?;
 
     Ok(Json(CreateOutreachTaskResponse { task, inserted_items: inserted }))
+}
+
+pub async fn list_outreach_candidates(
+    State(state): State<AppState>,
+    Query(query): Query<CandidateQuery>,
+) -> Result<Json<OutreachCandidateResponse>, ApiError> {
+    let platform = query
+        .platform
+        .as_deref()
+        .map(crate::platforms::normalize_platform)
+        .map(str::to_string);
+    let candidates = state
+        .db
+        .list_outreach_candidates(
+            platform.as_deref(),
+            query.source_job_id.as_deref(),
+            query.limit.clamp(1, 1000),
+            query.include_contacted,
+        )
+        .map_err(internal_error)?;
+    Ok(Json(OutreachCandidateResponse {
+        total: candidates.len(),
+        candidates,
+    }))
 }
 
 pub async fn list_outreach_tasks(
@@ -210,7 +264,7 @@ pub async fn start_outreach_task(
     Ok(Json(json!({
         "task_id": task_id,
         "status": "running",
-        "message": "outreach task started — keep Douyin tab active in Chrome"
+        "message": "outreach task started — keep the platform tab active in Chrome"
     })))
 }
 
@@ -304,4 +358,31 @@ fn bad_request(message: &str) -> ApiError {
 
 fn not_found(message: &str) -> ApiError {
     (StatusCode::NOT_FOUND, Json(json!({ "error": message })))
+}
+
+fn normalize_action_type(raw: Option<&str>, reply_text: &str) -> Result<String, ApiError> {
+    let value = raw.map(str::trim).filter(|s| !s.is_empty()).unwrap_or_else(|| {
+        if reply_text.trim().is_empty() {
+            "follow"
+        } else {
+            "reply"
+        }
+    });
+    match value {
+        "follow" => Ok("follow".into()),
+        "dm" => Ok("dm".into()),
+        "follow_then_dm" => Ok("follow_then_dm".into()),
+        "reply" => Ok("reply".into()),
+        _ => Err(bad_request("unsupported action_type")),
+    }
+}
+
+fn default_outreach_name(platform: &str, action_type: &str) -> &'static str {
+    match (platform, action_type) {
+        ("xiaohongshu", "follow") => "小红书精准线索关注",
+        ("douyin", "dm") => "抖音精准线索私信",
+        ("douyin", "follow_then_dm") => "抖音精准线索关注私信",
+        ("douyin", "follow") => "抖音精准线索关注",
+        _ => "精准线索触达",
+    }
 }

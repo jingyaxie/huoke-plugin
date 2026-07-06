@@ -11,7 +11,8 @@ use crate::job_config::JobConfig;
 pub mod outreach;
 mod cloud_sync;
 pub use outreach::{
-    OutreachItem, OutreachItemDraft, OutreachItemStatus, OutreachTask, OutreachTaskStatus, QuotaStatus,
+    OutreachCandidate, OutreachItem, OutreachItemDraft, OutreachItemStatus, OutreachTask, OutreachTaskStatus,
+    QuotaStatus,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

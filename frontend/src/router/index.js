@@ -3,6 +3,7 @@ import MainLayout from "../components/MainLayout.vue";
 import PresetsView from "../views/acquisition/PresetsView.vue";
 import ExtensionBridgeView from "../views/acquisition/ExtensionBridgeView.vue";
 import ManualAcquisitionView from "../views/acquisition/ManualAcquisitionView.vue";
+import OutreachTasksView from "../views/acquisition/OutreachTasksView.vue";
 import PlatformLoginView from "../views/acquisition/PlatformLoginView.vue";
 import AntibotView from "../views/AntibotView.vue";
 import SettingsView from "../views/SettingsView.vue";
@@ -38,6 +39,7 @@ const routes = [
       { path: "account-settings", redirect: "/platform-login" },
       { path: "platform-login", name: "platform-login", component: PlatformLoginView, meta: { title: "账号绑定", section: "AI 获客（本机）" } },
       { path: "presets", name: "presets", component: PresetsView, meta: { title: "私信预设", section: "AI 获客（本机）" } },
+      { path: "outreach-tasks", name: "outreach-tasks", component: OutreachTasksView, meta: { title: "触达任务", section: "AI 获客（本机）", fillContent: true } },
       { path: "extension-bridge", name: "extension-bridge", component: ExtensionBridgeView, meta: { title: "自动获客", section: "AI 获客（本机）", fillContent: true } },
       { path: "plugin-lab", redirect: "/settings/plugin-lab" },
       { path: "agent", redirect: "/extension-bridge" },

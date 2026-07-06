@@ -75,27 +75,6 @@
           </el-radio-group>
         </el-form-item>
 
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <TaskPresetSelect
-              label="评论模板"
-              :options="commentPresets"
-              :selected-ids="selectedCommentPresetIds"
-              @update:selected-ids="selectedCommentPresetIds = $event"
-            />
-          </el-col>
-          <el-col :span="12">
-            <TaskPresetSelect
-              label="私信模板"
-              :options="dmPresets"
-              :selected-ids="selectedDmPresetIds"
-              @update:selected-ids="selectedDmPresetIds = $event"
-            />
-          </el-col>
-        </el-row>
-
-        <TaskInteractionFields v-model="settings" />
-
         <TaskEvaluationSection
           v-model:target-customer="form.targetCustomer"
           v-model:accept-description="form.acceptDescription"
@@ -129,17 +108,13 @@
 <script setup>
 import { computed, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import TaskInteractionFields from "./TaskInteractionFields.vue";
-import TaskPresetSelect from "./TaskPresetSelect.vue";
 import TaskEvaluationSection from "./TaskEvaluationSection.vue";
 import { createCollectJob, fetchCollectCapabilities } from "../api/localService";
 import { registerCollectJobToCloud } from "../cloud-sync";
 import { mergeExtensionCapabilities, isExtensionCollectPlatform } from "../config/extensionPlatformCapabilities";
-import { DEFAULT_INTERACTION_SETTINGS, listPlatformPresets } from "../api/presets";
 import {
   FALLBACK_COMMENT_DAYS_OPTIONS,
   FALLBACK_PUBLISH_TIME_OPTIONS,
-  computeAutoOutreach,
   buildEvaluationPayload,
   defaultEvaluation,
   listManualModeOptions,
@@ -153,8 +128,6 @@ import {
   normalizeManualInputUrl,
   validateManualTaskUrl,
 } from "../utils/manualTaskForm";
-import { validateTaskPresetSelection } from "../utils/presetSelection";
-import { listLocalPresets } from "../utils/localPresets";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -164,11 +137,6 @@ const emit = defineEmits(["update:modelValue", "created"]);
 
 const visible = ref(false);
 const submitting = ref(false);
-const commentPresets = ref([]);
-const dmPresets = ref([]);
-const selectedCommentPresetIds = ref([]);
-const selectedDmPresetIds = ref([]);
-const settings = ref({ ...DEFAULT_INTERACTION_SETTINGS });
 const platformOptions = ref(mergeExtensionCapabilities());
 
 const form = reactive({
@@ -238,7 +206,6 @@ watch(
 );
 
 async function loadDialogData() {
-  settings.value = { ...DEFAULT_INTERACTION_SETTINGS };
   form.autoStart = loadExtensionAutoStartPref(true);
   try {
     const remote = await fetchCollectCapabilities();
@@ -246,24 +213,10 @@ async function loadDialogData() {
   } catch {
     platformOptions.value = mergeExtensionCapabilities();
   }
-  await reloadPresets();
 }
 
 function onAutoStartChange(value) {
   saveExtensionAutoStartPref(Boolean(value));
-}
-
-async function reloadPresets() {
-  try {
-    const presets = await listPlatformPresets();
-    commentPresets.value = presets.comments;
-    dmPresets.value = presets.dmOpeners;
-  } catch {
-    commentPresets.value = listLocalPresets("comments").items || [];
-    dmPresets.value = listLocalPresets("dm-openers").items || [];
-  }
-  selectedCommentPresetIds.value = commentPresets.value.map((row) => row.id);
-  selectedDmPresetIds.value = dmPresets.value.map((row) => row.id);
 }
 
 function evaluationPayload(taskName) {
@@ -298,16 +251,6 @@ async function submit() {
     ElMessage.warning(urlError.value);
     return;
   }
-  const presetError = validateTaskPresetSelection(
-    settings.value,
-    selectedCommentPresetIds.value,
-    selectedDmPresetIds.value,
-  );
-  if (presetError) {
-    ElMessage.warning(presetError);
-    return;
-  }
-
   const intent = effectiveIntent.value;
   const inputUrl = normalizeManualInputUrl(
     form.inputUrl.trim(),
@@ -322,19 +265,6 @@ async function submit() {
 
   submitting.value = true;
   try {
-    const commentPresetPayload = selectedCommentPresetIds.value
-      .map((id) => {
-        const row = commentPresets.value.find((item) => item.id === id);
-        return { id, content: row?.content || "" };
-      })
-      .filter((row) => row.content);
-    const dmPresetPayload = selectedDmPresetIds.value
-      .map((id) => {
-        const row = dmPresets.value.find((item) => item.id === id);
-        return { id, content: row?.content || "" };
-      })
-      .filter((row) => row.content);
-
     const result = await createCollectJob({
       job_type: "manual",
       intent,
@@ -348,15 +278,10 @@ async function submit() {
         : limitVideos * maxCommentsPerVideo,
       publish_time_range: form.publishTimeRange,
       comment_days: form.commentDays,
-      interaction: settings.value,
-      comment_presets: commentPresetPayload,
-      dm_presets: dmPresetPayload,
-      auto_outreach: computeAutoOutreach({
-        commentPresetPayload,
-        dmPresetPayload,
-        followPerDay: settings.value.follow_per_day,
-        dmPerDay: settings.value.dm_per_day,
-      }),
+      interaction: {},
+      comment_presets: [],
+      dm_presets: [],
+      auto_outreach: false,
       evaluation: evaluationPayload(taskName),
       auto_start: form.autoStart,
     });
@@ -371,9 +296,9 @@ async function submit() {
         ? maxCommentsPerVideo
         : limitVideos * maxCommentsPerVideo,
       evaluation: evaluationPayload(taskName),
-      interaction: settings.value,
-      commentPresets: commentPresetPayload,
-      dmPresets: dmPresetPayload,
+      interaction: {},
+      commentPresets: [],
+      dmPresets: [],
     });
     ElMessage.success(
       result?.started

@@ -15,6 +15,7 @@ export const LOCAL_NAV_SECTION = {
   label: "AI 获客（本机）",
   items: [
     { key: "auto_tasks", label: "自动获客", to: "/extension-bridge" },
+    { key: "outreach_tasks", label: "触达任务", to: "/outreach-tasks" },
     { key: "presets", label: "私信预设", to: "/presets" },
     { key: "platform_login", label: "账号绑定", to: "/platform-login" },
   ],
@@ -27,6 +28,7 @@ for (const item of LOCAL_NAV_SECTION.items) {
 }
 
 LOCAL_ROUTE_META_MAP.set("/extension-bridge", { section: LOCAL_NAV_SECTION.label, title: "自动获客", cloud: false });
+LOCAL_ROUTE_META_MAP.set("/outreach-tasks", { section: LOCAL_NAV_SECTION.label, title: "触达任务", cloud: false });
 LOCAL_ROUTE_META_MAP.set("/manual-tasks", { section: LOCAL_NAV_SECTION.label, title: "手动获客", cloud: false });
 LOCAL_ROUTE_META_MAP.set("/platform-login", { section: LOCAL_NAV_SECTION.label, title: "账号绑定", cloud: false });
 

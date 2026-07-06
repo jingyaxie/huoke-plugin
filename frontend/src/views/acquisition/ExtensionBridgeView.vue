@@ -9,6 +9,7 @@
       <div class="header-actions">
         <el-tag :type="bridgeTagType">{{ bridgeLabel }}</el-tag>
         <el-button type="primary" class="create-btn" @click="createCollectOpen = true">+ 创建任务</el-button>
+        <el-button @click="$router.push('/outreach-tasks')">触达任务</el-button>
         <ExtensionReloadButton
           :connected="Number(bridgeStatus.connected_clients || 0) > 0"
           @reloaded="refreshAll"
@@ -149,7 +150,7 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column label="私信数" width="80" align="right">
+            <el-table-column label="已私信" width="80" align="right">
               <template #default="{ row }">
                 <MetricLink
                   :value="row.dm_count || 0"
@@ -158,7 +159,7 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column label="关注数" width="80" align="right">
+            <el-table-column label="已关注" width="80" align="right">
               <template #default="{ row }">
                 <MetricLink
                   :value="row.follow_count || 0"
