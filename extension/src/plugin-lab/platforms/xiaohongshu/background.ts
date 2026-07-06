@@ -40,7 +40,7 @@ async function domOpenDetail(tabId: number, payload: Record<string, unknown>): P
 
 function isXhsSearchUrl(url?: string | null): boolean {
   if (!url) return false;
-  return /search_result/i.test(url) || /\/explore\/?(?:\?|$)/i.test(url.split("#")[0]);
+  return /search_result/i.test(url) || /\/search\//i.test(url.split("#")[0]);
 }
 
 export async function clickSearchVideoBackground(payload: Record<string, unknown> = {}) {
@@ -94,6 +94,17 @@ export async function clickSearchVideoBackground(payload: Record<string, unknown
       domResult.message
       ?? (domResult.ok ? `已打开第 ${videoIndex} 条内容详情` : "未能打开内容详情"),
   };
+}
+
+export async function clickCommentButtonBackground(payload: Record<string, unknown> = {}) {
+  const tab = await resolveLabTabForAction("plugin_lab.click_comment_btn", PLATFORM);
+  if (!tab.id) throw new Error("target tab has no id");
+  return sendContentPluginLabCommand(
+    tab.id,
+    "plugin_lab.click_comment_btn",
+    { ...payload, platform: PLATFORM },
+    { skipPreflight: true },
+  );
 }
 
 export async function prepareSearchForVideoBackground(payload: Record<string, unknown> = {}) {

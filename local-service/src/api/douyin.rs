@@ -7,7 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::db::{CollectJob, JobStatus};
+use crate::db::{CapturedComment, CollectJob, JobStatus};
 use crate::job_config::{build_config_json, InteractionSettings, JobConfig, PresetRef};
 use crate::job_run_log::{format_run_log_text, JobRunDetailResponse, JobRunLogsResponse};
 use crate::state::AppState;
@@ -168,6 +168,8 @@ pub async fn create_job(
 
     let limit_videos = if job_type == "manual" && intent == "single_video" {
         1
+    } else if platform == "xiaohongshu" && job_type != "manual" {
+        body.limit_videos.clamp(1, 80)
     } else {
         body.limit_videos.clamp(1, 20)
     };
@@ -275,12 +277,46 @@ pub async fn list_job_comments(
     Path(job_id): Path<String>,
     Query(query): Query<ListCommentsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _ = state.db.get_job(&job_id).map_err(|_| not_found())?;
+    let job = state.db.get_job(&job_id).map_err(|_| not_found())?;
     let comments = state
         .db
         .list_comments_for_job(&job_id, query.aweme_id.as_deref(), query.limit.clamp(1, 2000))
         .map_err(internal_error)?;
+    let comments: Vec<CommentWithProfileUrl> = comments
+        .into_iter()
+        .map(|comment| CommentWithProfileUrl::from_comment(&job.platform, comment))
+        .collect();
     Ok(Json(json!({ "job_id": job_id, "comments": comments })))
+}
+
+#[derive(Serialize)]
+struct CommentWithProfileUrl {
+    #[serde(flatten)]
+    comment: CapturedComment,
+    profile_url: String,
+    user_url: String,
+}
+
+impl CommentWithProfileUrl {
+    fn from_comment(platform: &str, comment: CapturedComment) -> Self {
+        let profile_url = match platform {
+            "xiaohongshu" if !comment.user_id.trim().is_empty() => {
+                format!("https://www.xiaohongshu.com/user/profile/{}", comment.user_id.trim())
+            }
+            _ if !comment.sec_uid.trim().is_empty() => {
+                format!("https://www.douyin.com/user/{}", comment.sec_uid.trim())
+            }
+            _ if !comment.user_id.trim().is_empty() => {
+                format!("https://www.douyin.com/user/{}", comment.user_id.trim())
+            }
+            _ => String::new(),
+        };
+        Self {
+            comment,
+            user_url: profile_url.clone(),
+            profile_url,
+        }
+    }
 }
 
 pub async fn list_job_interactions(
@@ -383,16 +419,23 @@ pub async fn start_job(
         .supersede_other_running_jobs(&job_id)
         .map_err(internal_error)?;
 
+    let fresh_start = body
+        .as_ref()
+        .and_then(|b| b.fresh_start)
+        .unwrap_or(restarting || job.platform == "xiaohongshu");
+
+    if fresh_start {
+        state
+            .db
+            .reset_collect_progress(&job_id)
+            .map_err(internal_error)?;
+    }
+
     let generation = state.job_runs.begin(&job_id);
     state
         .db
         .update_job_status(&job_id, JobStatus::Running, None)
         .map_err(internal_error)?;
-
-    let fresh_start = body
-        .as_ref()
-        .and_then(|b| b.fresh_start)
-        .unwrap_or(restarting);
 
     state.capture.clone().spawn_job(job_id.clone(), generation, fresh_start);
     Ok(Json(json!({

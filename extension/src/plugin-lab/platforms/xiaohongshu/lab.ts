@@ -27,6 +27,106 @@ import {
   getXhsCommentApiItems,
 } from "./comment-api";
 
+const XHS_COMMENT_ITEM_SELECTORS = [
+  '[class*="comment-item"]',
+  '[class*="CommentItem"]',
+  ".note-comment-item",
+  ".parent-comment",
+  ".comment-inner-container",
+] as const;
+
+function xhsShortText(node: Element | null, max = 240): string {
+  return (node?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function parseXhsCommentTime(text: string): number | null {
+  const value = String(text || "").replace(/\s+/g, "").trim();
+  if (!value) return null;
+  const now = Date.now();
+  const minutes = value.match(/(\d+)分钟前/);
+  if (minutes) return Math.floor((now - Number(minutes[1]) * 60_000) / 1000);
+  const hours = value.match(/(\d+)小时前/);
+  if (hours) return Math.floor((now - Number(hours[1]) * 3_600_000) / 1000);
+  const days = value.match(/(\d+)天前/);
+  if (days) return Math.floor((now - Number(days[1]) * 86_400_000) / 1000);
+  const monthDay = value.match(/(?:\d{4}-)?(\d{1,2})-(\d{1,2})/);
+  if (monthDay) {
+    const year = value.match(/\d{4}-/) ? Number(value.slice(0, 4)) : new Date().getFullYear();
+    const ts = new Date(year, Number(monthDay[1]) - 1, Number(monthDay[2])).getTime();
+    return Number.isFinite(ts) ? Math.floor(ts / 1000) : null;
+  }
+  return null;
+}
+
+function xhsProfileUrl(userId: unknown): string {
+  const id = String(userId ?? "").trim();
+  return id ? `https://www.xiaohongshu.com/user/profile/${id}` : "";
+}
+
+function collectXhsDomComments(): Array<Record<string, unknown>> {
+  const nodes: HTMLElement[] = [];
+  const seenNodes = new Set<HTMLElement>();
+  for (const selector of XHS_COMMENT_ITEM_SELECTORS) {
+    document.querySelectorAll(selector).forEach((node) => {
+      if (!(node instanceof HTMLElement) || seenNodes.has(node) || !isVisible(node)) return;
+      const rect = node.getBoundingClientRect();
+      if (rect.height < 18 || rect.width < 80) return;
+      const text = xhsShortText(node, 500);
+      if (text.length < 2 || !/回复|点赞|分钟前|小时前|天前|\d{1,2}-\d{1,2}/.test(text)) return;
+      seenNodes.add(node);
+      nodes.push(node);
+    });
+  }
+
+  const rows: Array<Record<string, unknown>> = [];
+  const seenKeys = new Set<string>();
+  for (const node of nodes.slice(0, 120)) {
+    const author = xhsShortText(
+      node.querySelector('[class*="author"], [class*="name"], [class*="nickname"], a[href*="/user/profile"]'),
+      60,
+    ).replace(/^(作者|博主)\s*/, "") || "—";
+    const content =
+      xhsShortText(node.querySelector('[class*="content"], [class*="text"], .note-text'), 400) ||
+      xhsShortText(node, 400);
+    const cleaned = content
+      .replace(author, "")
+      .replace(/(\d+分钟前|\d+小时前|\d+天前|(?:\d{4}-)?\d{1,2}-\d{1,2}).*$/u, "")
+      .replace(/回复|点赞|展开\d*条?回复/g, "")
+      .trim();
+    if (!cleaned || cleaned.length < 2 || cleaned === author) continue;
+
+    let createTime: number | null = null;
+    const timeNodes = node.querySelectorAll('[class*="time"], [class*="date"], span, div');
+    for (let i = 0; i < timeNodes.length && i < 24; i += 1) {
+      createTime = parseXhsCommentTime(xhsShortText(timeNodes[i], 48));
+      if (createTime) break;
+    }
+    if (!createTime) createTime = parseXhsCommentTime(xhsShortText(node, 500));
+
+    const directId = node.getAttribute("data-comment-id") || node.getAttribute("data-id") || "";
+    const key = directId || `${author}|${cleaned.slice(0, 80)}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    const userUrl = (node.querySelector('a[href*="/user/profile"]') as HTMLAnchorElement | null)?.href ?? "";
+    const userId = userUrl.match(/\/user\/profile\/([^/?#]+)/)?.[1] ?? "";
+    rows.push({
+      comment_id: directId || `dom_${Math.abs(key.split("").reduce((acc, ch) => ((acc << 5) - acc + ch.charCodeAt(0)) | 0, 0))}`,
+      parent_comment_id: null,
+      content: cleaned,
+      author,
+      user_id: userId,
+      sec_uid: "",
+      user_url: userUrl || xhsProfileUrl(userId),
+      profile_url: userUrl || xhsProfileUrl(userId),
+      avatar_url: (node.querySelector("img") as HTMLImageElement | null)?.currentSrc || "",
+      digg_count: 0,
+      create_time: createTime,
+      source: "dom",
+    });
+  }
+  return rows;
+}
+
 const XHS_SEARCH_BTN_SELECTORS = [
   "#search-input-in-feeds .submit-button-wrapper:not(.disabled)",
   "#search-input-in-feeds .bottom-box-right-submit-button",
@@ -64,17 +164,23 @@ export async function xhsSubmitSearchClick() {
   const beforeUrl = location.href;
   const inputMatch = findSearchInputMatch("xiaohongshu");
   const button = findXhsSearchButton();
+  const beforeCards = collectXhsNoteCards().length;
 
-  if (button) {
-    humanClick(button);
-    await sleep(randDelay(600, 1000));
-  } else if (inputMatch?.input) {
+  if (inputMatch?.input) {
     inputMatch.input.focus();
     inputMatch.input.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }),
     );
+    inputMatch.input.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }),
+    );
+    await sleep(randDelay(900, 1300));
+  }
+
+  if (location.href === beforeUrl && button) {
+    humanClick(button);
     await sleep(randDelay(700, 1100));
-  } else {
+  } else if (!inputMatch?.input && !button) {
     return {
       ok: false,
       method: "none",
@@ -84,23 +190,54 @@ export async function xhsSubmitSearchClick() {
     };
   }
 
+  if (inputMatch?.input) {
+    inputMatch.input.blur();
+  }
+
+  if (location.href === beforeUrl && inputMatch?.input) {
+    inputMatch.input.focus();
+    inputMatch.input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }),
+    );
+    inputMatch.input.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }),
+    );
+    await sleep(randDelay(900, 1300));
+  }
+
+  const isSubmitted = () => {
+    if (location.href !== beforeUrl && /search/i.test(location.href)) return true;
+    if (/search_result/i.test(location.href)) return true;
+    return collectXhsNoteCards().length > beforeCards;
+  };
+
   const deadline = Date.now() + 8000;
   while (Date.now() < deadline) {
-    if (isXhsSearchResultsPage(location.href)) break;
-    if (location.href !== beforeUrl && /search/i.test(location.href)) break;
+    if (isSubmitted()) break;
     await sleep(250);
+  }
+
+  if (!isSubmitted()) {
+    return {
+      ok: false,
+      method: inputMatch?.input ? (button ? "enter_key_then_click" : "enter_key") : "click_button",
+      url: location.href,
+      on_search_page: false,
+      message: "已输入关键词，但小红书未进入搜索结果页",
+    };
   }
 
   if (isXhsSearchResultsPage(location.href)) {
     await rememberPlatformSearchUrl(location.href, "xiaohongshu");
   }
 
+  const onSearchPage = /search_result/i.test(location.href) || (location.href !== beforeUrl && /search/i.test(location.href));
   return {
-    ok: isXhsSearchResultsPage(location.href) || collectXhsNoteCards().length > 0,
-    method: button ? "click_button" : "enter_key",
+    ok: true,
+    method: inputMatch?.input ? (button ? "enter_key_then_click" : "enter_key") : "click_button",
     url: location.href,
-    on_search_page: isXhsSearchResultsPage(location.href),
-    message: isXhsSearchResultsPage(location.href) ? "已进入小红书搜索结果页" : "已触发搜索，等待结果加载",
+    on_search_page: onSearchPage,
+    message: onSearchPage ? "已进入小红书搜索结果页" : "已触发搜索，等待结果加载",
   };
 }
 
@@ -225,7 +362,9 @@ export async function xhsScrollCollectComments(payload: {
 } = {}) {
   const maxRounds = Math.max(1, Math.min(Number(payload.scroll_rounds ?? 8), 30));
   const maxComments = Math.max(1, Math.min(Number(payload.max_comments ?? 50), 500));
+  const commentDays = Math.max(0, Number(payload.comment_days ?? 0));
   const noteId = extractNoteIdFromHref(location.href) || location.pathname.match(/\/explore\/([0-9a-fA-F]{16,32})/)?.[1] || "";
+  const cutoff = commentDays > 0 ? Math.floor(Date.now() / 1000) - commentDays * 86400 : null;
 
   await xhsActivateComments();
   enableXhsCommentNetworkHook();
@@ -233,6 +372,7 @@ export async function xhsScrollCollectComments(payload: {
   const merged = new Map<string, Record<string, unknown>>();
   let scrolledRounds = 0;
   let stoppedReason = "initial";
+  let unchangedRounds = 0;
 
   const mergeApi = async () => {
     if (!noteId) return;
@@ -245,6 +385,8 @@ export async function xhsScrollCollectComments(payload: {
         author: row.username,
         user_id: row.user_id,
         sec_uid: row.sec_uid ?? "",
+        user_url: xhsProfileUrl(row.user_id),
+        profile_url: xhsProfileUrl(row.user_id),
         avatar_url: row.avatar_url ?? "",
         digg_count: row.digg_count ?? 0,
         create_time: row.create_time ?? null,
@@ -252,24 +394,73 @@ export async function xhsScrollCollectComments(payload: {
       });
     }
   };
+  const mergeDom = () => {
+    const rows = collectXhsDomComments();
+    for (const row of rows) {
+      const commentId = String(row.comment_id ?? "").trim();
+      if (!commentId) continue;
+      if (!merged.has(commentId)) {
+        merged.set(commentId, row);
+        continue;
+      }
+      const prev = merged.get(commentId) ?? {};
+      merged.set(commentId, {
+        ...prev,
+        author: prev.author || row.author,
+        user_id: prev.user_id || row.user_id,
+        user_url: prev.user_url || row.user_url,
+        profile_url: prev.profile_url || row.profile_url,
+        avatar_url: prev.avatar_url || row.avatar_url,
+        create_time: prev.create_time || row.create_time,
+      });
+    }
+  };
+
+  const validComments = () =>
+    Array.from(merged.values()).filter((item) => {
+      const ts = Number(item.create_time ?? 0);
+      return cutoff === null || !ts || ts >= cutoff;
+    });
+  const allKnownTimesOlderThanCutoff = () => {
+    if (cutoff === null || merged.size === 0) return false;
+    const times = Array.from(merged.values())
+      .map((item) => Number(item.create_time ?? 0))
+      .filter((ts) => ts > 0);
+    return times.length > 0 && Math.max(...times) < cutoff;
+  };
 
   await mergeApi();
-  for (let round = 0; round < maxRounds && merged.size < maxComments; round += 1) {
+  mergeDom();
+  for (let round = 0; round < maxRounds && validComments().length < maxComments; round += 1) {
+    const before = merged.size;
     if (scrollXhsComments()) scrolledRounds += 1;
-    await sleep(400 + Math.floor(Math.random() * 300));
+    await sleep(700 + Math.floor(Math.random() * 500));
     await mergeApi();
-    if (merged.size >= maxComments) {
+    mergeDom();
+    unchangedRounds = merged.size === before ? unchangedRounds + 1 : 0;
+    if (validComments().length >= maxComments) {
       stoppedReason = "max_comments";
+      break;
+    }
+    if (commentDays > 0 && unchangedRounds >= 3 && allKnownTimesOlderThanCutoff()) {
+      stoppedReason = "comment_days";
+      break;
+    }
+    if (unchangedRounds >= 4) {
+      stoppedReason = "no_more_comments";
       break;
     }
   }
   if (stoppedReason === "initial" && merged.size === 0) {
     stoppedReason = "no_comments";
+  } else if (stoppedReason === "initial" && validComments().length === 0 && commentDays > 0) {
+    stoppedReason = "comment_days_all_filtered";
   } else if (stoppedReason === "initial") {
     stoppedReason = "rounds_exhausted";
   }
 
-  const comments = Array.from(merged.values()).slice(0, maxComments).map((item, index) => ({
+  const skippedByDays = merged.size - validComments().length;
+  const comments = validComments().slice(0, maxComments).map((item, index) => ({
     ...item,
     index: index + 1,
   })) as Array<Record<string, unknown> & { index: number; source?: string }>;
@@ -283,7 +474,10 @@ export async function xhsScrollCollectComments(payload: {
     capture_method: comments.some((c) => c.source === "api") ? "api" : "dom",
     scroll_rounds: scrolledRounds,
     max_rounds: maxRounds,
-    comment_days: Number(payload.comment_days ?? 0),
+    seen_total: merged.size,
+    skipped_by_days: skippedByDays,
+    comment_days: commentDays,
+    unchanged_rounds: unchangedRounds,
     stopped_reason: stoppedReason,
     url: location.href,
     message:

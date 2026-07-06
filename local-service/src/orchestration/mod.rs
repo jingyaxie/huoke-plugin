@@ -21,6 +21,7 @@ use crate::orchestration::outreach::InlineOutreachRunner;
 use crate::ws::BridgeHub;
 
 const JOB_PAUSED: &str = "__job_paused__";
+const COMMENT_EVALUATION_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Clone, Debug)]
 enum DouyinFeedSource {
@@ -245,15 +246,7 @@ impl JobOrchestrator {
                     return Ok(());
                 }
                 let job = self.db.get_job(job_id)?;
-                if let Err(err) = crate::evaluation::evaluate_job_comments(
-                    &self.db,
-                    &self.data_dir,
-                    job_id,
-                    &job.keyword,
-                    &cfg.evaluation,
-                )
-                .await
-                {
+                if let Err(err) = self.evaluate_pending_comments_with_timeout(job_id, &job, &cfg).await {
                     warn!("job {job_id}: comment evaluation error: {err}");
                     self.log_step(
                         job_id,
@@ -454,7 +447,7 @@ impl JobOrchestrator {
 
         if self.fresh_start && has_partial_progress {
             info!(
-                "job {job_id}: fresh start — {} {} stored, run full search (skip already-collected videos during collect)",
+                "job {job_id}: fresh start — previous progress was reset before run, run full search (had {} {})",
                 existing_progress,
                 self.collect_progress_label(),
             );
@@ -463,7 +456,7 @@ impl JobOrchestrator {
                 "fresh_start",
                 "重新启动采集",
                 StepStatus::Info,
-                "用户重新启动任务，从完整搜索流程开始；已采集的视频/评论仍会跳过不重复采",
+                "用户重新启动任务，已清空旧采集结果并从平台起始页重新搜索",
                 Some(serde_json::json!({
                     "progress": existing_progress,
                     "target": cfg.target_count,
@@ -495,6 +488,12 @@ impl JobOrchestrator {
                     "feed_collect": feed_collect,
                 })),
             );
+        }
+
+        if job.platform == "xiaohongshu" && cfg.intent == "keyword_auto" {
+            return self
+                .collect_xiaohongshu_keyword_queue(job_id, job, cfg, &search_kw, resume_collect)
+                .await;
         }
 
         if feed_collect {
@@ -709,6 +708,223 @@ impl JobOrchestrator {
             "job {job_id}: stored {inserted} profile videos via {capture_method} (url={})",
             &profile_url[..profile_url.len().min(64)]
         );
+        Ok(())
+    }
+
+    async fn collect_xiaohongshu_keyword_queue(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+        search_kw: &str,
+        resume_collect: bool,
+    ) -> Result<(), String> {
+        const MAX_QUEUE_REFILLS: u32 = 12;
+        const LOW_WATERMARK: usize = 2;
+
+        let lab = self.lab(job_id, &job.platform);
+        let target_videos = if self.uses_precise_collect_target() {
+            job.limit_videos
+                .max(cfg.target_count.saturating_mul(5))
+                .clamp(1, 80) as usize
+        } else {
+            job.limit_videos.clamp(1, 20) as usize
+        };
+        let fetch_limit = (target_videos as i64 + 10).clamp(20, 80);
+        let scroll_rounds = scroll_rounds_for_video(job.max_comments_per_video, cfg.comment_days);
+
+        let mut search_url: Option<String> = None;
+
+        if !resume_collect || self.parsed_videos_from_db(job_id)?.is_empty() {
+            let search_result = lab
+                .run_keyword_search(search_kw, cfg.filter_publish_days_for_ui(), true)
+                .await?;
+            search_url = search_result
+                .get("url")
+                .and_then(|v| v.as_str())
+                .filter(|url| url.contains("search_result") || url.contains("/search/"))
+                .map(str::to_string);
+            let mut videos = parse_plugin_lab_search_results(&job.platform, &search_result);
+            if videos.is_empty() {
+                let msg = search_result
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("小红书搜索未返回笔记");
+                return Err(msg.to_string());
+            }
+            if videos.len() < target_videos {
+                let before = videos.len();
+                self.log_step(
+                    job_id,
+                    "search_refill",
+                    "滚动补充搜索结果",
+                    StepStatus::Info,
+                    "首屏搜索结果不足本次扫描目标，先向下滚动加载更多笔记",
+                    Some(serde_json::json!({
+                        "before": before,
+                        "target": target_videos,
+                        "progress": 0,
+                        "goal": cfg.target_count,
+                    })),
+                );
+                let _ = self
+                    .paginate_search_videos(
+                        job_id,
+                        &job.platform,
+                        &lab,
+                        &mut videos,
+                        target_videos,
+                        fetch_limit,
+                    )
+                    .await?;
+            }
+            self.db.replace_videos_for_job(job_id, &videos)?;
+        } else {
+            lab.prepare_keyword_collect_resume().await?;
+        }
+
+        let mut refill_attempts = 0_u32;
+        let mut no_new_refills = 0_u32;
+
+        loop {
+            self.bail_if_paused(job_id)?;
+            let scanned = self.scanned_video_count(job_id)? as usize;
+            if scanned >= target_videos {
+                break;
+            }
+
+            let mut videos = self.db.list_videos_for_job(job_id)?;
+            let pending_count = videos
+                .iter()
+                .filter(|v| !self.video_comments_already_collected(job_id, v).unwrap_or(false))
+                .count();
+
+            let progress = self.collect_progress_count(job_id)?;
+            let should_refill =
+                pending_count <= LOW_WATERMARK
+                    && progress < cfg.target_count
+                    && videos.len() < target_videos
+                    && refill_attempts < MAX_QUEUE_REFILLS;
+
+            if should_refill {
+                let before = videos.len();
+                let mut parsed = self.parsed_videos_from_db(job_id)?;
+                let target = target_videos.min(before + LOW_WATERMARK + 10);
+                self.log_step(
+                    job_id,
+                    "search_refill",
+                    "滚动补充搜索结果",
+                    StepStatus::Info,
+                    "当前候选笔记不足以满足线索目标，回到搜索结果页向下滚动加载更多笔记",
+                    Some(serde_json::json!({
+                        "before": before,
+                        "target": target,
+                        "pending": pending_count,
+                        "progress": progress,
+                        "goal": cfg.target_count,
+                    })),
+                );
+                let added = self
+                    .paginate_search_videos(job_id, &job.platform, &lab, &mut parsed, target, fetch_limit)
+                    .await?;
+                if added > 0 {
+                    self.db.replace_videos_for_job(job_id, &parsed)?;
+                    no_new_refills = 0;
+                } else {
+                    no_new_refills += 1;
+                }
+                refill_attempts += 1;
+                videos = self.db.list_videos_for_job(job_id)?;
+            }
+
+            let next = videos
+                .into_iter()
+                .find(|video| !self.video_comments_already_collected(job_id, video).unwrap_or(false));
+
+            let Some(video) = next else {
+                if refill_attempts >= MAX_QUEUE_REFILLS || no_new_refills >= 3 {
+                    break;
+                }
+                let before = self.parsed_videos_from_db(job_id)?;
+                let mut parsed = before.clone();
+                let added = self
+                    .paginate_search_videos(
+                        job_id,
+                        &job.platform,
+                        &lab,
+                        &mut parsed,
+                        before.len() + 1,
+                        fetch_limit,
+                    )
+                    .await?;
+                refill_attempts += 1;
+                if added == 0 {
+                    no_new_refills += 1;
+                } else {
+                    no_new_refills = 0;
+                    self.db.replace_videos_for_job(job_id, &parsed)?;
+                }
+                continue;
+            };
+
+            info!(
+                "job {job_id}: xhs queue open note aweme={} url={}",
+                video.aweme_id, video.video_url
+            );
+            lab.open_video(&video.aweme_id, Some(&video.video_url)).await?;
+            self.wait_human_if_not_paused(job_id, 3500, 5500).await?;
+
+            match self
+                .scroll_and_persist_comments(
+                    job_id,
+                    job,
+                    cfg,
+                    &video.aweme_id,
+                    scroll_rounds,
+                    "feed",
+                )
+                .await
+            {
+                Ok(()) => {
+                    let _ = self.db.mark_video_scanned(job_id, &video.aweme_id);
+                }
+                Err(err) => {
+                    warn!(
+                        "job {job_id}: xhs note {} comment collect failed — {err}",
+                        video.aweme_id
+                    );
+                    let _ = self.db.mark_video_scanned(job_id, &video.aweme_id);
+                }
+            }
+
+            let _ = lab.close_video_detail().await;
+            if let Some(url) = search_url.as_deref() {
+                let _ = lab.open_url(url).await;
+            } else {
+                let _ = lab.prepare_search_for_video().await;
+            }
+            self.wait_if_not_paused(job_id, Duration::from_millis(800)).await?;
+        }
+
+        if self.uses_precise_collect_target() {
+            let _ = self.evaluate_pending_comments(job_id, job, cfg).await;
+        }
+
+        let progress = self.collect_progress_count(job_id)?;
+        if progress < cfg.target_count {
+            let total_comments = self.db.count_comments_for_job(job_id).unwrap_or(0);
+            if total_comments > 0 {
+                info!(
+                    "job {job_id}: xhs collected {total_comments} comments but precise progress is {progress}/{}",
+                    cfg.target_count
+                );
+            }
+            return Err(format!(
+                "小红书搜索结果已尽量滚动补充，仅识别到 {progress}/{} 条{}",
+                cfg.target_count,
+                self.collect_progress_label(),
+            ));
+        }
         Ok(())
     }
 
@@ -1486,14 +1702,7 @@ impl JobOrchestrator {
             );
             if inserted > 0 {
                 if self.uses_precise_collect_target() {
-                    let _ = crate::evaluation::evaluate_job_comments(
-                        &self.db,
-                        &self.data_dir,
-                        job_id,
-                        &job.keyword,
-                        &cfg.evaluation,
-                    )
-                    .await;
+                    let _ = self.evaluate_pending_comments_with_timeout(job_id, job, cfg).await;
                 } else {
                     crate::evaluation::spawn_evaluate_job(
                         self.db.clone(),
@@ -1546,10 +1755,10 @@ impl JobOrchestrator {
             let _ = self.db.mark_video_scanned(job_id, aweme_hint);
         }
 
-        if playback_mode == "feed" {
+        if job.platform == "douyin" && playback_mode == "feed" {
             let _ = lab.prepare_feed_for_swipe().await;
             self.wait_human_if_not_paused(job_id, 800, 1500).await?;
-        } else if playback_mode == "video_detail" {
+        } else if job.platform == "douyin" && playback_mode == "video_detail" {
             let _ = lab.prepare_video_detail_for_swipe().await;
             self.wait_human_if_not_paused(job_id, 800, 1500).await?;
         }
@@ -1992,15 +2201,35 @@ impl JobOrchestrator {
         if !self.uses_precise_collect_target() {
             return Ok(());
         }
-        let _ = crate::evaluation::evaluate_job_comments(
-            &self.db,
-            &self.data_dir,
-            job_id,
-            &job.keyword,
-            &cfg.evaluation,
-        )
-        .await;
+        let _ = self.evaluate_pending_comments_with_timeout(job_id, job, cfg).await;
         Ok(())
+    }
+
+    async fn evaluate_pending_comments_with_timeout(
+        &self,
+        job_id: &str,
+        job: &crate::db::CollectJob,
+        cfg: &JobConfig,
+    ) -> Result<(), String> {
+        match tokio::time::timeout(
+            COMMENT_EVALUATION_TIMEOUT,
+            crate::evaluation::evaluate_job_comments(
+                &self.db,
+                &self.data_dir,
+                job_id,
+                &job.keyword,
+                &cfg.evaluation,
+            ),
+        )
+        .await
+        {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(err)) => Err(err),
+            Err(_) => Err(format!(
+                "评论评估超过 {} 秒，已跳过本轮评估并继续采集",
+                COMMENT_EVALUATION_TIMEOUT.as_secs()
+            )),
+        }
     }
 
     async fn ensure_search_videos_captured(
@@ -2145,10 +2374,34 @@ impl JobOrchestrator {
                 "job {job_id}: search list {before}/{target} videos — scrolling page {page}/{MAX_PAGES}"
             );
 
-            if page == 1 {
-                let _ = lab.scroll_search_list_to_top().await;
+            if platform == "xiaohongshu" {
+                let ready = lab.restore_search_list_to_top().await?;
+                let on_search_page = ready
+                    .get("on_search_page")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if !on_search_page {
+                    warn!("job {job_id}: xiaohongshu search list not ready before pagination: {ready}");
+                    break;
+                }
+
+                let scroll = lab.swipe_search_results_checked(3).await?;
+                let scroll_ok = LabCommands::lab_ok(&scroll);
+                let scroll_delta = scroll
+                    .get("scroll_delta")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0)
+                    .abs();
+                if !scroll_ok || scroll_delta < 8 {
+                    warn!("job {job_id}: xiaohongshu search list did not scroll: {scroll}");
+                    break;
+                }
+            } else {
+                if page == 1 {
+                    let _ = lab.scroll_search_list_to_top().await;
+                }
+                let _ = lab.swipe_search_results(3).await;
             }
-            let _ = lab.swipe_search_results(3).await;
             self.wait_if_not_paused(job_id, Duration::from_millis(2200))
                 .await?;
             let _ = lab.enable_network_hook().await;
@@ -2175,7 +2428,11 @@ impl JobOrchestrator {
         }
 
         if videos.len() > initial {
-            let _ = lab.scroll_search_list_to_top().await;
+            if platform == "xiaohongshu" {
+                let _ = lab.restore_search_list_to_top().await;
+            } else {
+                let _ = lab.scroll_search_list_to_top().await;
+            }
         }
 
         Ok(videos.len().saturating_sub(initial))
@@ -2665,14 +2922,7 @@ impl JobOrchestrator {
             );
             if inserted > 0 {
                 if self.uses_precise_collect_target() {
-                    let _ = crate::evaluation::evaluate_job_comments(
-                        &self.db,
-                        &self.data_dir,
-                        job_id,
-                        &job.keyword,
-                        &cfg.evaluation,
-                    )
-                    .await;
+                    let _ = self.evaluate_pending_comments_with_timeout(job_id, job, cfg).await;
                 } else {
                     crate::evaluation::spawn_evaluate_job(
                         self.db.clone(),

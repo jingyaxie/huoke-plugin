@@ -296,11 +296,22 @@ fn normalize_click_search_video_payload(payload: Value) -> Value {
 }
 
 fn normalize_scroll_collect_comments_payload(payload: Value) -> Value {
-    json!({
+    let mut out = json!({
         "scroll_rounds": payload.get("scroll_rounds").and_then(|v| v.as_i64()).unwrap_or(12),
         "max_comments": payload.get("max_comments").and_then(|v| v.as_i64()).unwrap_or(80),
         "comment_days": payload.get("comment_days").and_then(|v| v.as_i64()).unwrap_or(0),
-    })
+    });
+    if let Some(platform) = payload.get("platform").and_then(|v| v.as_str()) {
+        if !platform.trim().is_empty() {
+            out["platform"] = json!(platform);
+        }
+    }
+    if let Some(playback_mode) = payload.get("playback_mode").and_then(|v| v.as_str()) {
+        if !playback_mode.trim().is_empty() {
+            out["playback_mode"] = json!(playback_mode);
+        }
+    }
+    out
 }
 
 fn normalize_reply_comment_payload(payload: Value) -> Value {

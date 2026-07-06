@@ -4,6 +4,7 @@
 import { detectPlatformFromUrl } from "../platform-hosts";
 import { resolveLabTabForAction } from "../resolve-lab-tab";
 import { normalizePlatformId } from "./registry";
+import { clickCommentButtonBackground as clickSharedCommentButtonBackground } from "../comment-sidebar-background";
 import * as douyinBackground from "./douyin/background";
 import * as xiaohongshuBackground from "./xiaohongshu/background";
 import * as kuaishouBackground from "./kuaishou/background";
@@ -14,6 +15,7 @@ interface PlatformBackgroundModule {
   clickSearchVideoBackground(payload: Record<string, unknown>): Promise<unknown>;
   prepareSearchForVideoBackground(payload: Record<string, unknown>): Promise<unknown>;
   closeVideoDetailBackground(payload: Record<string, unknown>): Promise<unknown>;
+  clickCommentButtonBackground?: (payload: Record<string, unknown>) => Promise<unknown>;
   swipeSearchFeedNextBackground?: (payload: Record<string, unknown>) => Promise<unknown>;
   swipeVideoDetailNextBackground?: (payload: Record<string, unknown>) => Promise<unknown>;
 }
@@ -65,6 +67,15 @@ export async function closeVideoDetailBackground(payload: Record<string, unknown
   return routeByLabTab("plugin_lab.close_video_detail", payload, (mod, enriched) =>
     mod.closeVideoDetailBackground(enriched),
   );
+}
+
+export async function clickCommentButtonBackground(payload: Record<string, unknown> = {}) {
+  return routeByLabTab("plugin_lab.click_comment_btn", payload, (mod, enriched) => {
+    if (mod.clickCommentButtonBackground) {
+      return mod.clickCommentButtonBackground(enriched);
+    }
+    return clickSharedCommentButtonBackground(enriched);
+  });
 }
 
 export async function swipeSearchFeedNextBackground(payload: Record<string, unknown> = {}) {

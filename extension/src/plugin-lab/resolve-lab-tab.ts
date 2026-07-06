@@ -12,8 +12,8 @@ import {
   touchLabSession,
   type LabPageContext,
 } from "./lab-context";
-import { normalizePlatformId } from "./platforms/registry";
 import { detectPlatformFromUrl } from "./platform-hosts";
+import { normalizePlatformId } from "./platforms/registry";
 
 const PLATFORM_TAB_PATTERNS = [
   "https://www.douyin.com/*",

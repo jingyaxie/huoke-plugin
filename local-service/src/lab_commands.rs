@@ -200,6 +200,110 @@ impl<'a> LabCommands<'a> {
             return Err(open_err);
         }
 
+        if platform == "xiaohongshu" {
+            const MAX_XHS_SEARCH_ATTEMPTS: u32 = 4;
+            let mut last_err = String::new();
+            let mut search_ready = false;
+            for attempt in 1..=MAX_XHS_SEARCH_ATTEMPTS {
+                self.check_paused()?;
+                match self
+                    .action("find_search_box", json!({ "platform": platform }))
+                    .await
+                {
+                    Ok(result) if Self::search_box_ready(&result) => {
+                        if attempt > 1 {
+                            warn!("xiaohongshu find_search_box succeeded on attempt {attempt}");
+                        }
+                        search_ready = true;
+                        break;
+                    }
+                    Ok(result) => {
+                        last_err = result
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("search box not found")
+                            .to_string();
+                    }
+                    Err(err) => {
+                        last_err = err;
+                    }
+                }
+                if attempt < MAX_XHS_SEARCH_ATTEMPTS {
+                    warn!("xiaohongshu find_search_box attempt {attempt} failed: {last_err}, retrying…");
+                    self.pause_aware_wait(Duration::from_secs(4)).await?;
+                }
+            }
+            if !search_ready {
+                return Err(if last_err.is_empty() {
+                    "search box not found".into()
+                } else {
+                    last_err
+                });
+            }
+
+            self.check_paused()?;
+            self.action(
+                "input_search_text",
+                json!({
+                    "platform": platform,
+                    "search_text": keyword,
+                    "char_delay_ms": { "min": 60, "max": 140 },
+                }),
+            )
+            .await?;
+
+            self.pause_aware_wait(Duration::from_millis(400)).await?;
+
+            // 小红书插件在 click_search_btn 内部会先开启搜索接口 hook，再点击搜索。
+            let submit = self
+                .action(
+                    "click_search_btn",
+                    json!({ "platform": platform, "search_text": keyword }),
+                )
+                .await?;
+            if !Self::lab_ok(&submit) && Self::search_result_count(&submit) == 0 {
+                return Ok(submit);
+            }
+
+            self.pause_aware_wait(if fetch_results {
+                Duration::from_secs(3)
+            } else {
+                Duration::from_millis(1200)
+            })
+            .await?;
+
+            if publish_days > 0 {
+                let _ = self.action("click_filter_btn", json!({ "platform": platform })).await;
+                let _ = self
+                    .action(
+                        "click_filter_overlay",
+                        json!({ "platform": platform, "days": publish_days, "open_if_closed": true }),
+                    )
+                    .await;
+            }
+
+            if !fetch_results {
+                return Ok(json!({
+                    "ok": true,
+                    "message": "xiaohongshu search submitted, skip fetch",
+                }));
+            }
+
+            self.check_paused()?;
+            let search_payload = match self
+                .action(
+                    "fetch_search_results",
+                    json!({ "platform": platform, "limit": 30, "api_timeout_ms": 12_000 }),
+                )
+                .await
+            {
+                Ok(fetch) if Self::search_result_count(&fetch) > 0 => fetch,
+                Ok(_) | Err(_) => submit,
+            };
+
+            return Ok(search_payload);
+        }
+
         const MAX_SEARCH_ATTEMPTS: u32 = 4;
         let mut last_err = String::new();
         let mut search_ready = false;
@@ -412,6 +516,15 @@ impl<'a> LabCommands<'a> {
         .await
     }
 
+    /// 恢复到搜索结果页并滚到列表顶部。小红书补充候选笔记时使用，避免详情页/空白页上直接滚动。
+    pub async fn restore_search_list_to_top(&self) -> Result<Value, String> {
+        self.action(
+            "prepare_search_for_video",
+            json!({ "platform": self.platform, "skip_restore": false }),
+        )
+        .await
+    }
+
     /// 搜索 Feed 浮层内切换到下一个视频（抖音关键词任务链式浏览）
     pub async fn swipe_search_feed_next(&self) -> Result<Value, String> {
         self.action(
@@ -557,6 +670,31 @@ impl<'a> LabCommands<'a> {
             simulate::pause(Duration::from_millis(800)).await;
         }
         Ok(())
+    }
+
+    pub async fn swipe_search_results_checked(&self, rounds: i64) -> Result<Value, String> {
+        let mut last = json!({ "ok": false, "message": "未执行滚动" });
+        for _ in 0..rounds.clamp(1, 6) {
+            let result = self
+                .action(
+                    "swipe_page",
+                    json!({ "direction": "down", "distance": 1200, "segments": 5 }),
+                )
+                .await?;
+            let ok = Self::lab_ok(&result);
+            let delta = result
+                .get("scroll_delta")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0)
+                .abs();
+            last = result;
+            if ok && delta >= 8 {
+                simulate::pause(Duration::from_millis(1000)).await;
+                return Ok(last);
+            }
+            simulate::pause(Duration::from_millis(800)).await;
+        }
+        Ok(last)
     }
 
     pub async fn click_profile_video(
@@ -984,7 +1122,7 @@ impl<'a> LabCommands<'a> {
         result
     }
 
-    fn lab_ok(data: &Value) -> bool {
+    pub(crate) fn lab_ok(data: &Value) -> bool {
         data.get("ok").and_then(|v| v.as_bool()).unwrap_or(true)
     }
 

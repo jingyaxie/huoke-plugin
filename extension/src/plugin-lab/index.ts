@@ -4,10 +4,10 @@ import {
   clickFilterButtonBackground,
   clickFilterOverlayBackground,
 } from "./filter-background";
-import { clickCommentButtonBackground } from "./comment-sidebar-background";
 import { clickDmButtonBackground, inputDmTextBackground, sendDmBackground } from "./dm-background";
 import { replyCommentBackground } from "./reply-comment-background";
 import { clickSearchVideoBackground, swipeSearchFeedNextBackground, swipeVideoDetailNextBackground } from "./search-video-background";
+import { clickCommentButtonBackground as clickPlatformCommentButtonBackground } from "./platforms/route-background";
 import { clickProfileVideoBackground } from "./profile-video-background";
 import { probeSearchContextBackground } from "./search-context-background";
 import { isPluginLabBackgroundAction } from "./background-actions";
@@ -35,7 +35,7 @@ export async function runPluginLabBackgroundCommand(command: BridgeMessage): Pro
     case "plugin_lab.click_profile_video":
       return clickProfileVideoBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_comment_btn":
-      return clickCommentButtonBackground((command.payload ?? {}) as Record<string, unknown>);
+      return clickPlatformCommentButtonBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.reply_comment":
       return replyCommentBackground((command.payload ?? {}) as Record<string, unknown>);
     case "plugin_lab.click_dm_btn":

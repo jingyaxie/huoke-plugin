@@ -4,12 +4,7 @@ import type { PlatformSearchItem } from "../shared/content-item";
 
 export function isXhsSearchResultsPage(url = location.href): boolean {
   if (/search_result/i.test(url)) return true;
-  try {
-    const path = new URL(url).pathname.replace(/\/+$/, "") || "/";
-    if (path === "/explore" && collectXhsNoteCards().length >= 2) return true;
-  } catch {
-    // ignore
-  }
+  if (/\/search\//i.test(url)) return true;
   return false;
 }
 
@@ -140,15 +135,38 @@ export async function clickXhsNoteAtIndex(index: number): Promise<{ ok: boolean;
 }
 
 export function scrollXhsComments(): boolean {
-  const selectors = ['[class*="comment"]', ".comments-el", ".note-scroller", "#noteContainer"];
+  const selectors = [
+    '[class*="comments-container"]',
+    '[class*="commentsContainer"]',
+    '[class*="comment-list"]',
+    '[class*="commentList"]',
+    ".comments-el",
+    ".note-scroller",
+    "#noteContainer",
+  ];
   for (const selector of selectors) {
     const el = document.querySelector(selector) as HTMLElement | null;
     if (!el) continue;
-    if (el.scrollHeight > el.clientHeight + 40) {
-      el.scrollTop = Math.min(el.scrollTop + 420, el.scrollHeight);
+    if (!isVisible(el) || el.scrollHeight <= el.clientHeight + 40) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.height < 120) continue;
+    if (
+      rect.left > window.innerWidth * 0.35 ||
+      /评论|全部评论|条评论/.test(el.textContent ?? "")
+    ) {
+      el.scrollTop = Math.min(el.scrollTop + Math.max(360, Math.floor(rect.height * 0.75)), el.scrollHeight);
       return true;
     }
   }
-  window.scrollBy({ top: 360, behavior: "instant" });
+
+  const markers = Array.from(document.querySelectorAll("section, div, main")) as HTMLElement[];
+  for (const node of markers) {
+    if (!isVisible(node)) continue;
+    const text = (node.textContent ?? "").slice(0, 120);
+    if (!/评论|全部评论|条评论/.test(text)) continue;
+    node.scrollIntoView({ block: "center", behavior: "instant" });
+    break;
+  }
+  window.scrollBy({ top: Math.max(420, Math.floor(window.innerHeight * 0.65)), behavior: "instant" });
   return true;
 }

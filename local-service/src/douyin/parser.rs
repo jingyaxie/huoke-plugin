@@ -562,8 +562,10 @@ fn extract_dom_time_from_text(text: &str) -> Option<(i64, String)> {
     for marker in markers {
         if let Some(idx) = text.find(marker) {
             let start = text[..idx]
-                .rfind(|c: char| !c.is_ascii_digit())
-                .map(|i| i + 1)
+                .char_indices()
+                .rev()
+                .find(|(_, c)| !c.is_ascii_digit())
+                .map(|(i, c)| i + c.len_utf8())
                 .unwrap_or(0);
             let token = text[start..idx + marker.len()].trim();
             let parse_token = token.split('·').next().unwrap_or(token).trim();

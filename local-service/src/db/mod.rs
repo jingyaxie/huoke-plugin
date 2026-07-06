@@ -800,6 +800,36 @@ impl Database {
         Ok(n > 0)
     }
 
+    pub fn reset_collect_progress(&self, job_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM captured_comments WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM video_scans WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM captured_videos WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM interaction_log WHERE job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM outreach_items WHERE source_job_id = ?1",
+            params![job_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn replace_videos_for_job(
         &self,
         job_id: &str,

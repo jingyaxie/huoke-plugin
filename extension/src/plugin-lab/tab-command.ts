@@ -1,6 +1,7 @@
 import { createMessage } from "../shared/protocol";
 import { ensureContentScript } from "../background/command-router";
 import { ensureLabCommandReady } from "./lab-preflight";
+import { normalizePlatformId } from "./platforms/registry";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -46,10 +47,13 @@ export async function sendContentPluginLabCommand(
   if (!options?.skipPreflight) {
     await ensureLabCommandReady(tabId, action);
   }
+  const platform = normalizePlatformId(
+    String((payload as { platform?: unknown } | undefined)?.platform ?? "douyin"),
+  );
   const command = createMessage({
     type: "command",
     action,
-    platform: "douyin",
+    platform,
     payload,
   });
 

@@ -144,8 +144,12 @@ function findDouyinSearchInput(): SearchInputMatch | null {
 
 function findXhsSearchInput(): SearchInputMatch | null {
   const matched = queryFirstVisibleInput([
+    "textarea#search-input-in-feeds",
+    "input#search-input-in-feeds",
     "#search-input-in-feeds textarea",
     "#search-input-in-feeds input",
+    "textarea#search-input",
+    "input#search-input",
     "#search-input textarea",
     "#search-input input",
   ]);
@@ -161,6 +165,46 @@ function findXhsSearchInput(): SearchInputMatch | null {
   const input = candidates[0];
   if (!input) return null;
   return { input, selector: buildSelector(input), matchMethod: "fallback:placeholder" };
+}
+
+async function activateXhsSearchEntry(): Promise<boolean> {
+  const selectors = [
+    "#search-input-in-feeds",
+    "#search-input",
+    ".search-box-in-content",
+    ".search-area-in-header",
+    "[class*='search-input']",
+    "[class*='searchInput']",
+    "[class*='search-box']",
+    "[class*='searchBox']",
+  ] as const;
+
+  for (const selector of selectors) {
+    const node = document.querySelector(selector);
+    if (!(node instanceof HTMLElement) || !isVisible(node)) continue;
+    clickElement(node);
+    await sleep(randDelay(350, 650));
+    return true;
+  }
+
+  const nodes = Array.from(document.querySelectorAll("button, a, div, span")) as HTMLElement[];
+  for (const node of nodes.slice(0, 160)) {
+    if (!isVisible(node)) continue;
+    const text = (node.textContent ?? "").replace(/\s+/g, "");
+    const aria = node.getAttribute("aria-label") ?? "";
+    const className = typeof node.className === "string" ? node.className : "";
+    const rect = node.getBoundingClientRect();
+    const looksLikeSearch =
+      text.includes("搜索") ||
+      /搜索|search/i.test(aria) ||
+      /search/i.test(className);
+    if (!looksLikeSearch || rect.top > 260) continue;
+    clickElement(node);
+    await sleep(randDelay(350, 650));
+    return true;
+  }
+
+  return false;
 }
 
 function findKuaishouSearchInput(): SearchInputMatch | null {
@@ -338,9 +382,15 @@ export async function waitForSearchInput(
   rounds = 12,
   intervalMs = 600,
 ): Promise<SearchInputMatch | null> {
+  let xhsEntryActivated = false;
   for (let i = 0; i < rounds; i += 1) {
     const match = findSearchInputMatch(platform);
     if (match) return match;
+    if (platform === "xiaohongshu" && !xhsEntryActivated) {
+      xhsEntryActivated = await activateXhsSearchEntry();
+      const afterActivate = findSearchInputMatch(platform);
+      if (afterActivate) return afterActivate;
+    }
     await sleep(intervalMs);
   }
   return null;

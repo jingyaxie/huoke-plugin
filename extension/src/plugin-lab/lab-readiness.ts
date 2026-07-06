@@ -137,8 +137,16 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
     case "plugin_lab.find_search_box":
     case "plugin_lab.input_search_text":
     case "plugin_lab.click_search_btn": {
-      const match = findSearchInputMatch(activePlatformId());
+      const platform = activePlatformId();
+      const match = findSearchInputMatch(platform);
       if (!match) {
+        if (platform === "xiaohongshu") {
+          return pass(targetAction, required, {
+            search_input: false,
+            platform,
+            deferred_activation: true,
+          });
+        }
         return fail(targetAction, required, "页面上未找到搜索框", { search_input: false });
       }
       return pass(targetAction, required, { search_input: true, selector: match.selector });

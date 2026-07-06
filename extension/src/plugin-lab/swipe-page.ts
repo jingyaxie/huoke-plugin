@@ -20,8 +20,12 @@ export interface SwipePageResult {
 }
 
 const SEARCH_ANCHOR_SELECTORS = [
+  'a[href*="/explore/"][href*="xsec_source=pc_search"]',
+  'a[href*="/explore/"][href*="xsec_token="]',
   '[data-e2e="search-card-video"]',
   "div.search-result-card",
+  '[class*="note-item"]',
+  '[class*="feeds-page"]',
   '[class*="SearchVideoCard"]',
   '[class*="search-result-card"]',
   '[class*="search-result"]',

@@ -47,6 +47,22 @@ export function resolveDouyinProfileUrl({ secUid, userId, profileUrl, userProfil
   return "";
 }
 
+export function resolveXiaohongshuNoteUrl({ awemeId, videoUrl, contentUrl } = {}) {
+  const direct = normalizeExternalUrl(videoUrl || contentUrl || "");
+  if (direct && /xiaohongshu\.com\/(explore|discovery\/item|note)\//i.test(direct)) return direct;
+  const id = String(awemeId || "").trim();
+  if (!id) return direct;
+  return `https://www.xiaohongshu.com/explore/${id}`;
+}
+
+export function resolveXiaohongshuProfileUrl({ userId, profileUrl, userProfileUrl, userUrl } = {}) {
+  const direct = normalizeExternalUrl(profileUrl || userProfileUrl || userUrl || "");
+  if (direct && /xiaohongshu\.com\/user\/profile\//i.test(direct)) return direct;
+  const uid = String(userId || "").trim();
+  if (uid) return `https://www.xiaohongshu.com/user/profile/${uid}`;
+  return "";
+}
+
 export function resolveCommentLinks(row, platform = "douyin") {
   const base = row && typeof row === "object" ? row : {};
   if (platform === "douyin") {
@@ -58,6 +74,21 @@ export function resolveCommentLinks(row, platform = "douyin") {
       }),
       profile_url: resolveDouyinProfileUrl({
         secUid: base.sec_uid,
+        userId: base.user_id,
+        profileUrl: base.profile_url,
+        userProfileUrl: base.user_profile_url,
+        userUrl: base.user_url,
+      }),
+    };
+  }
+  if (platform === "xiaohongshu") {
+    return {
+      video_url: resolveXiaohongshuNoteUrl({
+        awemeId: base.aweme_id,
+        videoUrl: base.video_url,
+        contentUrl: base.content_url,
+      }),
+      profile_url: resolveXiaohongshuProfileUrl({
         userId: base.user_id,
         profileUrl: base.profile_url,
         userProfileUrl: base.user_profile_url,
