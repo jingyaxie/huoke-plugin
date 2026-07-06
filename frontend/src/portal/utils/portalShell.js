@@ -5,6 +5,7 @@ import { setAccessToken, setTenantId } from "../../api/http";
 import { syncBackendCredentialsFromLogin, ensureEvaluationCredentialsSynced } from "../../api/commentEvaluation";
 
 export const PORTAL_AUTH_MESSAGE = "huoke:portal-authenticated";
+export const PORTAL_LOGIN_FAILED_MESSAGE = "huoke:portal-login-failed";
 export const PORTAL_PING_MESSAGE = "huoke:shell-ping";
 export const PORTAL_PONG_MESSAGE = "huoke:shell-pong";
 export const PORTAL_NAVIGATE_MESSAGE = "huoke:navigate";

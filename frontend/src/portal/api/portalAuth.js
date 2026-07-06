@@ -1,4 +1,12 @@
-import { getApiBaseUrl } from "../../api/http";
+import { getPortalBaseUrl } from "../config/cloudNav";
+
+const API_PREFIX = "/api";
+
+function portalApiUrl(path) {
+  const base = getPortalBaseUrl();
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${API_PREFIX}${normalized}`;
+}
 
 function formatApiError(payload, fallback) {
   const message = payload?.message;
@@ -24,14 +32,11 @@ export function mapPortalSmsError(payload) {
   return code || "发送验证码失败";
 }
 
-/** 发送客户后台登录短信验证码（直连盈小蚁线上 API） */
+/** 发送客户后台登录短信验证码 */
 export async function sendPortalSmsCode(phone) {
-  const response = await fetch(`${getApiBaseUrl()}/auth/send-sms-code`, {
+  const response = await fetch(portalApiUrl("/auth/send-sms-code"), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Client-Type": "pc",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ phone, scene: "customer" }),
   });
   const payload = await response.json().catch(() => ({}));
@@ -41,4 +46,4 @@ export async function sendPortalSmsCode(phone) {
   return payload.data || {};
 }
 
-export { formatApiError };
+export { portalApiUrl, formatApiError };

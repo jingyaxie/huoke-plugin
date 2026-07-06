@@ -12,6 +12,7 @@ import {
   isPortalAuthenticated,
   isPortalMessageOrigin,
   PORTAL_AUTH_MESSAGE,
+  PORTAL_LOGIN_FAILED_MESSAGE,
   PORTAL_NAVIGATE_MESSAGE,
   PORTAL_PING_MESSAGE,
   PORTAL_PONG_MESSAGE,
@@ -174,9 +175,9 @@ function scheduleLoginVerification(probe, frame) {
 
 function buildLoginFailureMessage(fields, sawLoginPage) {
   if (fields.login_method === "sms") {
-    return sawLoginPage ? "验证码错误或已过期，请重新获取" : "登录失败，请检查手机号和验证码";
+    return sawLoginPage ? "登录失败，请检查验证码或账号权限" : "登录失败，请检查手机号、验证码或账号权限";
   }
-  return sawLoginPage ? "账号或密码错误，请检查后重试" : "登录失败，请检查账号信息";
+  return sawLoginPage ? "账号或密码错误，或当前账号无权限登录客户端" : "登录失败，请检查账号信息或登录权限";
 }
 
 /**
@@ -268,6 +269,7 @@ export function submitPortalLoginForm(fields) {
     let formSubmitted = false;
     let loginResponseAt = 0;
     let sawLoginPage = false;
+    let failureMessage = "";
     let failureTimer = null;
     let verificationScheduled = false;
 
@@ -311,6 +313,21 @@ export function submitPortalLoginForm(fields) {
       probe.cleanup();
       reject(error instanceof Error ? error : new Error(String(error)));
     }
+
+    function onLoginFailureMessage(event) {
+      if (!isPortalMessageOrigin(event.origin)) return;
+      const data = event.data;
+      if (!data || typeof data !== "object" || data.type !== PORTAL_LOGIN_FAILED_MESSAGE) return;
+      failureMessage = String(data.message || "").trim();
+      finishReject(new Error(failureMessage || buildLoginFailureMessage(fields, true)));
+    }
+
+    window.addEventListener("message", onLoginFailureMessage);
+    const cleanupProbe = probe.cleanup;
+    probe.cleanup = () => {
+      window.removeEventListener("message", onLoginFailureMessage);
+      cleanupProbe();
+    };
 
     const form = document.createElement("form");
     form.method = "POST";
