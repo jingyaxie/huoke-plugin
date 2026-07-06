@@ -12,7 +12,6 @@ import {
   isPortalAuthenticated,
   isPortalMessageOrigin,
   PORTAL_AUTH_MESSAGE,
-  PORTAL_LOGIN_FAILED_MESSAGE,
   PORTAL_NAVIGATE_MESSAGE,
   PORTAL_PING_MESSAGE,
   PORTAL_PONG_MESSAGE,
@@ -269,7 +268,6 @@ export function submitPortalLoginForm(fields) {
     let formSubmitted = false;
     let loginResponseAt = 0;
     let sawLoginPage = false;
-    let failureMessage = "";
     let failureTimer = null;
     let verificationScheduled = false;
 
@@ -313,21 +311,6 @@ export function submitPortalLoginForm(fields) {
       probe.cleanup();
       reject(error instanceof Error ? error : new Error(String(error)));
     }
-
-    function onLoginFailureMessage(event) {
-      if (!isPortalMessageOrigin(event.origin)) return;
-      const data = event.data;
-      if (!data || typeof data !== "object" || data.type !== PORTAL_LOGIN_FAILED_MESSAGE) return;
-      failureMessage = String(data.message || "").trim();
-      finishReject(new Error(failureMessage || buildLoginFailureMessage(fields, true)));
-    }
-
-    window.addEventListener("message", onLoginFailureMessage);
-    const cleanupProbe = probe.cleanup;
-    probe.cleanup = () => {
-      window.removeEventListener("message", onLoginFailureMessage);
-      cleanupProbe();
-    };
 
     const form = document.createElement("form");
     form.method = "POST";
