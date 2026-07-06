@@ -788,6 +788,14 @@ impl JobOrchestrator {
 
         loop {
             self.bail_if_paused(job_id)?;
+            let progress = self.collect_progress_count(job_id)?;
+            if progress >= cfg.target_count {
+                info!(
+                    "job {job_id}: xhs target reached {progress}/{}; stop opening more notes",
+                    cfg.target_count
+                );
+                break;
+            }
             let scanned = self.scanned_video_count(job_id)? as usize;
             if scanned >= target_videos {
                 break;
@@ -799,7 +807,6 @@ impl JobOrchestrator {
                 .filter(|v| !self.video_comments_already_collected(job_id, v).unwrap_or(false))
                 .count();
 
-            let progress = self.collect_progress_count(job_id)?;
             let should_refill =
                 pending_count <= LOW_WATERMARK
                     && progress < cfg.target_count
@@ -898,6 +905,14 @@ impl JobOrchestrator {
             }
 
             let _ = lab.close_video_detail().await;
+            let progress = self.collect_progress_count(job_id)?;
+            if progress >= cfg.target_count {
+                info!(
+                    "job {job_id}: xhs target reached after note {}/{}; finishing",
+                    progress, cfg.target_count
+                );
+                break;
+            }
             if let Some(url) = search_url.as_deref() {
                 let _ = lab.open_url(url).await;
             } else {

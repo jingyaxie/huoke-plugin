@@ -253,10 +253,24 @@ export async function ensureContentScript(tabId: number) {
 
 async function sendCommandToTab(tabId: number, command: BridgeMessage) {
   await ensureContentScript(tabId);
-  return chrome.tabs.sendMessage(tabId, {
-    type: "huoke:command",
-    command,
-  });
+  const timeoutMs = command.action === "plugin_lab.find_search_box" ? 12_000 : 25_000;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      chrome.tabs.sendMessage(tabId, {
+        type: "huoke:command",
+        command,
+      }),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(`content command timeout: ${command.action}`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 export async function routeCommandToTab(command: BridgeMessage): Promise<unknown> {

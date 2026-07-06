@@ -1101,8 +1101,7 @@ impl<'a> LabCommands<'a> {
         }
         let normalized = plugin_lab::normalize_payload(action_id, payload.clone());
         let result = self
-            .hub
-            .request_command(bridge_action, normalized, action_timeout(action_id))
+            .request_lab_action_once(action_id, bridge_action, normalized.clone())
             .await;
         let result = match &result {
             Err(err) if err.contains("command cancelled") => {
@@ -1110,6 +1109,34 @@ impl<'a> LabCommands<'a> {
                     return Err(pause_err);
                 }
                 result
+            }
+            Err(err) if self.should_recover_action(action_id, err) => {
+                warn!(
+                    "plugin-lab action {action_id} failed on platform={} ({err}); recovering bridge and retrying once",
+                    self.platform
+                );
+                if let Some((db, job_id, run_id)) = &self.run_log {
+                    let recover_result = json!({
+                        "ok": true,
+                        "message": "插件命令超时，正在重置桥接并重试当前步骤",
+                    });
+                    log_lab_action(
+                        db,
+                        job_id,
+                        *run_id,
+                        "bridge_recover",
+                        &json!({
+                            "platform": self.platform,
+                            "after_action": action_id,
+                            "error": err,
+                        }),
+                        Ok(&recover_result),
+                    );
+                }
+                self.recover_bridge_for_action(action_id).await?;
+                self.check_paused()?;
+                self.request_lab_action_once(action_id, bridge_action, normalized)
+                    .await
             }
             _ => result,
         };
@@ -1120,6 +1147,83 @@ impl<'a> LabCommands<'a> {
             }
         }
         result
+    }
+
+    async fn request_lab_action_once(
+        &self,
+        action_id: &str,
+        bridge_action: &str,
+        normalized: Value,
+    ) -> Result<Value, String> {
+        self.hub
+            .request_command(bridge_action, normalized, action_timeout(action_id))
+            .await
+    }
+
+    fn should_recover_action(&self, action_id: &str, err: &str) -> bool {
+        if self.platform != "xiaohongshu" {
+            return false;
+        }
+        if !matches!(
+            action_id,
+            "open_browser"
+                | "close_video_detail"
+                | "find_search_box"
+                | "input_search_text"
+                | "click_search_btn"
+                | "click_comment_btn"
+                | "scroll_and_collect_comments"
+                | "fetch_search_results"
+                | "swipe_page"
+                | "prepare_search_for_video"
+        ) {
+            return false;
+        }
+        err.contains("timeout")
+            || err.contains("content script")
+            || err.contains("Receiving end does not exist")
+            || err.contains("Could not establish connection")
+            || err.contains("message channel closed")
+    }
+
+    async fn recover_bridge_for_action(&self, action_id: &str) -> Result<(), String> {
+        self.hub.reset_runtime().await;
+        let _ = self
+            .request_bridge("huoke.runtime.init", json!({}), Duration::from_secs(8))
+            .await;
+        self.pause_aware_wait(Duration::from_millis(900)).await?;
+
+        if matches!(action_id, "find_search_box" | "input_search_text") {
+            let _ = self
+                .request_bridge(
+                    plugin_lab::bridge_action_for("open_browser").unwrap_or("plugin_lab.open_browser"),
+                    json!({
+                        "platform": self.platform,
+                        "reuse_existing": true,
+                        "reset_to_start": true,
+                    }),
+                    Duration::from_secs(35),
+                )
+                .await;
+            self.pause_aware_wait(Duration::from_millis(1200)).await?;
+        } else if matches!(
+            action_id,
+            "click_search_btn" | "click_comment_btn" | "scroll_and_collect_comments"
+        ) {
+            let _ = self
+                .request_bridge(
+                    plugin_lab::bridge_action_for("open_browser").unwrap_or("plugin_lab.open_browser"),
+                    json!({
+                        "platform": self.platform,
+                        "reuse_existing": true,
+                        "reset_to_start": false,
+                    }),
+                    Duration::from_secs(25),
+                )
+                .await;
+            self.pause_aware_wait(Duration::from_millis(600)).await?;
+        }
+        Ok(())
     }
 
     pub(crate) fn lab_ok(data: &Value) -> bool {
@@ -1152,14 +1256,16 @@ impl<'a> LabCommands<'a> {
 
 fn action_timeout(action_id: &str) -> Duration {
     match action_id {
-        "input_search_text" | "find_search_box" | "scroll_and_collect_comments" | "click_search_btn" => {
-            Duration::from_secs(120)
-        }
+        "find_search_box" => Duration::from_secs(35),
+        "input_search_text" => Duration::from_secs(45),
+        "click_search_btn" => Duration::from_secs(60),
+        "scroll_and_collect_comments" => Duration::from_secs(90),
         "click_search_video" => Duration::from_secs(90),
         "click_profile_video" => Duration::from_secs(90),
-        "click_comment_btn" => Duration::from_secs(90),
+        "click_comment_btn" => Duration::from_secs(45),
         "reply_comment" | "input_dm_text" => Duration::from_secs(60),
-        "open_browser" => Duration::from_secs(120),
+        "open_browser" => Duration::from_secs(45),
+        "close_video_detail" => Duration::from_secs(20),
         "fetch_search_results" => Duration::from_secs(120),
         "swipe_search_feed_next" => Duration::from_secs(30),
         "swipe_video_detail_next" => Duration::from_secs(30),

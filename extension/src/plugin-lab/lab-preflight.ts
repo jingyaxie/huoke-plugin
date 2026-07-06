@@ -22,6 +22,9 @@ const SKIP_PREFLIGHT = new Set([
   "plugin_lab.close_video_detail",
   "plugin_lab.comment_sidebar_probe",
   "plugin_lab.activate_comment_sidebar",
+  "plugin_lab.find_search_box",
+  "plugin_lab.input_search_text",
+  "plugin_lab.click_search_btn",
 ]);
 
 export class LabPreflightError extends Error {
@@ -46,9 +49,17 @@ export async function probeLabReadinessOnTab(
     payload: { target_action: targetAction },
   });
 
-  const response = (await chrome.tabs.sendMessage(tabId, {
-    type: "huoke:command",
-    command,
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const response = (await Promise.race([
+    chrome.tabs.sendMessage(tabId, {
+      type: "huoke:command",
+      command,
+    }),
+    new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("preflight command timeout")), 8_000);
+    }),
+  ]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
   })) as { ok?: boolean; data?: LabReadinessResult; error?: string };
 
   if (!response?.ok || !response.data) {

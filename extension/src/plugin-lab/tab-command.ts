@@ -10,10 +10,27 @@ function sleep(ms: number) {
 function isRetryableMessageError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return (
-    msg.includes("message channel closed")
+    msg.includes("content command timeout")
+    || msg.includes("message channel closed")
     || msg.includes("Receiving end does not exist")
     || msg.includes("Could not establish connection")
   );
+}
+
+function sendTabMessageWithTimeout(
+  tabId: number,
+  message: unknown,
+  timeoutMs = 18_000,
+): Promise<{ ok?: boolean; data?: unknown; error?: string }> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    chrome.tabs.sendMessage(tabId, message),
+    new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("content command timeout")), timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
 }
 
 async function sendTabMessageWithRetry(
@@ -24,7 +41,7 @@ async function sendTabMessageWithRetry(
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
-      return await chrome.tabs.sendMessage(tabId, message);
+      return await sendTabMessageWithTimeout(tabId, message);
     } catch (err) {
       lastErr = err;
       if (!isRetryableMessageError(err) || attempt >= maxAttempts - 1) {
