@@ -111,7 +111,7 @@
             @change="onAutoStartChange"
           />
           <p v-if="form.autoStart" class="field-hint">
-            需 Chrome 插件已连接（角标 OK），并保持抖音页已登录。
+            需 Chrome 插件已连接（角标 OK），并保持{{ selectedPlatformLabel }}页已登录。
           </p>
         </el-form-item>
       </el-form>
@@ -195,11 +195,19 @@ const effectiveIntent = computed(
   () => detectManualUrlIntent(form.inputUrl, form.platform) || form.intent,
 );
 const urlLabel = computed(() => (effectiveIntent.value === "single_video" ? "视频链接" : "主页链接"));
-const urlPlaceholder = computed(() =>
-  effectiveIntent.value === "account_home"
+const selectedPlatformLabel = computed(() => {
+  return platformOptions.value.find((row) => row.id === form.platform)?.label || "对应平台";
+});
+const urlPlaceholder = computed(() => {
+  if (form.platform === "xiaohongshu") {
+    return effectiveIntent.value === "account_home"
+      ? "粘贴小红书博主主页链接（/user/profile/xxx），系统将从主页获取笔记列表并抓取评论"
+      : "粘贴小红书笔记链接（/explore/xxx 或 /discovery/item/xxx）";
+  }
+  return effectiveIntent.value === "account_home"
     ? "粘贴博主账号主页链接（支持 v.douyin.com 短链），系统将从主页获取视频列表并抓取评论"
-    : "粘贴视频链接（/video/xxx、v.douyin.com 短链，或 ?vid= 分享链）",
-);
+    : "粘贴视频链接（/video/xxx、v.douyin.com 短链，或 ?vid= 分享链）";
+});
 const platformHint = computed(() => {
   const disabled = platformOptions.value.filter((row) => !row.collect).map((row) => row.label);
   const enabled = platformOptions.value.filter((row) => row.collect).map((row) => row.label);

@@ -94,7 +94,7 @@
             @change="onAutoStartChange"
           />
           <p v-if="form.autoStart" class="field-hint">
-            需 Chrome 插件已连接（角标 OK），并保持抖音页已登录。
+            需 Chrome 插件已连接（角标 OK），并保持{{ selectedPlatformLabel }}页已登录。
           </p>
         </el-form-item>
       </el-form>
@@ -179,6 +179,9 @@ const platformHint = computed(() => {
   const enabled = platformOptions.value.filter((row) => row.collect).map((row) => row.label);
   if (disabled.length === 0 || enabled.length === 0) return "";
   return `${disabled.join(" / ")} 插件采集适配中，当前仅 ${enabled.join(" / ")} 可创建任务。`;
+});
+const selectedPlatformLabel = computed(() => {
+  return platformOptions.value.find((row) => row.id === form.platform)?.label || "对应平台";
 });
 
 watch(

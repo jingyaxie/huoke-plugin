@@ -1,7 +1,7 @@
 /** 插件 / 本机采集各平台能力（与 local-service GET /api/collect/capabilities 对齐） */
 
-/** 前端获客 UI 展示的渠道（小红书、快手暂隐藏） */
-export const EXTENSION_UI_PLATFORM_IDS = ["douyin"];
+/** 前端获客 UI 展示的渠道（快手暂隐藏） */
+export const EXTENSION_UI_PLATFORM_IDS = ["douyin", "xiaohongshu"];
 
 export const EXTENSION_PLATFORM_DEFINITIONS = [
   {
@@ -38,7 +38,7 @@ export const EXTENSION_PLATFORM_LOGIN_CARDS = [
     id: "xiaohongshu",
     label: "小红书",
     url: "https://www.xiaohongshu.com",
-    desc: "adapter 已接入，能力逐步开放",
+    desc: "支持关键词采集与笔记评论采集",
   },
 ].filter((row) => EXTENSION_UI_PLATFORM_IDS.includes(row.id));
 
