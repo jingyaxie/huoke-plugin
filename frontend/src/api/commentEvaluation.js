@@ -76,6 +76,14 @@ let ensureSyncInFlight = null;
  * Sidecar 重启、首次启用后台评估、或登录时 Sidecar 不可达后恢复，都会用到。
  */
 export async function ensureEvaluationCredentialsSynced({ force = false } = {}) {
+  if (ensureSyncInFlight) return ensureSyncInFlight;
+  ensureSyncInFlight = doEnsureEvaluationCredentialsSynced({ force }).finally(() => {
+    ensureSyncInFlight = null;
+  });
+  return ensureSyncInFlight;
+}
+
+async function doEnsureEvaluationCredentialsSynced({ force = false } = {}) {
   let token = String(getAccessToken() ?? "").trim();
   let refreshedFromPortal = false;
   if (isPortalAuthenticated()) {
@@ -100,12 +108,7 @@ export async function ensureEvaluationCredentialsSynced({ force = false } = {}) 
     }
   }
 
-  if (ensureSyncInFlight) return ensureSyncInFlight;
-  ensureSyncInFlight = syncBackendCredentialsFromLogin({ accessToken: token })
-    .finally(() => {
-      ensureSyncInFlight = null;
-    });
-  return ensureSyncInFlight;
+  return syncBackendCredentialsFromLogin({ accessToken: token });
 }
 
 /** Portal 登录成功后，用同一套账号换取 API token 并自动同步到 Sidecar */

@@ -246,13 +246,11 @@ async function onSubmit() {
     await submitPortalLoginForm(fields);
     const loginLabel = loginMethod.value === "sms" ? fields.sms_phone : fields.username;
     setPortalAuthenticated({ displayName: loginLabel, username: loginLabel });
-    try {
-      await syncPortalCredentialsAfterLogin({ loginMethod: loginMethod.value, fields });
-    } catch (syncErr) {
-      console.warn("portal token sync failed:", syncErr);
-    }
     ElMessage.success("登录成功");
     redirectAfterLogin();
+    void syncPortalCredentialsAfterLogin({ loginMethod: loginMethod.value, fields }).catch((syncErr) => {
+      console.warn("portal token sync failed:", syncErr);
+    });
     void syncPortalDisplayName().catch(() => {});
   } catch (err) {
     errorMessage.value = err?.message || "登录失败，请检查账号信息";

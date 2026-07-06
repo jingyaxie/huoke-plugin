@@ -388,7 +388,6 @@ async function onOpenExtensionFolder() {
 async function refreshAll({ silent = false } = {}) {
   if (!silent) loading.value = true;
   try {
-    await ensureEvaluationCredentialsSynced();
     const [status, jobs] = await Promise.all([fetchBridgeStatus(), listCollectJobs()]);
     bridgeStatus.value = status;
     const localJobs = (Array.isArray(jobs) ? jobs : []).filter((row) => row.job_type !== "manual");
@@ -490,6 +489,7 @@ async function onDeleteCollect(row) {
 onMounted(async () => {
   desktopMode.value = await isDesktopMode();
   await refreshAll();
+  void ensureEvaluationCredentialsSynced().catch(() => {});
   void refreshExtensionSetup();
 });
 
