@@ -723,12 +723,13 @@ impl JobOrchestrator {
         const LOW_WATERMARK: usize = 2;
 
         let lab = self.lab(job_id, &job.platform);
+        let scan_limit = job.limit_videos.clamp(1, 20) as usize;
         let target_videos = if self.uses_precise_collect_target() {
             job.limit_videos
                 .max(cfg.target_count.saturating_mul(5))
                 .clamp(1, 80) as usize
         } else {
-            job.limit_videos.clamp(1, 20) as usize
+            scan_limit
         };
         let fetch_limit = (target_videos as i64 + 10).clamp(20, 80);
         let scroll_rounds = scroll_rounds_for_video(job.max_comments_per_video, cfg.comment_days);
@@ -789,7 +790,7 @@ impl JobOrchestrator {
         loop {
             self.bail_if_paused(job_id)?;
             let progress = self.collect_progress_count(job_id)?;
-            if progress >= cfg.target_count {
+            if !cfg.collects_by_video_limit() && progress >= cfg.target_count {
                 info!(
                     "job {job_id}: xhs target reached {progress}/{}; stop opening more notes",
                     cfg.target_count
@@ -797,7 +798,7 @@ impl JobOrchestrator {
                 break;
             }
             let scanned = self.scanned_video_count(job_id)? as usize;
-            if scanned >= target_videos {
+            if scanned >= scan_limit {
                 break;
             }
 
@@ -809,7 +810,8 @@ impl JobOrchestrator {
 
             let should_refill =
                 pending_count <= LOW_WATERMARK
-                    && progress < cfg.target_count
+                    && (!cfg.collects_by_video_limit() || scanned < scan_limit)
+                    && (cfg.collects_by_video_limit() || progress < cfg.target_count)
                     && videos.len() < target_videos
                     && refill_attempts < MAX_QUEUE_REFILLS;
 
@@ -906,10 +908,18 @@ impl JobOrchestrator {
 
             let _ = lab.close_video_detail().await;
             let progress = self.collect_progress_count(job_id)?;
-            if progress >= cfg.target_count {
+            if !cfg.collects_by_video_limit() && progress >= cfg.target_count {
                 info!(
                     "job {job_id}: xhs target reached after note {}/{}; finishing",
                     progress, cfg.target_count
+                );
+                break;
+            }
+            if cfg.collects_by_video_limit() && self.video_scan_quota_met(job_id, job)? {
+                info!(
+                    "job {job_id}: xhs scan quota reached after note ({}/{})",
+                    self.scanned_video_count(job_id)?,
+                    job.limit_videos.max(1)
                 );
                 break;
             }
@@ -926,7 +936,7 @@ impl JobOrchestrator {
         }
 
         let progress = self.collect_progress_count(job_id)?;
-        if progress < cfg.target_count {
+        if !cfg.collects_by_video_limit() && progress < cfg.target_count {
             let total_comments = self.db.count_comments_for_job(job_id).unwrap_or(0);
             if total_comments > 0 {
                 info!(
