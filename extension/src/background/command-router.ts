@@ -51,10 +51,12 @@ async function focusTab(tab: chrome.tabs.Tab) {
   await chrome.tabs.update(tab.id, { active: true });
 }
 
-function resolveCommandPlatform(command: BridgeMessage): string {
+async function resolveCommandPlatform(command: BridgeMessage): Promise<string> {
   if (command.platform) return normalizePlatformId(command.platform);
   const payloadPlatform = (command.payload as { platform?: string } | undefined)?.platform;
   if (payloadPlatform) return normalizePlatformId(payloadPlatform);
+  const session = await readLabSession();
+  if (session?.platform) return normalizePlatformId(session.platform);
   return "douyin";
 }
 
@@ -123,7 +125,7 @@ async function resolvePinnedOrWorkTab(platform: string): Promise<chrome.tabs.Tab
 }
 
 async function resolveTargetTab(command: BridgeMessage): Promise<chrome.tabs.Tab> {
-  const platform = resolveCommandPlatform(command);
+  const platform = await resolveCommandPlatform(command);
   const adapter = getPluginLabAdapter(platform);
 
   const pinned = await resolvePinnedOrWorkTab(platform);
@@ -283,11 +285,12 @@ export async function routeCommandToTab(command: BridgeMessage): Promise<unknown
     command.action === "plugin_lab.preflight" && payload.target_action
       ? payload.target_action
       : command.action;
+  const platform = await resolveCommandPlatform(command);
 
   const tab = command.action.startsWith("network.hook.")
-    ? await resolveNetworkHookTab(resolveCommandPlatform(command))
+    ? await resolveNetworkHookTab(platform)
     : command.action.startsWith("plugin_lab.") && !isPluginLabBackgroundAction(command.action)
-      ? await resolveLabTabForAction(tabAction, resolveCommandPlatform(command))
+      ? await resolveLabTabForAction(tabAction, platform)
       : await resolveTargetTab(command);
   if (!tab.id) {
     throw new Error("target tab has no id");
