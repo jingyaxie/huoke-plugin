@@ -135,9 +135,13 @@ async function resolveTargetTab(command: BridgeMessage): Promise<chrome.tabs.Tab
     throw new Error(`no ${adapter.label} tab open — run open_browser with platform=${platform} first`);
   }
 
-  throw new Error(
-    `no ${adapter.label} work window — run open_browser with platform=${platform} first`,
-  );
+  try {
+    return await resolveLabTargetTab({ platform });
+  } catch {
+    throw new Error(
+      `no ${adapter.label} work window — run open_browser with platform=${platform} first`,
+    );
+  }
 }
 
 async function pingContentScript(tabId: number): Promise<{ ok?: boolean; version?: string } | null> {

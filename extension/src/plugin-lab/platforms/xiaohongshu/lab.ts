@@ -272,15 +272,20 @@ async function xhsPrepareSearchForVideo(payload: { skip_restore?: boolean } = {}
   window.scrollTo({ top: 0, behavior: "auto" });
   await sleep(randDelay(350, 550));
   const cards = collectXhsNoteCards();
+  const apiItems = cards.length > 0 ? [] : await getXhsSearchApiResults();
+  const available = cards.length || apiItems.length;
   return {
-    ok: cards.length > 0,
+    ok: available > 0,
     on_search_page: true,
     card_count: cards.length,
+    api_count: apiItems.length,
     url: location.href,
     restored: restored.restored,
     message:
       cards.length > 0
         ? `搜索列表就绪（${cards.length} 条笔记）`
+        : apiItems.length > 0
+          ? `搜索接口结果就绪（${apiItems.length} 条笔记），当前无可见卡片`
         : "已在搜索结果页，但暂无可见笔记卡片",
   };
 }
