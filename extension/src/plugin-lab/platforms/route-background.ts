@@ -51,6 +51,16 @@ async function routeByLabTab(
   return run(getBackground(platform), { ...payload, platform });
 }
 
+function isMissingLabTabError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    /no .* tab open/i.test(message) ||
+    /no .* work window/i.test(message) ||
+    /no platform work window/i.test(message) ||
+    message.includes("无匹配")
+  );
+}
+
 export async function clickSearchVideoBackground(payload: Record<string, unknown> = {}) {
   return routeByLabTab("plugin_lab.click_search_video", payload, (mod, enriched) =>
     mod.clickSearchVideoBackground(enriched),
@@ -64,9 +74,20 @@ export async function prepareSearchForVideoBackground(payload: Record<string, un
 }
 
 export async function closeVideoDetailBackground(payload: Record<string, unknown> = {}) {
-  return routeByLabTab("plugin_lab.close_video_detail", payload, (mod, enriched) =>
-    mod.closeVideoDetailBackground(enriched),
-  );
+  try {
+    return await routeByLabTab("plugin_lab.close_video_detail", payload, (mod, enriched) =>
+      mod.closeVideoDetailBackground(enriched),
+    );
+  } catch (err) {
+    if (!isMissingLabTabError(err)) throw err;
+    return {
+      ok: true,
+      closed: false,
+      detail_closed: false,
+      noop: true,
+      message: "没有可关闭的视频详情页",
+    };
+  }
 }
 
 export async function clickCommentButtonBackground(payload: Record<string, unknown> = {}) {
