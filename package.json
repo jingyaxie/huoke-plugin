@@ -15,6 +15,7 @@
     "build:win:light": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-win.ps1 -Mode light",
     "test:collect": "bash scripts/test-douyin-collect.sh",
     "test:lab-task": "bash scripts/test-lab-task-smoke.sh",
+    "test:follow-dm": "bash scripts/test-follow-dm-flow.sh",
     "test:search-return": "node scripts/test-search-return-smoke.mjs",
     "test:extension": "bash scripts/test-douyin-extension-cases.sh",
     "simulate": "bash scripts/simulate-tasks.sh",

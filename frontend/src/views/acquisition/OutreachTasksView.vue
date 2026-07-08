@@ -3,7 +3,7 @@
     <header class="page-header">
       <div>
         <h1 class="page-title">触达任务</h1>
-        <p class="page-subtitle">从已完成采集任务的精准评论中筛选客户，独立执行关注或私信。</p>
+        <p class="page-subtitle">从已完成采集任务的精准评论中筛选客户，独立执行关注或私信，可按天循环等待新数据。</p>
       </div>
       <div class="header-actions">
         <el-button @click="refreshAll" :loading="loading">刷新</el-button>
@@ -51,6 +51,13 @@
         <el-table-column prop="pending_count" label="待执行" width="84" align="right" />
         <el-table-column prop="completed_count" label="成功" width="84" align="right" />
         <el-table-column prop="failed_count" label="失败" width="84" align="right" />
+        <el-table-column label="模式" width="92">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.recurring ? 'success' : 'info'">
+              {{ row.recurring ? "循环" : "一次性" }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="间隔" width="96" align="right">
           <template #default="{ row }">{{ Math.round(Number(row.interval_ms || 0) / 1000) }} 秒</template>
         </el-table-column>
@@ -64,7 +71,7 @@
               v-if="row.status !== 'running'"
               text
               type="primary"
-              :disabled="Number(row.pending_count || 0) <= 0"
+              :disabled="Number(row.pending_count || 0) <= 0 && !row.recurring"
               @click="startTask(row)"
             >
               启动
@@ -129,6 +136,30 @@
             <el-form-item label="执行间隔">
               <el-input-number v-model="form.intervalSeconds" :min="5" :max="300" />
               <span class="unit">秒</span>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-form-item label="循环执行">
+          <el-switch
+            v-model="form.recurring"
+            active-text="每天自动循环"
+            inactive-text="一次性任务"
+          />
+          <p class="field-hint">开启后，队列为空会继续等待新采集评论；今日额度用完会休眠，隔天额度恢复后继续。</p>
+        </el-form-item>
+
+        <el-row v-if="form.recurring" :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="空闲休眠">
+              <el-input-number v-model="form.idleSleepMinutes" :min="1" :max="1440" />
+              <span class="unit">分钟</span>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="每次补充">
+              <el-input-number v-model="form.refillBatchSize" :min="1" :max="500" />
+              <span class="unit">条</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -236,6 +267,9 @@ const form = reactive({
   intervalSeconds: 20,
   dailyQuota: 30,
   minDiggCount: 0,
+  recurring: true,
+  idleSleepMinutes: 10,
+  refillBatchSize: 50,
 });
 
 const candidateTotal = computed(() => candidateRows.value.length);
@@ -336,6 +370,9 @@ function resetForm() {
   form.intervalSeconds = 20;
   form.dailyQuota = 30;
   form.minDiggCount = 0;
+  form.recurring = true;
+  form.idleSleepMinutes = 10;
+  form.refillBatchSize = 50;
   candidateRows.value = [];
 }
 
@@ -344,8 +381,8 @@ async function submitTask() {
     ElMessage.warning("请填写或选择私信内容");
     return;
   }
-  if (!candidateRows.value.length) {
-    ElMessage.warning("暂无可触达精准线索");
+  if (!candidateRows.value.length && !form.recurring) {
+    ElMessage.warning("暂无可触达精准线索；如需等待新数据，请开启循环执行");
     return;
   }
   submitting.value = true;
@@ -359,6 +396,9 @@ async function submitTask() {
       interval_ms: form.intervalSeconds * 1000,
       daily_quota: form.dailyQuota,
       min_digg_count: form.minDiggCount,
+      recurring: form.recurring,
+      idle_sleep_ms: form.idleSleepMinutes * 60 * 1000,
+      refill_batch_size: form.refillBatchSize,
     });
     ElMessage.success(`触达任务已创建，共 ${resp.inserted_items || 0} 条线索`);
     createOpen.value = false;

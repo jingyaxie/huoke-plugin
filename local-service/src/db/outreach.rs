@@ -76,9 +76,16 @@ pub struct OutreachTask {
     pub action_type: String,
     pub name: String,
     pub status: OutreachTaskStatus,
+    pub reply_text: String,
+    pub dm_text: String,
+    pub min_digg_count: i64,
+    pub include_contacted: bool,
     pub max_retries: i64,
     pub interval_ms: i64,
     pub daily_quota: i64,
+    pub recurring: bool,
+    pub idle_sleep_ms: i64,
+    pub refill_batch_size: i64,
     pub error_message: Option<String>,
     pub completed_count: i64,
     pub failed_count: i64,
@@ -152,9 +159,16 @@ impl Database {
                 action_type TEXT NOT NULL DEFAULT 'reply',
                 name TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'pending',
+                reply_text TEXT NOT NULL DEFAULT '',
+                dm_text TEXT NOT NULL DEFAULT '',
+                min_digg_count INTEGER NOT NULL DEFAULT 0,
+                include_contacted INTEGER NOT NULL DEFAULT 0,
                 max_retries INTEGER NOT NULL DEFAULT 2,
                 interval_ms INTEGER NOT NULL DEFAULT 4000,
                 daily_quota INTEGER NOT NULL DEFAULT 50,
+                recurring INTEGER NOT NULL DEFAULT 0,
+                idle_sleep_ms INTEGER NOT NULL DEFAULT 600000,
+                refill_batch_size INTEGER NOT NULL DEFAULT 50,
                 error_message TEXT,
                 completed_count INTEGER NOT NULL DEFAULT 0,
                 failed_count INTEGER NOT NULL DEFAULT 0,
@@ -197,6 +211,13 @@ impl Database {
         .map_err(|e| e.to_string())?;
         let _ = conn.execute("ALTER TABLE outreach_tasks ADD COLUMN platform TEXT NOT NULL DEFAULT 'douyin'", []);
         let _ = conn.execute("ALTER TABLE outreach_tasks ADD COLUMN action_type TEXT NOT NULL DEFAULT 'reply'", []);
+        let _ = conn.execute("ALTER TABLE outreach_tasks ADD COLUMN reply_text TEXT NOT NULL DEFAULT ''", []);
+        let _ = conn.execute("ALTER TABLE outreach_tasks ADD COLUMN dm_text TEXT NOT NULL DEFAULT ''", []);
+        let _ = conn.execute("ALTER TABLE outreach_tasks ADD COLUMN min_digg_count INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE outreach_tasks ADD COLUMN include_contacted INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE outreach_tasks ADD COLUMN recurring INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE outreach_tasks ADD COLUMN idle_sleep_ms INTEGER NOT NULL DEFAULT 600000", []);
+        let _ = conn.execute("ALTER TABLE outreach_tasks ADD COLUMN refill_batch_size INTEGER NOT NULL DEFAULT 50", []);
         let _ = conn.execute("ALTER TABLE outreach_items ADD COLUMN platform TEXT NOT NULL DEFAULT 'douyin'", []);
         let _ = conn.execute("ALTER TABLE outreach_items ADD COLUMN action_type TEXT NOT NULL DEFAULT 'reply'", []);
         let _ = conn.execute("ALTER TABLE outreach_items ADD COLUMN source_job_id TEXT", []);
@@ -269,9 +290,16 @@ impl Database {
         source_job_id: Option<&str>,
         platform: &str,
         action_type: &str,
+        reply_text: &str,
+        dm_text: &str,
+        min_digg_count: i64,
+        include_contacted: bool,
         max_retries: i64,
         interval_ms: i64,
         daily_quota: i64,
+        recurring: bool,
+        idle_sleep_ms: i64,
+        refill_batch_size: i64,
     ) -> Result<OutreachTask, String> {
         let id = Uuid::new_v4().to_string();
         let now = Self::outreach_now_ms();
@@ -279,9 +307,26 @@ impl Database {
             let conn = self.conn.lock().map_err(|e| e.to_string())?;
             conn.execute(
                 "INSERT INTO outreach_tasks
-                 (id, source_job_id, platform, action_type, name, status, max_retries, interval_ms, daily_quota, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?8, ?9, ?9)",
-                params![id, source_job_id, platform, action_type, name, max_retries, interval_ms, daily_quota, now],
+                 (id, source_job_id, platform, action_type, name, status, reply_text, dm_text, min_digg_count, include_contacted, max_retries, interval_ms, daily_quota, recurring, idle_sleep_ms, refill_batch_size, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)",
+                params![
+                    id,
+                    source_job_id,
+                    platform,
+                    action_type,
+                    name,
+                    reply_text,
+                    dm_text,
+                    min_digg_count,
+                    if include_contacted { 1 } else { 0 },
+                    max_retries,
+                    interval_ms,
+                    daily_quota,
+                    if recurring { 1 } else { 0 },
+                    idle_sleep_ms,
+                    refill_batch_size,
+                    now
+                ],
             )
             .map_err(|e| e.to_string())?;
         }
@@ -302,6 +347,9 @@ impl Database {
         .map_err(|e| e.to_string())?;
         let mut inserted = 0usize;
         for item in items {
+            if self.outreach_item_exists_locked(&conn, task_id, item)? {
+                continue;
+            }
             let changed = conn.execute(
                 "INSERT OR IGNORE INTO outreach_items
                  (id, task_id, platform, action_type, source_job_id, video_url, aweme_id, comment_id, comment_text, username, user_id, sec_uid, profile_url, reply_text, dm_text, status, attempts, max_retries, created_at, updated_at)
@@ -334,13 +382,40 @@ impl Database {
         Ok(inserted)
     }
 
+    fn outreach_item_exists_locked(
+        &self,
+        conn: &Connection,
+        task_id: &str,
+        item: &OutreachItemDraft,
+    ) -> Result<bool, String> {
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM outreach_items
+                 WHERE task_id = ?1
+                   AND action_type = ?2
+                   AND comment_id = ?3
+                   AND ((?4 != '' AND user_id = ?4) OR (?5 != '' AND sec_uid = ?5) OR profile_url = ?6)",
+                params![
+                    task_id,
+                    item.action_type,
+                    item.comment_id,
+                    item.user_id,
+                    item.sec_uid,
+                    item.profile_url
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count > 0)
+    }
+
     pub fn list_outreach_tasks(&self, limit: i64) -> Result<Vec<OutreachTask>, String> {
         let rows = {
             let conn = self.conn.lock().map_err(|e| e.to_string())?;
             let mut stmt = conn
                 .prepare(
                     "SELECT id, source_job_id, platform, action_type, name, status, max_retries, interval_ms, daily_quota, error_message,
-                            completed_count, failed_count, created_at, updated_at
+                            reply_text, dm_text, min_digg_count, include_contacted, recurring, idle_sleep_ms, refill_batch_size, completed_count, failed_count, created_at, updated_at
                      FROM outreach_tasks ORDER BY created_at DESC LIMIT ?1",
                 )
                 .map_err(|e| e.to_string())?;
@@ -357,10 +432,17 @@ impl Database {
                         row.get::<_, i64>(7)?,
                         row.get::<_, i64>(8)?,
                         row.get::<_, Option<String>>(9)?,
-                        row.get::<_, i64>(10)?,
-                        row.get::<_, i64>(11)?,
+                        row.get::<_, String>(10)?,
+                        row.get::<_, String>(11)?,
                         row.get::<_, i64>(12)?,
                         row.get::<_, i64>(13)?,
+                        row.get::<_, i64>(14)?,
+                        row.get::<_, i64>(15)?,
+                        row.get::<_, i64>(16)?,
+                        row.get::<_, i64>(17)?,
+                        row.get::<_, i64>(18)?,
+                        row.get::<_, i64>(19)?,
+                        row.get::<_, i64>(20)?,
                     ))
                 })
                 .map_err(|e| e.to_string())?;
@@ -378,15 +460,22 @@ impl Database {
                 action_type: row.3,
                 name: row.4,
                 status: OutreachTaskStatus::from_str(&row.5),
+                reply_text: row.10,
+                dm_text: row.11,
+                min_digg_count: row.12,
+                include_contacted: row.13 != 0,
                 max_retries: row.6,
                 interval_ms: row.7,
                 daily_quota: row.8,
+                recurring: row.14 != 0,
+                idle_sleep_ms: row.15,
+                refill_batch_size: row.16,
                 error_message: row.9,
-                completed_count: row.10,
-                failed_count: row.11,
+                completed_count: row.17,
+                failed_count: row.18,
                 pending_count,
-                created_at: row.12,
-                updated_at: row.13,
+                created_at: row.19,
+                updated_at: row.20,
             });
         }
         Ok(tasks)
@@ -409,7 +498,7 @@ impl Database {
             let conn = self.conn.lock().map_err(|e| e.to_string())?;
             conn.query_row(
                 "SELECT id, source_job_id, platform, action_type, name, status, max_retries, interval_ms, daily_quota, error_message,
-                        completed_count, failed_count, created_at, updated_at
+                        reply_text, dm_text, min_digg_count, include_contacted, recurring, idle_sleep_ms, refill_batch_size, completed_count, failed_count, created_at, updated_at
                  FROM outreach_tasks WHERE id = ?1",
                 params![task_id],
                 |row| {
@@ -424,10 +513,17 @@ impl Database {
                         row.get::<_, i64>(7)?,
                         row.get::<_, i64>(8)?,
                         row.get::<_, Option<String>>(9)?,
-                        row.get::<_, i64>(10)?,
-                        row.get::<_, i64>(11)?,
+                        row.get::<_, String>(10)?,
+                        row.get::<_, String>(11)?,
                         row.get::<_, i64>(12)?,
                         row.get::<_, i64>(13)?,
+                        row.get::<_, i64>(14)?,
+                        row.get::<_, i64>(15)?,
+                        row.get::<_, i64>(16)?,
+                        row.get::<_, i64>(17)?,
+                        row.get::<_, i64>(18)?,
+                        row.get::<_, i64>(19)?,
+                        row.get::<_, i64>(20)?,
                     ))
                 },
             )
@@ -441,15 +537,22 @@ impl Database {
             action_type: row.3,
             name: row.4,
             status: OutreachTaskStatus::from_str(&row.5),
+            reply_text: row.10,
+            dm_text: row.11,
+            min_digg_count: row.12,
+            include_contacted: row.13 != 0,
             max_retries: row.6,
             interval_ms: row.7,
             daily_quota: row.8,
+            recurring: row.14 != 0,
+            idle_sleep_ms: row.15,
+            refill_batch_size: row.16,
             error_message: row.9,
-            completed_count: row.10,
-            failed_count: row.11,
+            completed_count: row.17,
+            failed_count: row.18,
             pending_count,
-            created_at: row.12,
-            updated_at: row.13,
+            created_at: row.19,
+            updated_at: row.20,
         })
     }
 

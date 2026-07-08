@@ -32,6 +32,12 @@ pub struct CreateOutreachTaskRequest {
     pub min_digg_count: i64,
     #[serde(default)]
     pub include_contacted: bool,
+    #[serde(default)]
+    pub recurring: bool,
+    #[serde(default = "default_idle_sleep_ms")]
+    pub idle_sleep_ms: i64,
+    #[serde(default = "default_refill_batch_size")]
+    pub refill_batch_size: i64,
 }
 
 fn default_platform() -> String {
@@ -51,6 +57,14 @@ fn default_interval_ms() -> i64 {
 }
 
 fn default_daily_quota() -> i64 {
+    50
+}
+
+fn default_idle_sleep_ms() -> i64 {
+    10 * 60 * 1000
+}
+
+fn default_refill_batch_size() -> i64 {
     50
 }
 
@@ -78,6 +92,36 @@ pub struct CandidateQuery {
 
 fn default_candidate_limit() -> i64 {
     50
+}
+
+pub(crate) fn candidates_to_drafts(
+    candidates: Vec<OutreachCandidate>,
+    action_type: &str,
+    reply_text: &str,
+    dm_text: &str,
+    min_digg_count: i64,
+    max_items: i64,
+) -> Vec<OutreachItemDraft> {
+    candidates
+        .into_iter()
+        .filter(|c| c.digg_count >= min_digg_count)
+        .take(max_items.clamp(1, 500) as usize)
+        .map(|candidate| OutreachItemDraft {
+            platform: candidate.platform,
+            action_type: action_type.to_string(),
+            source_job_id: Some(candidate.job_id),
+            video_url: candidate.video_url,
+            aweme_id: candidate.aweme_id,
+            comment_id: candidate.comment_id,
+            comment_text: candidate.comment_text,
+            username: candidate.username,
+            user_id: candidate.user_id,
+            sec_uid: candidate.sec_uid,
+            profile_url: candidate.profile_url,
+            reply_text: reply_text.to_string(),
+            dm_text: dm_text.to_string(),
+        })
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -124,28 +168,16 @@ pub async fn create_outreach_task(
         )
         .map_err(internal_error)?;
 
-    let drafts: Vec<OutreachItemDraft> = candidates
-        .into_iter()
-        .filter(|c| c.digg_count >= body.min_digg_count)
-        .take(body.max_items.clamp(1, 500) as usize)
-        .map(|candidate| OutreachItemDraft {
-            platform: candidate.platform,
-            action_type: action_type.clone(),
-            source_job_id: Some(candidate.job_id),
-            video_url: candidate.video_url,
-            aweme_id: candidate.aweme_id,
-            comment_id: candidate.comment_id,
-            comment_text: candidate.comment_text,
-            username: candidate.username,
-            user_id: candidate.user_id,
-            sec_uid: candidate.sec_uid,
-            profile_url: candidate.profile_url,
-            reply_text: body.reply_text.trim().to_string(),
-            dm_text: dm_text.to_string(),
-        })
-        .collect();
+    let drafts = candidates_to_drafts(
+        candidates,
+        &action_type,
+        body.reply_text.trim(),
+        dm_text,
+        body.min_digg_count,
+        body.max_items.clamp(1, 500),
+    );
 
-    if drafts.is_empty() {
+    if drafts.is_empty() && !body.recurring {
         return Err(bad_request("no eligible precise comments found"));
     }
 
@@ -164,9 +196,16 @@ pub async fn create_outreach_task(
             source_job_id,
             &platform,
             &action_type,
+            body.reply_text.trim(),
+            dm_text,
+            body.min_digg_count,
+            body.include_contacted,
             body.max_retries.clamp(0, 5),
             body.interval_ms.clamp(1000, 30000),
             body.daily_quota.clamp(1, 500),
+            body.recurring,
+            body.idle_sleep_ms.clamp(60_000, 86_400_000),
+            body.refill_batch_size.clamp(1, 500),
         )
         .map_err(internal_error)?;
 
@@ -252,7 +291,7 @@ pub async fn start_outreach_task(
             "message": "already running"
         })));
     }
-    if task.pending_count == 0 && task.status == OutreachTaskStatus::Completed {
+    if task.pending_count == 0 && task.status == OutreachTaskStatus::Completed && !task.recurring {
         return Ok(Json(json!({
             "task_id": task_id,
             "status": "completed",

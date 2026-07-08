@@ -6,7 +6,8 @@ use tracing::{error, info, warn};
 
 use crate::lab_commands::LabCommands;
 
-use crate::db::{Database, OutreachItem, OutreachTaskStatus};
+use crate::api::outreach::candidates_to_drafts;
+use crate::db::{Database, OutreachItem, OutreachTask, OutreachTaskStatus};
 use crate::ws::BridgeHub;
 
 #[derive(Clone)]
@@ -57,12 +58,33 @@ impl OutreachService {
             let quota = self.db.get_quota_status(current.daily_quota)?;
             if quota.remaining <= 0 {
                 let msg = format!("daily quota reached ({}/{})", quota.reply_count, quota.daily_limit);
+                if current.recurring {
+                    self.db
+                        .update_outreach_task_status(task_id, OutreachTaskStatus::Running, Some(&msg))?;
+                    self.sleep_idle(&current, &msg).await;
+                    continue;
+                }
                 self.db
                     .update_outreach_task_status(task_id, OutreachTaskStatus::Paused, Some(&msg))?;
                 return Err(msg);
             }
 
             let Some(item) = self.db.next_pending_outreach_item(task_id)? else {
+                if current.recurring {
+                    let inserted = self.refill_task_items(&current)?;
+                    if inserted > 0 {
+                        info!("outreach task {task_id}: refilled {inserted} new item(s)");
+                        continue;
+                    }
+                    let msg = "no new outreach candidates; sleeping";
+                    self.db.update_outreach_task_status(
+                        task_id,
+                        OutreachTaskStatus::Running,
+                        Some(msg),
+                    )?;
+                    self.sleep_idle(&current, msg).await;
+                    continue;
+                }
                 self.db
                     .update_outreach_task_status(task_id, OutreachTaskStatus::Completed, None)?;
                 info!("outreach task {task_id} completed");
@@ -105,6 +127,34 @@ impl OutreachService {
             let delay_ms = jitter_delay(current.interval_ms);
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         }
+    }
+
+    fn refill_task_items(&self, task: &OutreachTask) -> Result<usize, String> {
+        let candidates = self.db.list_outreach_candidates(
+            Some(&task.platform),
+            task.source_job_id.as_deref(),
+            task.refill_batch_size.clamp(1, 500),
+            task.include_contacted,
+        )?;
+        let drafts = candidates_to_drafts(
+            candidates,
+            &task.action_type,
+            &task.reply_text,
+            &task.dm_text,
+            task.min_digg_count,
+            task.refill_batch_size,
+        );
+        self.db.add_outreach_items(&task.id, &drafts)
+    }
+
+    async fn sleep_idle(&self, task: &OutreachTask, reason: &str) {
+        let sleep_ms = task.idle_sleep_ms.clamp(60_000, 86_400_000) as u64;
+        info!(
+            "outreach task {} idle: {reason}; sleep {}s",
+            task.id,
+            sleep_ms / 1000
+        );
+        tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
     }
 
     async fn execute_item(&self, item: &OutreachItem) -> Result<serde_json::Value, String> {

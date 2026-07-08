@@ -328,7 +328,16 @@ export function probeLabReadiness(payload: { target_action?: string } = {}): Lab
       });
     }
 
-    case "plugin_lab.click_follow_btn":
+    case "plugin_lab.click_follow_btn": {
+      if (detectPageContext(location.href) !== "profile") {
+        return fail(targetAction, required, "不在用户主页", { on_profile: false });
+      }
+      return pass(targetAction, required, {
+        on_profile: true,
+        platform: activePlatformId(),
+      });
+    }
+
     case "plugin_lab.click_dm_btn":
     case "plugin_lab.dm_button_probe":
     case "plugin_lab.dm_input_probe":

@@ -361,9 +361,14 @@ pub async fn evaluate_job(
 
 #[derive(Deserialize, Default)]
 pub struct StartJobRequest {
-    /// true = 完整搜索流程；false = 有进度则接续。默认：运行中点「重新启动」时为 true。
+    /// true = 完整搜索流程；false = 有进度则接续。
+    /// 默认：运行中重启、失败后再次启动、小红书任务均从头搜索。
     #[serde(default)]
     pub fresh_start: Option<bool>,
+}
+
+fn default_fresh_start_for_job(job: &crate::db::CollectJob, restarting: bool) -> bool {
+    restarting || job.status == JobStatus::Failed || job.platform == "xiaohongshu"
 }
 
 pub async fn start_job(
@@ -422,7 +427,7 @@ pub async fn start_job(
     let fresh_start = body
         .as_ref()
         .and_then(|b| b.fresh_start)
-        .unwrap_or(restarting || job.platform == "xiaohongshu");
+        .unwrap_or_else(|| default_fresh_start_for_job(&job, restarting));
 
     if fresh_start {
         state
@@ -569,4 +574,61 @@ fn internal_error(err: String) -> ApiError {
 
 fn not_found() -> ApiError {
     (StatusCode::NOT_FOUND, Json(json!({ "error": "job not found" })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn job(status: JobStatus, platform: &str) -> CollectJob {
+        CollectJob {
+            id: "job-1".into(),
+            platform: platform.into(),
+            keyword: "keyword".into(),
+            name: "name".into(),
+            job_type: "keyword".into(),
+            input_url: None,
+            status,
+            limit_videos: 10,
+            max_comments_per_video: 20,
+            error_message: None,
+            created_at: 0,
+            updated_at: 0,
+            video_count: 0,
+            comment_count: 0,
+            reply_count: 0,
+            dm_count: 0,
+            follow_count: 0,
+            precise_count: 0,
+            config: None,
+        }
+    }
+
+    #[test]
+    fn failed_jobs_restart_from_fresh_search_by_default() {
+        assert!(default_fresh_start_for_job(
+            &job(JobStatus::Failed, "douyin"),
+            false
+        ));
+    }
+
+    #[test]
+    fn running_restarts_and_xiaohongshu_start_fresh_by_default() {
+        assert!(default_fresh_start_for_job(
+            &job(JobStatus::Running, "douyin"),
+            true
+        ));
+        assert!(default_fresh_start_for_job(
+            &job(JobStatus::Paused, "xiaohongshu"),
+            false
+        ));
+    }
+
+    #[test]
+    fn pending_douyin_can_still_resume_when_not_failed_or_restarting() {
+        assert!(!default_fresh_start_for_job(
+            &job(JobStatus::Paused, "douyin"),
+            false
+        ));
+    }
 }
