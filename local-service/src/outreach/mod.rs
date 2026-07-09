@@ -45,10 +45,17 @@ impl OutreachService {
         }
 
         let task = self.db.get_outreach_task(task_id)?;
+        if task.platform == "xiaohongshu" {
+            let msg = "小红书 PC 网页版暂不支持自动关注或私信触达";
+            self.db
+                .update_outreach_task_status(task_id, OutreachTaskStatus::Paused, Some(msg))?;
+            return Err(msg.into());
+        }
         self.db
             .update_outreach_task_status(task_id, OutreachTaskStatus::Running, None)?;
         info!("starting outreach task {task_id} name={}", task.name);
 
+        let mut consecutive_failures = 0_i64;
         loop {
             let current = self.db.get_outreach_task(task_id)?;
             if current.status == OutreachTaskStatus::Paused {
@@ -113,6 +120,7 @@ impl OutreachService {
                 Ok(data) => {
                     let ok = data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
                     if ok {
+                        consecutive_failures = 0;
                         for _ in 0..action_count {
                             let _ = self.db.consume_reply_quota(current.daily_quota)?;
                         }
@@ -132,6 +140,7 @@ impl OutreachService {
                         self.db
                             .mark_outreach_item_failed(&item.id, err, retryable)?;
                         warn!("outreach item {} failed: {err}", item.id);
+                        consecutive_failures += 1;
                     }
                 }
                 Err(err) => {
@@ -139,7 +148,15 @@ impl OutreachService {
                     self.db
                         .mark_outreach_item_failed(&item.id, &err, retryable)?;
                     warn!("outreach item {} command error: {err}", item.id);
+                    consecutive_failures += 1;
                 }
+            }
+
+            if consecutive_failures >= 2 {
+                let msg = "连续触达失败，任务已暂停，请检查平台页面状态后再继续";
+                self.db
+                    .update_outreach_task_status(task_id, OutreachTaskStatus::Paused, Some(msg))?;
+                return Err(msg.into());
             }
 
             let delay_ms = jitter_delay(current.interval_ms);

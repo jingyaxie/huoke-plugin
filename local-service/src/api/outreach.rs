@@ -151,8 +151,8 @@ pub async fn create_outreach_task(
 ) -> Result<Json<CreateOutreachTaskResponse>, ApiError> {
     let platform = crate::platforms::normalize_platform(&body.platform).to_string();
     let action_type = normalize_action_type(body.action_type.as_deref(), body.reply_text.trim())?;
-    if platform == "xiaohongshu" && action_type.contains("dm") {
-        return Err(bad_request("小红书 PC 网页版不支持私信任务"));
+    if platform == "xiaohongshu" {
+        return Err(bad_request("小红书 PC 网页版暂不支持自动关注或私信触达"));
     }
     let dm_text = body.dm_text.trim();
     if action_type.contains("dm") && dm_text.is_empty() {

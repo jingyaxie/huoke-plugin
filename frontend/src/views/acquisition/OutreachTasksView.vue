@@ -91,8 +91,9 @@
         <el-form-item label="平台" required>
           <el-radio-group v-model="form.platform" @change="onPlatformChange">
             <el-radio-button value="douyin">抖音</el-radio-button>
-            <el-radio-button value="xiaohongshu">小红书</el-radio-button>
+            <el-radio-button value="xiaohongshu" disabled>小红书</el-radio-button>
           </el-radio-group>
+          <p class="field-hint">小红书 PC 网页版暂不支持自动关注或私信触达，当前仅支持采集和线索筛选。</p>
         </el-form-item>
 
         <el-form-item label="触达动作" required>
@@ -278,7 +279,7 @@ const candidateTotal = computed(() => candidateRows.value.length);
 const runningCount = computed(() => tasks.value.filter((row) => row.status === "running").length);
 const actionOptions = computed(() => {
   if (form.platform === "xiaohongshu") {
-    return [{ value: "follow", label: "关注" }];
+    return [];
   }
   return [
     { value: "follow", label: "关注" },
@@ -288,7 +289,7 @@ const actionOptions = computed(() => {
 });
 const actionHint = computed(() =>
   form.platform === "xiaohongshu"
-    ? "小红书 PC 网页版不支持私信，这里只开放关注。"
+    ? "小红书 PC 网页版暂不支持自动关注或私信触达。"
     : "抖音支持关注、私信、关注后私信；任务会逐个打开用户主页执行。",
 );
 
@@ -379,6 +380,10 @@ function resetForm() {
 }
 
 async function submitTask() {
+  if (form.platform === "xiaohongshu") {
+    ElMessage.warning("小红书 PC 网页版暂不支持自动关注或私信触达");
+    return;
+  }
   if (form.actionType.includes("dm") && !form.dmText.trim()) {
     ElMessage.warning("请填写或选择私信内容");
     return;
