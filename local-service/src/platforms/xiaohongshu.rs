@@ -11,14 +11,26 @@ fn is_note_id(value: &str) -> bool {
     len >= 16 && len <= 32 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+fn encode_query_value(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
 fn build_note_url(note_id: &str, xsec_token: Option<&str>, xsec_source: Option<&str>) -> String {
     let mut url = format!("https://www.xiaohongshu.com/explore/{note_id}");
     let mut params = Vec::new();
     if let Some(token) = xsec_token.filter(|s| !s.is_empty()) {
-        params.push(format!("xsec_token={token}"));
+        params.push(format!("xsec_token={}", encode_query_value(token)));
     }
     if let Some(source) = xsec_source.filter(|s| !s.is_empty()) {
-        params.push(format!("xsec_source={source}"));
+        params.push(format!("xsec_source={}", encode_query_value(source)));
     }
     if !params.is_empty() {
         url.push('?');
@@ -347,12 +359,12 @@ mod tests {
                 "note_id": "674a1b2c3d4e5f6071829304",
                 "display_title": "测试笔记",
                 "user": { "nickname": "作者A" },
-                "xsec_token": "abc"
+                "xsec_token": "abc+/=&"
             }
         });
         let videos = XiaohongshuCollectAdapter.parse_search_videos(&body);
         assert_eq!(videos.len(), 1);
         assert_eq!(videos[0].aweme_id, "674a1b2c3d4e5f6071829304");
-        assert!(videos[0].video_url.contains("xsec_token=abc"));
+        assert!(videos[0].video_url.contains("xsec_token=abc%2B%2F%3D%26"));
     }
 }

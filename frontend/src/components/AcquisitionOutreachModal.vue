@@ -126,22 +126,22 @@
             <template #default="{ row }">
               <div class="action-links">
                 <a
-                  v-if="row.video_url"
+                  v-if="rowVideoUrl(row)"
                   class="action-link"
-                  :href="row.video_url"
+                  :href="rowVideoUrl(row)"
                   target="_blank"
                   rel="noopener noreferrer"
-                  @click.prevent="onOpenLink(row.video_url)"
+                  @click.prevent="onOpenLink(rowVideoUrl(row))"
                 >
                   查看视频
                 </a>
                 <a
-                  v-if="row.profile_url"
+                  v-if="rowProfileUrl(row)"
                   class="action-link"
-                  :href="row.profile_url"
+                  :href="rowProfileUrl(row)"
                   target="_blank"
                   rel="noopener noreferrer"
-                  @click.prevent="onOpenLink(row.profile_url)"
+                  @click.prevent="onOpenLink(rowProfileUrl(row))"
                 >
                   查看主页
                 </a>
@@ -183,6 +183,7 @@ import {
   platformLabel,
 } from "../utils/acquisitionJobs";
 import { openExternalLinkWithHint } from "../utils/openExternalLink";
+import { resolveCommentLinks } from "../utils/douyinLinks";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -297,6 +298,18 @@ const emptyHint = computed(() => {
   }
   return "暂无采集或触达数据，任务执行后将在此展示。";
 });
+
+function rowLinks(row) {
+  return resolveCommentLinks(row, rowModel.value?.platform || "douyin");
+}
+
+function rowVideoUrl(row) {
+  return rowLinks(row).video_url || "";
+}
+
+function rowProfileUrl(row) {
+  return rowLinks(row).profile_url || "";
+}
 
 async function onOpenLink(url) {
   await openExternalLinkWithHint(url);
