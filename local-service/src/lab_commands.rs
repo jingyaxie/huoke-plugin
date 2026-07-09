@@ -164,7 +164,7 @@ impl<'a> LabCommands<'a> {
         self.check_paused()?;
         let platform = self.platform.clone();
         // 清理上次任务遗留的独立窗 / Feed 浮层 / 工作窗 /video/ 页，避免无法输入搜索
-        let _ = self.close_video_detail().await;
+        self.try_close_video_detail_quietly().await;
         self.pause_aware_wait(Duration::from_millis(600)).await?;
 
         // 1 打开 → 3~7 搜索 →（可选）4~5 筛选 → 8 抓结果（有筛选时先筛后抓）
@@ -465,7 +465,7 @@ impl<'a> LabCommands<'a> {
     pub async fn prepare_keyword_collect_resume(&self) -> Result<(), String> {
         self.check_paused()?;
         let platform = self.platform.clone();
-        let _ = self.close_video_detail().await;
+        self.try_close_video_detail_quietly().await;
         self.pause_aware_wait(Duration::from_millis(600)).await?;
 
         self.action(
@@ -489,6 +489,25 @@ impl<'a> LabCommands<'a> {
 
     pub async fn close_video_detail(&self) -> Result<Value, String> {
         self.action("close_video_detail", json!({})).await
+    }
+
+    async fn try_close_video_detail_quietly(&self) {
+        let Some(bridge_action) = plugin_lab::bridge_action_for("close_video_detail") else {
+            return;
+        };
+        let payload = plugin_lab::normalize_payload(
+            "close_video_detail",
+            json!({ "platform": self.platform }),
+        );
+        if let Err(err) = self
+            .request_bridge(bridge_action, payload, Duration::from_secs(5))
+            .await
+        {
+            warn!(
+                "platform={} startup close_video_detail skipped after error: {err}",
+                self.platform
+            );
+        }
     }
 
     pub async fn close_browser(&self) -> Result<Value, String> {

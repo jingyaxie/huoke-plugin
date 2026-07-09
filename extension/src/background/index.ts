@@ -157,10 +157,14 @@ async function runCommand(command: BridgeMessage): Promise<{ ok: boolean; data?:
         bridgePort.disconnect();
         bridgePort = null;
       }
-      await ensureOffscreenDocument();
-      await chrome.runtime.sendMessage({ type: "huoke:offscreen-reconnect" });
-      await queryOffscreenState();
-      return { ok: true, data: { reinitialized: true, lab_session_cleared: true } };
+      void ensureOffscreenDocument()
+        .then(() => chrome.runtime.sendMessage({ type: "huoke:offscreen-reconnect" }))
+        .then(() => queryOffscreenState())
+        .catch((err) => warn("runtime init async reconnect failed", err));
+      return {
+        ok: true,
+        data: { reinitialized: true, lab_session_cleared: true, reconnecting: true },
+      };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { ok: false, error: msg };
