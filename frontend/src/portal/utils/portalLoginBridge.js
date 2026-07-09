@@ -15,6 +15,7 @@ import {
   PORTAL_NAVIGATE_MESSAGE,
   PORTAL_PING_MESSAGE,
   PORTAL_PONG_MESSAGE,
+  refreshPortalAuthProfile,
 } from "./portalShell";
 
 const BRIDGE_FRAME_ID = "huoke-portal-login-bridge";
@@ -198,6 +199,7 @@ export function refreshAccessTokenFromPortalSession(timeoutMs = 12000) {
       window.removeEventListener("message", onMessage);
       frame.removeEventListener("load", onLoad);
       const resolved = String(token || getAccessToken() || "").trim();
+      if (resolved) void refreshPortalAuthProfile();
       resolve(resolved || null);
     }
 
@@ -399,6 +401,9 @@ export function syncPortalDisplayName(timeoutMs = 8000) {
 
     window.addEventListener("message", onMessage);
     frame.addEventListener("load", onLoad);
+    void refreshPortalAuthProfile().then(() => {
+      if (getPortalDisplayName()) finish(getPortalDisplayName());
+    });
     frame.src = dashboardEmbedUrl();
   });
 }

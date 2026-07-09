@@ -129,17 +129,6 @@ async function fetchCloudRecoveryWithRetry(localJobs, { cloudTaskFilter } = {}) 
 }
 
 export async function loadCloudRecoveryJobs(localJobs, { cloudTaskFilter } = {}) {
-  const localCount = Array.isArray(localJobs) ? localJobs.length : 0;
-
-  // 本机有任务时只展示本地列表；云端镜像仅作数据备份，不在列表重复出现。
-  // 仅在本机无任务（重装/清库）时才从云端恢复只读历史。
-  if (localCount > 0) {
-    return {
-      merged: localJobs || [],
-      recovery: detectRecoveryState(localJobs, 0),
-    };
-  }
-
   let token = await ensureCloudAccessToken();
   if (!token) {
     return {

@@ -2,6 +2,7 @@
 import { getPortalBaseUrl } from "../config/cloudNav";
 import { isLocalAcquisitionPath } from "../config/authPaths";
 import { setAccessToken, setTenantId } from "../../api/http";
+import { fetchAuthMe } from "../../api/auth";
 import { syncBackendCredentialsFromLogin, ensureEvaluationCredentialsSynced } from "../../api/commentEvaluation";
 
 export const PORTAL_AUTH_MESSAGE = "huoke:portal-authenticated";
@@ -9,6 +10,7 @@ export const PORTAL_PING_MESSAGE = "huoke:shell-ping";
 export const PORTAL_PONG_MESSAGE = "huoke:shell-pong";
 export const PORTAL_NAVIGATE_MESSAGE = "huoke:navigate";
 export const PORTAL_AUTH_STORAGE_KEY = "huoke_portal_auth";
+export const PORTAL_AUTH_LAST_GOOD_NAME_KEY = "huoke_portal_last_good_name";
 export const PORTAL_LOGOUT_FLAG_KEY = "huoke_portal_logout_pending";
 export const PORTAL_SHELL_STORAGE_KEY = "huoke_shell_app";
 
@@ -58,7 +60,7 @@ export function isPortalAuthMessage(data) {
 
 export function readPortalAuth() {
   try {
-    const raw = sessionStorage.getItem(PORTAL_AUTH_STORAGE_KEY);
+    const raw = sessionStorage.getItem(PORTAL_AUTH_STORAGE_KEY) || localStorage.getItem(PORTAL_AUTH_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || parsed.authenticated !== true) return null;
@@ -72,10 +74,41 @@ export function isPortalAuthenticated() {
   return Boolean(readPortalAuth()?.authenticated);
 }
 
+function looksLikeOpaqueId(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)) {
+    return true;
+  }
+  return /^[0-9a-f]{24,}$/i.test(text);
+}
+
+function normalizeDisplayName(value) {
+  const text = String(value || "").trim();
+  if (!text || looksLikeOpaqueId(text)) return "";
+  return text;
+}
+
+function pickUserDisplayName(user = {}) {
+  return normalizeDisplayName(
+    user.display_name
+      || user.displayName
+      || user.nickname
+      || user.nick_name
+      || user.name
+      || user.username
+      || user.user_name
+      || user.phone
+      || user.mobile,
+  );
+}
+
 export function setPortalAuthenticated(payload = {}) {
   const prev = readPortalAuth() || {};
-  const displayName =
-    String(payload.displayName || payload.userName || prev.displayName || prev.username || "").trim();
+  const lastGoodName = normalizeDisplayName(localStorage.getItem(PORTAL_AUTH_LAST_GOOD_NAME_KEY));
+  const displayName = normalizeDisplayName(
+    payload.displayName || payload.userName || prev.displayName || prev.username || lastGoodName,
+  );
   const username = String(payload.username || prev.username || displayName || "").trim();
   const next = {
     authenticated: true,
@@ -85,6 +118,8 @@ export function setPortalAuthenticated(payload = {}) {
     at: Date.now(),
   };
   sessionStorage.setItem(PORTAL_AUTH_STORAGE_KEY, JSON.stringify(next));
+  localStorage.setItem(PORTAL_AUTH_STORAGE_KEY, JSON.stringify(next));
+  if (displayName) localStorage.setItem(PORTAL_AUTH_LAST_GOOD_NAME_KEY, displayName);
 
   const accessToken = String(payload.accessToken || payload.access_token || "").trim();
   const tenantId = String(payload.tenantId || payload.tenant_id || "").trim();
@@ -100,8 +135,29 @@ export function setPortalAuthenticated(payload = {}) {
   return next;
 }
 
+export async function refreshPortalAuthProfile() {
+  const current = readPortalAuth();
+  if (!current?.authenticated) return current;
+  try {
+    const data = await fetchAuthMe();
+    const user = data?.user && typeof data.user === "object" ? data.user : data;
+    const displayName = pickUserDisplayName(user);
+    const tenantId = String(user?.tenant_id || user?.tenantId || data?.tenant_id || data?.tenantId || "").trim();
+    if (tenantId) setTenantId(tenantId);
+    return setPortalAuthenticated({
+      displayName: displayName || current.displayName || current.username || "",
+      username: user?.username || user?.user_name || current.username || "",
+      path: current.path || "",
+      tenantId,
+    });
+  } catch {
+    return current;
+  }
+}
+
 export function clearPortalAuth() {
   sessionStorage.removeItem(PORTAL_AUTH_STORAGE_KEY);
+  localStorage.removeItem(PORTAL_AUTH_STORAGE_KEY);
   window.dispatchEvent(new CustomEvent("huoke-portal-auth-changed", { detail: null }));
 }
 
@@ -121,7 +177,9 @@ export function clearPortalLogoutPending() {
 export function getPortalDisplayName() {
   const auth = readPortalAuth();
   if (!auth) return "";
-  return String(auth.displayName || auth.username || "").trim();
+  return normalizeDisplayName(auth.displayName)
+    || normalizeDisplayName(auth.username)
+    || normalizeDisplayName(localStorage.getItem(PORTAL_AUTH_LAST_GOOD_NAME_KEY));
 }
 
 /** Tauri 桌面（withGlobalTauri 可能为 false）或本地 FastAPI 托管的前端 */
