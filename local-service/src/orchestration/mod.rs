@@ -1865,7 +1865,7 @@ impl JobOrchestrator {
         let mut videos = self.load_videos_for_job(job_id, cfg)?;
         if videos.is_empty() {
             return Err(
-                "search produced no videos — ensure Douyin tab is active and logged in".into(),
+                "search produced no videos — ensure the target platform tab is active and logged in".into(),
             );
         }
 
@@ -1991,10 +1991,10 @@ impl JobOrchestrator {
         if total == 0 {
             if opened_videos == 0 {
                 return Err(if cfg.intent == "account_home" {
-                    "failed to open any profile video — keep Douyin tab focused on profile page"
+                    "failed to open any profile video — keep the target platform tab focused on profile page"
                         .into()
                 } else {
-                    "failed to open any search result video — keep Douyin tab focused on search results"
+                    "failed to open any search result video — keep the target platform tab focused on search results"
                         .into()
                 });
             }
@@ -2029,7 +2029,7 @@ impl JobOrchestrator {
                 .count();
             let label = self.collect_progress_label();
             let detail = if opened_videos == 0 && pending > 0 {
-                "未能打开待采集视频，请确认抖音在搜索结果页后点击继续采集".to_string()
+                "未能打开待采集视频，请确认目标平台停留在搜索结果页后点击继续采集".to_string()
             } else if pending == 0 {
                 format!(
                     "当前视频列表已全部采集，共 {total} 条评论，仍缺 {} 条{label}",
@@ -2340,7 +2340,7 @@ impl JobOrchestrator {
                 return Ok(());
             }
             return Err(
-                "search produced no videos — run plugin lab step 7/8 on the Douyin tab to verify results"
+                "search produced no videos — run plugin lab step 7/8 on the target platform tab to verify results"
                     .into(),
             );
         }
@@ -2565,7 +2565,7 @@ impl JobOrchestrator {
             } else if cfg.intent == "single_video" {
                 "single video job has no video record — check input_url"
             } else {
-                "search produced no videos — ensure Douyin is logged in and search results are visible"
+                "search produced no videos — ensure the target platform is logged in and search results are visible"
             };
             return Err(hint.into());
         }

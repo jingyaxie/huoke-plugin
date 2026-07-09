@@ -449,11 +449,11 @@ pub async fn start_job(
         "restarted": restarting,
         "fresh_start": fresh_start,
         "message": if fresh_start {
-            "collect job restarted from full search — keep Douyin tab active in Chrome"
+            "collect job restarted from full search — keep the target platform tab active in Chrome"
         } else if restarting {
-            "collect job restarted — previous run stopped, keep Douyin tab active in Chrome"
+            "collect job restarted — previous run stopped, keep the target platform tab active in Chrome"
         } else {
-            "collect job started — keep Douyin tab active in Chrome"
+            "collect job started — keep the target platform tab active in Chrome"
         }
     })))
 }

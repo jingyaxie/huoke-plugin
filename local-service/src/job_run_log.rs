@@ -152,7 +152,7 @@ fn lab_action_meta(action_id: &str) -> (&'static str, &'static str) {
     match action_id {
         "open_browser" => ("打开浏览器", "启动或聚焦 Chrome 工作窗口"),
         "close_browser" => ("关闭浏览器", "任务结束，关闭工作窗口释放资源"),
-        "find_search_box" => ("定位搜索框", "在抖音首页找到搜索输入框"),
+        "find_search_box" => ("定位搜索框", "在平台首页找到搜索输入框"),
         "input_search_text" => ("输入搜索关键词", "输入任务关键词并触发搜索"),
         "click_search_btn" => ("点击搜索", "提交关键词进入搜索结果页"),
         "click_filter_btn" => ("打开筛选", "按任务配置打开发布时间等筛选"),
@@ -189,13 +189,13 @@ fn lab_action_meta(action_id: &str) -> (&'static str, &'static str) {
         "input_dm_text" => ("输入私信", "填写私信文案"),
         "send_dm" => ("发送私信", "提交私信消息"),
         "prepare_video_for_outreach" => ("准备触达视频", "打开视频并定位到目标评论"),
-        _ => ("执行插件指令", "通过 Chrome 扩展操作抖音页面"),
+        _ => ("执行插件指令", "通过 Chrome 扩展操作平台页面"),
     }
 }
 
 fn bridge_command_meta(action: &str) -> (&'static str, &'static str) {
     match action {
-        "network.hook.enable" => ("启用网络拦截", "监听抖音 API 以自动入库视频/评论"),
+        "network.hook.enable" => ("启用网络拦截", "监听平台 API 以自动入库视频/评论"),
         "huoke.extension.reload" => ("重载扩展", "浏览器打开后 reload 扩展确保 content script 就绪"),
         _ => ("系统指令", "local-service 与扩展之间的底层调用"),
     }
