@@ -45,7 +45,8 @@ impl OutreachService {
         }
 
         let task = self.db.get_outreach_task(task_id)?;
-        self.db.update_outreach_task_status(task_id, OutreachTaskStatus::Running, None)?;
+        self.db
+            .update_outreach_task_status(task_id, OutreachTaskStatus::Running, None)?;
         info!("starting outreach task {task_id} name={}", task.name);
 
         loop {
@@ -56,16 +57,26 @@ impl OutreachService {
             }
 
             let quota = self.db.get_quota_status(current.daily_quota)?;
-            if quota.remaining <= 0 {
-                let msg = format!("daily quota reached ({}/{})", quota.reply_count, quota.daily_limit);
+            let action_count = action_count_for_task(&current.action_type);
+            if quota.remaining < action_count {
+                let msg = format!(
+                    "daily quota reached ({}/{})",
+                    quota.reply_count, quota.daily_limit
+                );
                 if current.recurring {
-                    self.db
-                        .update_outreach_task_status(task_id, OutreachTaskStatus::Running, Some(&msg))?;
+                    self.db.update_outreach_task_status(
+                        task_id,
+                        OutreachTaskStatus::Running,
+                        Some(&msg),
+                    )?;
                     self.sleep_idle(&current, &msg).await;
                     continue;
                 }
-                self.db
-                    .update_outreach_task_status(task_id, OutreachTaskStatus::Paused, Some(&msg))?;
+                self.db.update_outreach_task_status(
+                    task_id,
+                    OutreachTaskStatus::Paused,
+                    Some(&msg),
+                )?;
                 return Err(msg);
             }
 
@@ -85,23 +96,30 @@ impl OutreachService {
                     self.sleep_idle(&current, msg).await;
                     continue;
                 }
-                self.db
-                    .update_outreach_task_status(task_id, OutreachTaskStatus::Completed, None)?;
+                self.db.update_outreach_task_status(
+                    task_id,
+                    OutreachTaskStatus::Completed,
+                    None,
+                )?;
                 info!("outreach task {task_id} completed");
                 return Ok(());
             };
 
             self.db.mark_outreach_item_running(&item.id)?;
 
-            let result = self.execute_item(&item).await;
+            let result = self.execute_item(&current, &item).await;
 
             match result {
                 Ok(data) => {
                     let ok = data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
                     if ok {
-                        let _ = self.db.consume_reply_quota(current.daily_quota)?;
-                        let result_json = serde_json::to_string(&data).unwrap_or_else(|_| "{}".into());
-                        self.db.mark_outreach_item_completed(&item.id, &result_json)?;
+                        for _ in 0..action_count {
+                            let _ = self.db.consume_reply_quota(current.daily_quota)?;
+                        }
+                        let result_json =
+                            serde_json::to_string(&data).unwrap_or_else(|_| "{}".into());
+                        self.db
+                            .mark_outreach_item_completed(&item.id, &result_json)?;
                         self.record_item_interactions(&item)?;
                         info!("outreach item {} completed", item.id);
                     } else {
@@ -157,7 +175,11 @@ impl OutreachService {
         tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
     }
 
-    async fn execute_item(&self, item: &OutreachItem) -> Result<serde_json::Value, String> {
+    async fn execute_item(
+        &self,
+        task: &OutreachTask,
+        item: &OutreachItem,
+    ) -> Result<serde_json::Value, String> {
         let lab = LabCommands::new(&self.hub, &item.platform);
         match item.action_type.as_str() {
             "reply" => {
@@ -175,10 +197,15 @@ impl OutreachService {
             "dm" => self.dm_profile(&lab, item).await,
             "follow_then_dm" => {
                 let followed = self.follow_profile(&lab, item).await?;
-                if !followed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if !followed
+                    .get("ok")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     return Ok(followed);
                 }
-                tokio::time::sleep(Duration::from_millis(1200)).await;
+                let delay_ms = jitter_delay(task.interval_ms);
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 self.dm_profile(&lab, item).await
             }
             other => Err(format!("unsupported outreach action_type: {other}")),
@@ -231,21 +258,31 @@ impl OutreachService {
             return Ok(());
         };
         if item.action_type == "follow" || item.action_type == "follow_then_dm" {
-            self.db.record_interaction(job_id, "follow", &item.comment_id, &item.user_id)?;
+            self.db
+                .record_interaction(job_id, "follow", &item.comment_id, &item.user_id)?;
         }
         if item.action_type == "dm" || item.action_type == "follow_then_dm" {
-            self.db.record_interaction(job_id, "dm", &item.comment_id, &item.user_id)?;
+            self.db
+                .record_interaction(job_id, "dm", &item.comment_id, &item.user_id)?;
         }
         if item.action_type == "reply" {
-            self.db.record_interaction(job_id, "reply", &item.comment_id, &item.user_id)?;
+            self.db
+                .record_interaction(job_id, "reply", &item.comment_id, &item.user_id)?;
         }
         Ok(())
     }
 }
 
 fn jitter_delay(base_ms: i64) -> u64 {
-    let base = base_ms.clamp(1000, 30000) as u64;
+    let base = base_ms.clamp(5_000, 300_000) as u64;
     let mut rng = rand::thread_rng();
     let jitter = rng.gen_range(0..=(base / 2));
     base + jitter
+}
+
+fn action_count_for_task(action_type: &str) -> i64 {
+    match action_type {
+        "follow_then_dm" => 2,
+        _ => 1,
+    }
 }

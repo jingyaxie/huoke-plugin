@@ -59,7 +59,7 @@
           </template>
         </el-table-column>
         <el-table-column label="间隔" width="96" align="right">
-          <template #default="{ row }">{{ Math.round(Number(row.interval_ms || 0) / 1000) }} 秒</template>
+          <template #default="{ row }">{{ intervalLabel(row.interval_ms) }}</template>
         </el-table-column>
         <el-table-column label="创建时间" width="160">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
@@ -136,6 +136,7 @@
             <el-form-item label="执行间隔">
               <el-input-number v-model="form.intervalSeconds" :min="5" :max="300" />
               <span class="unit">秒</span>
+              <p class="field-hint">每次关注/私信动作之间都会等待，实际会在该值到 1.5 倍之间浮动。</p>
             </el-form-item>
           </el-col>
         </el-row>
@@ -168,6 +169,7 @@
           <el-col :span="12">
             <el-form-item label="每日上限">
               <el-input-number v-model="form.dailyQuota" :min="1" :max="500" />
+              <p class="field-hint">按动作次数计算；“关注后私信”会占用 2 次额度。</p>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -473,6 +475,12 @@ function statusType(status) {
     failed: "danger",
     paused: "warning",
   }[status] || "info";
+}
+
+function intervalLabel(intervalMs) {
+  const seconds = Math.round(Number(intervalMs || 0) / 1000);
+  if (!seconds) return "—";
+  return `${seconds}-${Math.round(seconds * 1.5)} 秒`;
 }
 
 function scoreLabel(score) {

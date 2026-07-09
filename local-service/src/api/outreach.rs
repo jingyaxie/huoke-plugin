@@ -6,7 +6,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::db::{OutreachCandidate, OutreachItemDraft, OutreachTask, OutreachTaskStatus, QuotaStatus};
+use crate::db::{
+    OutreachCandidate, OutreachItemDraft, OutreachTask, OutreachTaskStatus, QuotaStatus,
+};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -53,7 +55,7 @@ fn default_max_retries() -> i64 {
 }
 
 fn default_interval_ms() -> i64 {
-    4000
+    20_000
 }
 
 fn default_daily_quota() -> i64 {
@@ -157,7 +159,11 @@ pub async fn create_outreach_task(
         return Err(bad_request("dm_text is required for dm outreach"));
     }
 
-    let source_job_id = body.source_job_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let source_job_id = body
+        .source_job_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let candidates = state
         .db
         .list_outreach_candidates(
@@ -201,7 +207,7 @@ pub async fn create_outreach_task(
             body.min_digg_count,
             body.include_contacted,
             body.max_retries.clamp(0, 5),
-            body.interval_ms.clamp(1000, 30000),
+            body.interval_ms.clamp(5_000, 300_000),
             body.daily_quota.clamp(1, 500),
             body.recurring,
             body.idle_sleep_ms.clamp(60_000, 86_400_000),
@@ -214,7 +220,10 @@ pub async fn create_outreach_task(
         .add_outreach_items(&task.id, &drafts)
         .map_err(internal_error)?;
 
-    Ok(Json(CreateOutreachTaskResponse { task, inserted_items: inserted }))
+    Ok(Json(CreateOutreachTaskResponse {
+        task,
+        inserted_items: inserted,
+    }))
 }
 
 pub async fn list_outreach_candidates(
@@ -252,7 +261,10 @@ pub async fn get_outreach_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> Result<Json<OutreachTask>, ApiError> {
-    let task = state.db.get_outreach_task(&task_id).map_err(|_| not_found("task not found"))?;
+    let task = state
+        .db
+        .get_outreach_task(&task_id)
+        .map_err(|_| not_found("task not found"))?;
     Ok(Json(task))
 }
 
@@ -261,7 +273,10 @@ pub async fn list_outreach_items(
     Path(task_id): Path<String>,
     Query(query): Query<ListItemsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _ = state.db.get_outreach_task(&task_id).map_err(|_| not_found("task not found"))?;
+    let _ = state
+        .db
+        .get_outreach_task(&task_id)
+        .map_err(|_| not_found("task not found"))?;
     let items = state
         .db
         .list_outreach_items(&task_id, query.limit.clamp(1, 2000))
@@ -283,7 +298,10 @@ pub async fn start_outreach_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let task = state.db.get_outreach_task(&task_id).map_err(|_| not_found("task not found"))?;
+    let task = state
+        .db
+        .get_outreach_task(&task_id)
+        .map_err(|_| not_found("task not found"))?;
     if task.status == OutreachTaskStatus::Running {
         return Ok(Json(json!({
             "task_id": task_id,
@@ -299,6 +317,10 @@ pub async fn start_outreach_task(
         })));
     }
 
+    state
+        .db
+        .update_outreach_task_status(&task_id, OutreachTaskStatus::Running, None)
+        .map_err(internal_error)?;
     state.outreach.clone().spawn_task(task_id.clone());
     Ok(Json(json!({
         "task_id": task_id,
@@ -311,7 +333,10 @@ pub async fn pause_outreach_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _ = state.db.get_outreach_task(&task_id).map_err(|_| not_found("task not found"))?;
+    let _ = state
+        .db
+        .get_outreach_task(&task_id)
+        .map_err(|_| not_found("task not found"))?;
     state
         .db
         .update_outreach_task_status(&task_id, OutreachTaskStatus::Paused, None)
@@ -379,7 +404,9 @@ pub async fn reply_once(
             .map_err(internal_error)?;
     }
 
-    Ok(Json(json!({ "ok": ok, "result": result, "quota": state.db.get_quota_status(state.default_daily_quota).ok() })))
+    Ok(Json(
+        json!({ "ok": ok, "result": result, "quota": state.db.get_quota_status(state.default_daily_quota).ok() }),
+    ))
 }
 
 type ApiError = (StatusCode, Json<serde_json::Value>);
@@ -400,13 +427,16 @@ fn not_found(message: &str) -> ApiError {
 }
 
 fn normalize_action_type(raw: Option<&str>, reply_text: &str) -> Result<String, ApiError> {
-    let value = raw.map(str::trim).filter(|s| !s.is_empty()).unwrap_or_else(|| {
-        if reply_text.trim().is_empty() {
-            "follow"
-        } else {
-            "reply"
-        }
-    });
+    let value = raw
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            if reply_text.trim().is_empty() {
+                "follow"
+            } else {
+                "reply"
+            }
+        });
     match value {
         "follow" => Ok("follow".into()),
         "dm" => Ok("dm".into()),
