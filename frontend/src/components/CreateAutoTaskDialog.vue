@@ -118,7 +118,7 @@
           :templates="evaluationTemplates"
         />
 
-        <el-row v-if="settings.comment_dm_percentage > 0 || settings.comment_dm_percentage < 100" :gutter="16">
+        <el-row v-if="showPresetSelectors" :gutter="16">
           <el-col v-if="settings.comment_dm_percentage > 0" :span="12">
             <TaskPresetSelect
               label="评论模板"
@@ -127,7 +127,7 @@
               @update:selected-ids="selectedCommentPresetIds = $event"
             />
           </el-col>
-          <el-col v-if="settings.comment_dm_percentage < 100" :span="12">
+          <el-col v-if="OUTREACH_UI_ENABLED && settings.comment_dm_percentage < 100" :span="12">
             <TaskPresetSelect
               label="私信模板"
               :options="dmPresets"
@@ -137,7 +137,7 @@
           </el-col>
         </el-row>
 
-        <TaskInteractionFields v-model="settings" />
+        <TaskInteractionFields v-if="OUTREACH_UI_ENABLED" v-model="settings" />
 
         <TaskReadinessPanel
           :loading="preflightLoading"
@@ -201,6 +201,7 @@ import { buildAutoPreflightPayload } from "../utils/huokeTaskPreflight";
 import { isStandaloneDouyinStrategy } from "../utils/acquisitionStrategy";
 import { validateTaskPresetSelection } from "../utils/presetSelection";
 import { loadTaskAccountOptions, taskAccountOptionToBindingRef } from "../utils/taskAccountOptions";
+import { OUTREACH_UI_ENABLED } from "../config/features";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -284,6 +285,9 @@ const targetCountHint = computed(() =>
 const crawlVideoLimitHint = computed(() =>
   "每轮最多浏览多少个视频；未凑够精准线索会自动续扫下一批。留空概念上等同较大默认值（约 200）。",
 );
+const showPresetSelectors = computed(() =>
+  settings.value.comment_dm_percentage > 0 || (OUTREACH_UI_ENABLED && settings.value.comment_dm_percentage < 100),
+);
 
 const canSubmit = computed(() => {
   if (submitting.value || preflightLoading.value) return false;
@@ -306,6 +310,24 @@ function evaluationPayload() {
     acceptDescription: form.acceptDescription,
     rejectSignals: form.rejectSignals,
   });
+}
+
+function effectiveSettings() {
+  if (OUTREACH_UI_ENABLED) return settings.value;
+  return {
+    ...settings.value,
+    comment_dm_percentage: 100,
+    follow_per_day: 0,
+    dm_per_day: 0,
+  };
+}
+
+function effectiveDmPresetIds() {
+  return OUTREACH_UI_ENABLED ? selectedDmPresetIds.value : [];
+}
+
+function effectiveDmPresets() {
+  return OUTREACH_UI_ENABLED ? dmPresets.value : [];
 }
 
 function syncRequestContext() {
@@ -419,9 +441,9 @@ watch(
           regionName: regionName.value || undefined,
           regionCode: regionSelection.value.code || undefined,
           headless: browserModeToHeadless(form.browserMode),
-          settings: settings.value,
+          settings: effectiveSettings(),
           commentPresetIds: selectedCommentPresetIds.value,
-          dmPresetIds: selectedDmPresetIds.value,
+          dmPresetIds: effectiveDmPresetIds(),
           evaluation: evaluationPayload(),
           agentStrategy: form.agentStrategy,
           taskName: form.name.trim() || `关键词获客-${keywords[0]}`,
@@ -487,9 +509,9 @@ async function submit() {
     return;
   }
   const presetError = validateTaskPresetSelection(
-    settings.value,
+    effectiveSettings(),
     selectedCommentPresetIds.value,
-    selectedDmPresetIds.value,
+    effectiveDmPresetIds(),
   );
   if (presetError) {
     ElMessage.warning(presetError);
@@ -511,7 +533,7 @@ async function submit() {
     if (accountId) {
       await setActiveAccount(accountId).catch(() => {});
     }
-    await putInteractionSettings(settings.value).catch(() => {});
+    if (OUTREACH_UI_ENABLED) await putInteractionSettings(settings.value).catch(() => {});
 
     const selectedOption = accountOptions.value.find((row) => row.key === form.selectedAccountKey);
     const binding = taskAccountOptionToBindingRef(selectedOption);
@@ -525,11 +547,11 @@ async function submit() {
       commentDays: form.commentDays,
       publishTimeRange: form.publishTimeRange,
       headless: browserModeToHeadless(form.browserMode),
-      settings: settings.value,
+      settings: effectiveSettings(),
       commentPresetIds: selectedCommentPresetIds.value,
-      dmPresetIds: selectedDmPresetIds.value,
+      dmPresetIds: effectiveDmPresetIds(),
       commentPresets: commentPresets.value,
-      dmPresets: dmPresets.value,
+      dmPresets: effectiveDmPresets(),
       evaluation: evaluationPayload(),
       binding,
       agentStrategy: form.agentStrategy,

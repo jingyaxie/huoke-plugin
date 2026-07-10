@@ -83,7 +83,7 @@
           <MetricLink :value="row.metrics.progress_precise" @click="openOutreach(row.job, 'precise')" />
         </template>
       </el-table-column>
-      <el-table-column label="私信数" width="80" align="right">
+      <el-table-column v-if="OUTREACH_UI_ENABLED" label="私信数" width="80" align="right">
         <template #default="{ row }">
           <MetricLink
             :value="row.metrics.dm_count"
@@ -92,7 +92,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="关注数" width="80" align="right">
+      <el-table-column v-if="OUTREACH_UI_ENABLED" label="关注数" width="80" align="right">
         <template #default="{ row }">
           <MetricLink
             :value="row.metrics.follow_count"
@@ -194,6 +194,7 @@ import MetricLink from "./MetricLink.vue";
 import PlatformChannelTag from "./PlatformChannelTag.vue";
 import TaskStatusBadge from "./TaskStatusBadge.vue";
 import TaskSuspendModal from "./TaskSuspendModal.vue";
+import { OUTREACH_UI_ENABLED } from "../config/features";
 import {
   cancelAgentJobTask,
   deleteAgentJob,

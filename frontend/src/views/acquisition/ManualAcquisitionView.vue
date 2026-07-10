@@ -99,7 +99,7 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="私信数" width="80" align="right">
+          <el-table-column v-if="OUTREACH_UI_ENABLED" label="私信数" width="80" align="right">
             <template #default="{ row }">
               <MetricLink
                 :value="row.dm_count || 0"
@@ -108,7 +108,7 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="关注数" width="80" align="right">
+          <el-table-column v-if="OUTREACH_UI_ENABLED" label="关注数" width="80" align="right">
             <template #default="{ row }">
               <MetricLink
                 :value="row.follow_count || 0"
@@ -177,6 +177,7 @@ import {
 } from "../../utils/extensionCollectJobs";
 import { isManualCloudTask, loadCloudRecoveryJobs, loadTaskForModal } from "../../cloud-sync";
 import { alertOutreachRiskIfZero } from "../../utils/outreachRisk";
+import { OUTREACH_UI_ENABLED } from "../../config/features";
 import { collectJobStartMessage, collectJobStartSuccessMessage } from "../../utils/collectJobStart";
 
 const loading = ref(false);

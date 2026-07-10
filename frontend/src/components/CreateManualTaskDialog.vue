@@ -91,7 +91,7 @@
           :templates="evaluationTemplates"
         />
 
-        <el-row v-if="settings.comment_dm_percentage > 0 || settings.comment_dm_percentage < 100" :gutter="16">
+        <el-row v-if="showPresetSelectors" :gutter="16">
           <el-col v-if="settings.comment_dm_percentage > 0" :span="12">
             <TaskPresetSelect
               label="评论模板"
@@ -100,7 +100,7 @@
               @update:selected-ids="selectedCommentPresetIds = $event"
             />
           </el-col>
-          <el-col v-if="settings.comment_dm_percentage < 100" :span="12">
+          <el-col v-if="OUTREACH_UI_ENABLED && settings.comment_dm_percentage < 100" :span="12">
             <TaskPresetSelect
               label="私信模板"
               :options="dmPresets"
@@ -110,7 +110,7 @@
           </el-col>
         </el-row>
 
-        <TaskInteractionFields v-model="settings" />
+        <TaskInteractionFields v-if="OUTREACH_UI_ENABLED" v-model="settings" />
 
         <TaskReadinessPanel
           :loading="preflightLoading"
@@ -169,6 +169,7 @@ import { buildManualPreflightPayload } from "../utils/huokeTaskPreflight";
 import { isStandaloneDouyinStrategy } from "../utils/acquisitionStrategy";
 import { deriveManualTaskName, detectManualUrlIntent, manualUrlIntentHint, normalizeManualInputUrl, validateManualTaskUrl } from "../utils/manualTaskForm";
 import { validateTaskPresetSelection } from "../utils/presetSelection";
+import { OUTREACH_UI_ENABLED } from "../config/features";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -243,6 +244,9 @@ const urlPlaceholder = computed(() =>
 );
 const isStandalone = computed(() => isStandaloneDouyinStrategy(form.agentStrategy));
 const showManualTargetCount = computed(() => isStandalone.value);
+const showPresetSelectors = computed(() =>
+  settings.value.comment_dm_percentage > 0 || (OUTREACH_UI_ENABLED && settings.value.comment_dm_percentage < 100),
+);
 
 const canSubmit = computed(() => {
   if (submitting.value || preflightLoading.value) return false;
@@ -262,6 +266,24 @@ function evaluationPayload() {
 
 function syncRequestContext() {
   setPlatformId(form.platform);
+}
+
+function effectiveSettings() {
+  if (OUTREACH_UI_ENABLED) return settings.value;
+  return {
+    ...settings.value,
+    comment_dm_percentage: 100,
+    follow_per_day: 0,
+    dm_per_day: 0,
+  };
+}
+
+function effectiveDmPresetIds() {
+  return OUTREACH_UI_ENABLED ? selectedDmPresetIds.value : [];
+}
+
+function effectiveDmPresets() {
+  return OUTREACH_UI_ENABLED ? dmPresets.value : [];
 }
 
 async function loadDialogData() {
@@ -374,9 +396,9 @@ watch(
           publishTime: form.publishTimeRange,
           crawlVideoLimit: intent === "account_home" ? form.crawlVideoLimit : undefined,
           headless: browserModeToHeadless(form.browserMode),
-          settings: settings.value,
+          settings: effectiveSettings(),
           commentPresetIds: selectedCommentPresetIds.value,
-          dmPresetIds: selectedDmPresetIds.value,
+          dmPresetIds: effectiveDmPresetIds(),
           evaluation: evaluationPayload(),
           agentStrategy: form.agentStrategy,
           targetCount: form.targetCount,
@@ -434,9 +456,9 @@ async function submit() {
     return;
   }
   const presetError = validateTaskPresetSelection(
-    settings.value,
+    effectiveSettings(),
     selectedCommentPresetIds.value,
-    selectedDmPresetIds.value,
+    effectiveDmPresetIds(),
   );
   if (presetError) {
     ElMessage.warning(presetError);
@@ -454,7 +476,7 @@ async function submit() {
   submitting.value = true;
   try {
     syncRequestContext();
-    await putInteractionSettings(settings.value).catch(() => {});
+    if (OUTREACH_UI_ENABLED) await putInteractionSettings(settings.value).catch(() => {});
     const intent = effectiveIntent.value;
     const inputUrl = normalizeManualInputUrl(form.inputUrl.trim(), intent, form.platform);
     const payload = buildManualTaskPayload({
@@ -466,11 +488,11 @@ async function submit() {
       publishTimeRange: form.publishTimeRange,
       crawlVideoLimit: intent === "account_home" ? form.crawlVideoLimit : undefined,
       headless: browserModeToHeadless(form.browserMode),
-      settings: settings.value,
+      settings: effectiveSettings(),
       commentPresetIds: selectedCommentPresetIds.value,
-      dmPresetIds: selectedDmPresetIds.value,
+      dmPresetIds: effectiveDmPresetIds(),
       commentPresets: commentPresets.value,
-      dmPresets: dmPresets.value,
+      dmPresets: effectiveDmPresets(),
       evaluation: evaluationPayload(),
       agentStrategy: form.agentStrategy,
       targetCount: form.targetCount,

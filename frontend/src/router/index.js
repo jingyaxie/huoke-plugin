@@ -13,6 +13,7 @@ import SettingsMaintenanceSection from "../views/settings/SettingsMaintenanceSec
 import PluginLabView from "../views/plugin-lab/PluginLabView.vue";
 import PortalLoginView from "../portal/views/PortalLoginView.vue";
 import { buildCloudRoutes } from "../config/cloudNav";
+import { OUTREACH_UI_ENABLED } from "../config/features";
 import { isPortalAuthenticated, isPortalEnabled, requiresPortalAuth } from "../portal";
 import { canAccessSettings } from "../utils/settingsAccess";
 
@@ -38,8 +39,12 @@ const routes = [
       { path: "llm-settings", redirect: "/settings/model" },
       { path: "account-settings", redirect: "/platform-login" },
       { path: "platform-login", name: "platform-login", component: PlatformLoginView, meta: { title: "账号绑定", section: "AI 获客（本机）" } },
-      { path: "presets", name: "presets", component: PresetsView, meta: { title: "私信预设", section: "AI 获客（本机）" } },
-      { path: "outreach-tasks", name: "outreach-tasks", component: OutreachTasksView, meta: { title: "触达任务", section: "AI 获客（本机）", fillContent: true } },
+      OUTREACH_UI_ENABLED
+        ? { path: "presets", name: "presets", component: PresetsView, meta: { title: "私信预设", section: "AI 获客（本机）" } }
+        : { path: "presets", redirect: "/extension-bridge" },
+      OUTREACH_UI_ENABLED
+        ? { path: "outreach-tasks", name: "outreach-tasks", component: OutreachTasksView, meta: { title: "触达任务", section: "AI 获客（本机）", fillContent: true } }
+        : { path: "outreach-tasks", redirect: "/extension-bridge" },
       { path: "extension-bridge", name: "extension-bridge", component: ExtensionBridgeView, meta: { title: "自动获客", section: "AI 获客（本机）", fillContent: true } },
       { path: "plugin-lab", redirect: "/settings/plugin-lab" },
       { path: "agent", redirect: "/extension-bridge" },

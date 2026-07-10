@@ -133,7 +133,7 @@
           </el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :xs="24" :sm="12">
+          <el-col v-if="OUTREACH_UI_ENABLED" :xs="24" :sm="12">
             <el-form-item label="回复文案">
               <el-input v-model="params.replyText" type="textarea" :rows="2" placeholder="步骤 12 使用" />
             </el-form-item>
@@ -189,8 +189,7 @@
         </div>
       </template>
       <p class="auto-hint">
-        「检测就绪」只检查当前页面能否执行各步骤；「串联测试」会按顺序实际执行步骤 1→11（筛选/私信在
-        小红书、快手自动跳过；这两平台不支持私信）。
+        「检测就绪」只检查当前页面能否执行各步骤；「串联测试」会按顺序实际执行搜索、抓评与评论相关步骤。
       </p>
       <el-table v-if="autoResults.length" :data="autoResults" size="small" max-height="280">
         <el-table-column prop="label" label="步骤" min-width="180" />
@@ -307,8 +306,12 @@ import {
   resolveLabField,
   savePluginLabParams,
 } from "../../utils/pluginLabParams";
+import { OUTREACH_UI_ENABLED } from "../../config/features";
 
-const actions = PLUGIN_LAB_ACTIONS;
+const OUTREACH_ACTION_IDS = new Set(["click_follow_btn", "click_dm_btn", "input_dm_text", "send_dm"]);
+const actions = OUTREACH_UI_ENABLED
+  ? PLUGIN_LAB_ACTIONS
+  : PLUGIN_LAB_ACTIONS.filter((action) => !OUTREACH_ACTION_IDS.has(action.id));
 const filterOptions = KNOWN_FILTER_OPTIONS;
 const localServiceUrl = getLocalServiceBaseUrl();
 

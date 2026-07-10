@@ -27,11 +27,11 @@
           <span class="toolbar-label">评论筛选</span>
           <el-input
             v-model="keyword"
-            placeholder="输入原评论、评论内容、私信内容关键词"
+            :placeholder="searchPlaceholder"
             clearable
             @keyup.enter="page = 1"
           />
-          <el-select v-model="actionType" style="width: 140px" @change="page = 1">
+          <el-select v-if="OUTREACH_UI_ENABLED" v-model="actionType" style="width: 140px" @change="page = 1">
             <el-option label="全部类型" value="all" />
             <el-option label="私信" value="dm" />
           </el-select>
@@ -89,7 +89,7 @@
           </el-table-column>
           <el-table-column prop="evaluation_reason" label="评估说明" min-width="180" show-overflow-tooltip />
           <el-table-column
-            v-if="showExtraOutreachColumns"
+            v-if="OUTREACH_UI_ENABLED && showExtraOutreachColumns"
             prop="dm_content"
             label="私信内容"
             min-width="140"
@@ -113,13 +113,13 @@
             show-overflow-tooltip
           />
           <el-table-column
-            v-if="showExtraOutreachColumns"
+            v-if="OUTREACH_UI_ENABLED && showExtraOutreachColumns"
             prop="location_text"
             label="位置"
             width="100"
             show-overflow-tooltip
           />
-          <el-table-column v-if="showExtraOutreachColumns" prop="executed_at" label="触达时间" width="140">
+          <el-table-column v-if="OUTREACH_UI_ENABLED && showExtraOutreachColumns" prop="executed_at" label="触达时间" width="140">
             <template #default="{ row }">{{ formatJobTime(row.executed_at) }}</template>
           </el-table-column>
           <el-table-column label="操作" width="140">
@@ -184,6 +184,7 @@ import {
 } from "../utils/acquisitionJobs";
 import { openExternalLinkWithHint } from "../utils/openExternalLink";
 import { resolveCommentLinks } from "../utils/douyinLinks";
+import { OUTREACH_UI_ENABLED } from "../config/features";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -207,7 +208,7 @@ watch(
   () => props.modelValue,
   (value) => {
     visible.value = value;
-    if (value) activeView.value = props.initialView || OUTREACH_METRIC_VIEWS.ALL;
+    if (value) activeView.value = normalizeInitialView(props.initialView);
   },
   { immediate: true },
 );
@@ -215,7 +216,7 @@ watch(
 watch(
   () => props.initialView,
   (value) => {
-    if (visible.value && value) activeView.value = value;
+    if (visible.value && value) activeView.value = normalizeInitialView(value);
   },
 );
 
@@ -229,6 +230,9 @@ const dialogTitle = computed(() => {
   const label = OUTREACH_METRIC_VIEW_LABELS[activeView.value] || "全部采集";
   return `查看数据 · ${label}`;
 });
+const searchPlaceholder = computed(() =>
+  OUTREACH_UI_ENABLED ? "输入原评论、评论内容、私信内容关键词" : "输入原评论、评论内容关键词",
+);
 
 const viewOptions = computed(() => {
   if (!props.job) return [];
@@ -236,8 +240,12 @@ const viewOptions = computed(() => {
   return [
     { value: OUTREACH_METRIC_VIEWS.ALL, label: "全部采集", count: counts[OUTREACH_METRIC_VIEWS.ALL] || 0 },
     { value: OUTREACH_METRIC_VIEWS.PRECISE, label: "精准线索", count: counts[OUTREACH_METRIC_VIEWS.PRECISE] || 0 },
-    { value: OUTREACH_METRIC_VIEWS.DM, label: "已私信", count: counts[OUTREACH_METRIC_VIEWS.DM] || 0 },
-    { value: OUTREACH_METRIC_VIEWS.FOLLOW, label: "关注记录", count: counts[OUTREACH_METRIC_VIEWS.FOLLOW] || 0 },
+    ...(OUTREACH_UI_ENABLED
+      ? [
+          { value: OUTREACH_METRIC_VIEWS.DM, label: "已私信", count: counts[OUTREACH_METRIC_VIEWS.DM] || 0 },
+          { value: OUTREACH_METRIC_VIEWS.FOLLOW, label: "关注记录", count: counts[OUTREACH_METRIC_VIEWS.FOLLOW] || 0 },
+        ]
+      : []),
   ];
 });
 
@@ -259,7 +267,10 @@ const commentDaysLabel = computed(() => {
 const allRows = computed(() => (props.job ? getRowsForMetricView(props.job, activeView.value) : []));
 
 const filteredRows = computed(() =>
-  filterOutreachRows(allRows.value, { keyword: keyword.value, actionType: actionType.value }),
+  filterOutreachRows(allRows.value, {
+    keyword: keyword.value,
+    actionType: OUTREACH_UI_ENABLED ? actionType.value : "all",
+  }),
 );
 
 /** 视频名称：当前列表全无数据时不展示 */
@@ -315,11 +326,19 @@ async function onOpenLink(url) {
   await openExternalLinkWithHint(url);
 }
 
+function normalizeInitialView(value) {
+  if (OUTREACH_UI_ENABLED) return value || OUTREACH_METRIC_VIEWS.ALL;
+  if ([OUTREACH_METRIC_VIEWS.DM, OUTREACH_METRIC_VIEWS.FOLLOW].includes(value)) {
+    return OUTREACH_METRIC_VIEWS.ALL;
+  }
+  return value || OUTREACH_METRIC_VIEWS.ALL;
+}
+
 function resetState() {
   keyword.value = "";
   actionType.value = "all";
   page.value = 1;
-  activeView.value = props.initialView || OUTREACH_METRIC_VIEWS.ALL;
+  activeView.value = normalizeInitialView(props.initialView);
 }
 </script>
 

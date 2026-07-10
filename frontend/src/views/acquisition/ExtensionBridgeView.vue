@@ -9,7 +9,7 @@
       <div class="header-actions">
         <el-tag :type="bridgeTagType">{{ bridgeLabel }}</el-tag>
         <el-button type="primary" class="create-btn" @click="createCollectOpen = true">+ 创建任务</el-button>
-        <el-button @click="$router.push('/outreach-tasks')">触达任务</el-button>
+        <el-button v-if="OUTREACH_UI_ENABLED" @click="$router.push('/outreach-tasks')">触达任务</el-button>
         <ExtensionReloadButton
           :connected="Number(bridgeStatus.connected_clients || 0) > 0"
           @reloaded="refreshAll"
@@ -150,7 +150,7 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column label="已私信" width="80" align="right">
+            <el-table-column v-if="OUTREACH_UI_ENABLED" label="已私信" width="80" align="right">
               <template #default="{ row }">
                 <MetricLink
                   :value="row.dm_count || 0"
@@ -159,7 +159,7 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column label="已关注" width="80" align="right">
+            <el-table-column v-if="OUTREACH_UI_ENABLED" label="已关注" width="80" align="right">
               <template #default="{ row }">
                 <MetricLink
                   :value="row.follow_count || 0"
@@ -232,6 +232,7 @@ import {
 } from "../../utils/extensionCollectJobs";
 import { isAutoCloudTask, loadCloudRecoveryJobs, loadTaskForModal } from "../../cloud-sync";
 import { alertOutreachRiskIfZero } from "../../utils/outreachRisk";
+import { OUTREACH_UI_ENABLED } from "../../config/features";
 import {
   getExtensionSetupStatus,
   isDesktopMode,

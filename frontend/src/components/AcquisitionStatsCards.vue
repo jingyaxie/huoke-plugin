@@ -8,6 +8,8 @@
 </template>
 
 <script setup>
+import { OUTREACH_UI_ENABLED } from "../config/features";
+
 defineProps({
   data: { type: Object, default: null },
   loading: { type: Boolean, default: false },
@@ -18,8 +20,12 @@ const items = [
   { key: "queued_tasks", label: "排队中" },
   { key: "precise_customers", label: "精准客户" },
   { key: "total_leads", label: "总线索" },
-  { key: "dm_count", label: "私信数" },
-  { key: "follow_count", label: "关注数" },
+  ...(OUTREACH_UI_ENABLED
+    ? [
+        { key: "dm_count", label: "私信数" },
+        { key: "follow_count", label: "关注数" },
+      ]
+    : []),
 ];
 
 function formatValue(value) {
@@ -31,7 +37,7 @@ function formatValue(value) {
 <style scoped>
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
